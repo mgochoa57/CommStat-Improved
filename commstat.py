@@ -169,6 +169,17 @@ class Ui_MainWindow(QWidget):
         self.label_2.setStyleSheet("background-color: rgb(0, 0, 0);\n"
                                    "color: rgb(0, 200, 0);")
         self.label_2.setObjectName("label_2")
+
+        # Time label
+        self.label_time = QtWidgets.QLabel(self.centralwidget)
+        font_time = QtGui.QFont()
+        font_time.setFamily("Arial")
+        font_time.setPointSize(10)
+        font_time.setBold(True)
+        self.label_time.setFont(font_time)
+        self.label_time.setStyleSheet("color: rgb(0, 0, 0);")
+        self.label_time.setText("Time:        ")
+        self.gridLayout_2.addWidget(self.label_time, 0, 2, 1, 1, QtCore.Qt.AlignRight)
         self.gridLayout_2.addWidget(self.label_2, 0, 3, 1, 1)
         self.label_3 = QtWidgets.QLabel(self.centralwidget)
         font = QtGui.QFont()
@@ -636,6 +647,7 @@ class Ui_MainWindow(QWidget):
                     str("Date Time UTC ;ID ;Callsign; Grid ; Scope; Map Pin; Pow; H2O; Med; Com; Trv; Int; Fuel; Food; Cri; Civ; Pol; Remarks").split(";"))
                 header = table.horizontalHeader()
                 header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+                header.setStretchLastSection(True)
                 self.tableWidget.verticalHeader().setVisible(False)
                 self.tableWidget.sortItems(0, QtCore.Qt.DescendingOrder)
         except sqlite3.Error as error:
@@ -823,7 +835,7 @@ class Ui_MainWindow(QWidget):
 
     def showTime(self):
         now = QDateTime.currentDateTime()
-        displayTxt = now.toUTC().toString("yy-MM-dd-hh:mm'Z'")
+        displayTxt = now.toUTC().toString(" yyyy-MM-dd   hh:mm:ss 'Z'")
         self.label_2.setText(" " + displayTxt + " ")
 
     def thread(self):

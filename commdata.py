@@ -362,14 +362,14 @@ class UI(QMainWindow):
                 cellval = self.tableWidget.item(row_number, column_number).text()
                 if self.tableWidget.item(row_number, column_number).text() == "1":
                     self.tableWidget.item(row_number, column_number).setBackground(QtGui.QColor(000, 128, 000))
-                    self.tableWidget.item(row_number, column_number).setForeground(QtGui.QColor(000, 128, 000))
+                    self.tableWidget.item(row_number, column_number).setForeground(QtGui.QColor(128, 128, 128))
                 if self.tableWidget.item(row_number, column_number).text() == "2":
                     # print("if statement worked"+cellval)
                     self.tableWidget.item(row_number, column_number).setBackground(QtGui.QColor(255, 255, 000))
-                    self.tableWidget.item(row_number, column_number).setForeground(QtGui.QColor(255, 255, 000))
+                    self.tableWidget.item(row_number, column_number).setForeground(QtGui.QColor(000, 000, 000))
                 if self.tableWidget.item(row_number, column_number).text() == "3":
                     # print("if statement worked" + cellval)
-                    self.tableWidget.item(row_number, column_number).setBackground(QtGui.QColor(255, 000, 000))
+                    self.tableWidget.item(row_number, column_number).setBackground(QtGui.QColor(255, 100, 188))
                     self.tableWidget.item(row_number, column_number).setForeground(QtGui.QColor(255, 000, 000))
                 if self.tableWidget.item(row_number, column_number).text() == "4":
                     #   print("if statement failed"+cellval)
