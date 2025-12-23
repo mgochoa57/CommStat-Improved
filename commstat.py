@@ -660,7 +660,7 @@ class Ui_MainWindow(QWidget):
         self.run_mapper()
         self.thread()
 
-        self.label_3.setText(" Active Group : " + selectedgroup)
+        self.label_3.setText(" Active Group: " + selectedgroup)
 
     def directed(self):
         global directedcounter
