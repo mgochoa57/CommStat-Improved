@@ -23,6 +23,7 @@ from typing import Dict, Any, Optional, List, Tuple
 
 import folium
 import maidenhead as mh
+import datareader
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtGui import QColor
@@ -380,6 +381,10 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.config = config
         self.db = db
+
+        # Initialize datareader for parsing DIRECTED.TXT
+        self.datareader_config = datareader.Config()
+        self.datareader_parser = datareader.MessageParser(self.datareader_config)
 
         # Start tile server for map
         self.server_thread = threading.Thread(target=start_local_server, daemon=True)
@@ -996,8 +1001,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _refresh_data(self) -> None:
         """Run datareader and refresh StatRep, live feed, and bulletin data."""
-        # Run datareader to parse new messages from DIRECTED.TXT
-        subprocess.call([sys.executable, "datareader.py"])
+        # Parse new messages from DIRECTED.TXT (only processes new lines)
+        if self.datareader_parser.copy_directed():
+            new_count = self.datareader_parser.parse()
+            if new_count > 0:
+                print(f"Processed {new_count} new lines")
 
         # Reload data from database
         self._load_statrep_data()

@@ -145,6 +145,7 @@ class MessageParser:
         self.config = config
         self.conn: Optional[sqlite3.Connection] = None
         self.cursor: Optional[sqlite3.Cursor] = None
+        self.last_processed_time: Optional[str] = None  # Track last processed timestamp
 
     def _open_db(self) -> None:
         """Open database connection."""
@@ -251,13 +252,30 @@ class MessageParser:
             print_red(f"Failed to copy DIRECTED.TXT: {e}")
             return False
 
-    def parse(self) -> None:
-        """Parse the copied DIRECTED.TXT file and write to database."""
+    def _get_line_timestamp(self, line: str) -> Optional[str]:
+        """Extract timestamp from the beginning of a line."""
+        try:
+            parts = line.split('\t')
+            if parts:
+                return parts[0]
+        except Exception:
+            pass
+        return None
+
+    def parse(self) -> int:
+        """
+        Parse the copied DIRECTED.TXT file and write to database.
+
+        Returns:
+            Number of new lines processed
+        """
         if not os.path.exists(DIRECTED_COPY):
             print_red(f"{DIRECTED_COPY} not found")
-            return
+            return 0
 
         self._open_db()
+        new_lines_processed = 0
+        newest_time = self.last_processed_time
 
         try:
             with open(DIRECTED_COPY, "r") as f:
@@ -267,13 +285,34 @@ class MessageParser:
             last_lines = lines[-50:]
 
             for line in last_lines:
+                # Get timestamp from line
+                line_time = self._get_line_timestamp(line)
+
+                # Skip if already processed (timestamp <= last_processed_time)
+                if line_time and self.last_processed_time:
+                    if line_time <= self.last_processed_time:
+                        continue
+
+                # Process this line
                 self._process_line(line)
+                new_lines_processed += 1
+
+                # Track the newest timestamp we've seen
+                if line_time:
+                    if newest_time is None or line_time > newest_time:
+                        newest_time = line_time
 
         except Exception as e:
             print_red(f"Error parsing directed file: {e}")
 
         finally:
             self._close_db()
+
+        # Update last processed time
+        if newest_time:
+            self.last_processed_time = newest_time
+
+        return new_lines_processed
 
     def _process_line(self, line: str) -> None:
         """Process a single line from DIRECTED.TXT."""
