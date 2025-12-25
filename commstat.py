@@ -176,7 +176,7 @@ class Ui_MainWindow(QWidget):
 
         self.oscheck()
         MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(1480, 788)
+        MainWindow.resize(1400, 820)
         icon = QtGui.QIcon()
         icon.addPixmap(QtGui.QPixmap("USA-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         MainWindow.setWindowIcon(icon)
@@ -228,6 +228,7 @@ class Ui_MainWindow(QWidget):
         self.label.setStyleSheet(f"background-color: {colors['marquee_background']};\n"
                                    f"color: {colors['marquee_foreground_green']};")
         self.label.setObjectName("label")
+        self.label.setFixedWidth(600)
         self.header_layout.addWidget(self.label)
 
         # Spacer to push Time to the right
@@ -1007,7 +1008,6 @@ class Ui_MainWindow(QWidget):
             start = number_of_frame - self.nl
         text = '{}'.format(self.news[start:number_of_frame])
         self.label.setText(text)
-        self.label.setFixedWidth(600)
 
     def nextNews(self):
         self.feed()
