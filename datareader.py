@@ -1,674 +1,620 @@
-import os.path
-from configparser import ConfigParser
-import js8callAPIsupport
-from PyQt5.QtWidgets import QMessageBox
-from PyQt5 import QtCore
-from PyQt5.QtCore import QDateTime, Qt
-import shutil
-import numpy as np
-import re
-import sqlite3
-from datetime import datetime, timedelta
-import time
-import psutil
+"""
+datareader.py - Message parser for CommStat-Improved
+
+Parses DIRECTED.TXT from JS8Call and writes structured data to traffic.db3.
+Identifies message types by markers and extracts relevant fields.
+"""
+
+import os
 import platform
-import maidenhead as mh
-import subprocess
+import shutil
+import sqlite3
 import sys
+import subprocess
+from configparser import ConfigParser
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Tuple, List, Dict
+
+from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtCore import QDateTime
+import maidenhead as mh
+
+# Initialize Windows terminal colors
 os.system('')
-OS_Directed =""
 
-def getConfig():
-    if os.path.exists("config.ini"):
-        global callsign
-        global callsignSuffix
-        global group1
-        global group2
-        global grid
-        global path
-        global selectedgroup
-        config_object = ConfigParser()
-        config_object.read("config.ini")
-        userinfo = config_object["USERINFO"]
-        # print("callsign is {}".format(userinfo["callsign"]))
-        #print("callsignsuffix is {}".format(userinfo["callsignsuffix"]))
-        #print("group1 is {}".format(userinfo["group1"]))
-        #print("group2 is {}".format(userinfo["group2"]))
-        #print("grid is {}".format(userinfo["grid"]))
-        systeminfo = config_object["DIRECTEDCONFIG"]
-        #print("file path  is {}".format(systeminfo["path"]))
-        callsign = format(userinfo["callsign"])
-        callsignSuffix = format(userinfo["callsignsuffix"])
-        group1 = format(userinfo["group1"])
-        group2 = format(userinfo["group2"])
-        if len(group2) < 4:
-            group2 = group1
-        grid = format(userinfo["grid"])
-        path = format(systeminfo["path"])
-        selectedgroup = format(userinfo["selectedgroup"])
-        
+# Message type markers
+MSG_BULLETIN = "{^%}"
+MSG_STATREP = "{&%}"
+MSG_FORWARDED_STATREP = "{F%}"
+MSG_MARQUEE = "{*%}"
+MSG_CHECKIN = "{~%}"
+MSG_CS_REQUEST = "CS?"
 
-    else:
-        msg = QMessageBox()
-        msg.setWindowTitle("CommStatX error")
-        msg.setText("Config file is missing!")
-        msg.setIcon(QMessageBox.Critical)
-        x = msg.exec_()  # this will show our messagebox
-        return
+# Field count requirements for each message type
+FIELD_COUNT_BULLETIN = 9
+FIELD_COUNT_STATREP = 12
+FIELD_COUNT_FORWARDED_STATREP = 13
+FIELD_COUNT_MARQUEE = 10
+FIELD_COUNT_CHECKIN = 10
 
-def oscheck():
-    global OS
-    global bull1
-    global bull2
-    global OS_Directed
-    pios = "aarch64"
-    winos = "Windows"
-    linuxos = "Linux"
-    if pios in (platform.platform()):
-        print("Datareader this is Pi 64bit OS")
-        OS = "pi"
-        bull1 = 0
-        bull2 = 4
-    if winos in (platform.platform()):
-        print("Datareader this is Windows OS")
-        OS_Directed = r"\DIRECTED.TXT"
-        # sudo apt install ./python-pyqt5.qtwebengine_5.15.2-2_arm64.deb
-    if linuxos in (platform.platform()):
-        print("Datareader this is Linux OS")
-        OS_Directed = "/DIRECTED.TXT"
+# Valid values for condition fields
+VALID_CONDITIONS = ["1", "2", "3", "4"]
+VALID_STATUS = ["1", "2", "3"]
+VALID_PRECEDENCE = ["1", "2", "3", "4", "5"]
 
-    else:
-        # print("This is not 64bit PiOS")
-        # OS = "Mint"
-        print("Datareader Operating System is :" + platform.platform())
-        print("Datareader Python version is :" + platform.python_version())
-oscheck()
-getConfig()
+# Precedence code to description mapping
+PRECEDENCE_MAP = {
+    "1": "My Location",
+    "2": "My Community",
+    "3": "My County",
+    "4": "My Region",
+    "5": "Other Location"
+}
+
+# Database file
+DATABASE_FILE = "traffic.db3"
+CONFIG_FILE = "config.ini"
+DIRECTED_COPY = "copyDIRECTED.TXT"
 
 
+class TerminalColors:
+    """ANSI color codes for terminal output."""
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    RESET = "\033[00m"
 
 
-def copyDirected():
-    global OS_Directed
-    filepath = path+""+OS_Directed
-    shutil.copy2(filepath, 'copyDIRECTED.TXT')  # complete target filename given
-    #shutil.copy2('/src/file.ext', '/dst/dir')  # target filename is /dst/dir/file.ext
-#copyDirected()
+def print_green(text: str) -> None:
+    """Print text in green."""
+    print(f"{TerminalColors.GREEN}{text}{TerminalColors.RESET}")
 
 
+def print_yellow(text: str) -> None:
+    """Print text in yellow."""
+    print(f"{TerminalColors.YELLOW}{text}{TerminalColors.RESET}")
 
 
+def print_red(text: str) -> None:
+    """Print text in red."""
+    print(f"{TerminalColors.RED}{text}{TerminalColors.RESET}")
 
 
+class Config:
+    """Application configuration loaded from config.ini."""
+
+    def __init__(self):
+        self.callsign: str = ""
+        self.callsign_suffix: str = ""
+        self.group1: str = ""
+        self.group2: str = ""
+        self.grid: str = ""
+        self.path: str = ""
+        self.selected_group: str = ""
+        self.os_directed: str = ""
+
+        self._detect_os()
+        self.load()
+
+    def _detect_os(self) -> None:
+        """Detect operating system and set path separator."""
+        platform_str = platform.platform()
+
+        if "Windows" in platform_str:
+            print("Datareader: Windows OS detected")
+            self.os_directed = r"\DIRECTED.TXT"
+        elif "Linux" in platform_str:
+            print("Datareader: Linux OS detected")
+            self.os_directed = "/DIRECTED.TXT"
+        elif "aarch64" in platform_str:
+            print("Datareader: Pi 64bit OS detected")
+            self.os_directed = "/DIRECTED.TXT"
+        else:
+            print(f"Datareader: OS is {platform_str}")
+            print(f"Datareader: Python version is {platform.python_version()}")
+            self.os_directed = "/DIRECTED.TXT"
+
+    def load(self) -> bool:
+        """Load configuration from config.ini."""
+        if not os.path.exists(CONFIG_FILE):
+            msg = QMessageBox()
+            msg.setWindowTitle("CommStatX error")
+            msg.setText("Config file is missing!")
+            msg.setIcon(QMessageBox.Critical)
+            msg.exec_()
+            return False
+
+        config = ConfigParser()
+        config.read(CONFIG_FILE)
+
+        userinfo = config["USERINFO"]
+        self.callsign = userinfo.get("callsign", "")
+        self.callsign_suffix = userinfo.get("callsignsuffix", "")
+        self.group1 = userinfo.get("group1", "")
+        self.group2 = userinfo.get("group2", "")
+        self.grid = userinfo.get("grid", "")
+        self.selected_group = userinfo.get("selectedgroup", "")
+
+        # If group2 is too short, use group1
+        if len(self.group2) < 4:
+            self.group2 = self.group1
+
+        systeminfo = config["DIRECTEDCONFIG"]
+        self.path = systeminfo.get("path", "")
+
+        return True
+
+    @property
+    def directed_path(self) -> str:
+        """Full path to DIRECTED.TXT file."""
+        return self.path + self.os_directed
 
 
+class MessageParser:
+    """Parses JS8Call directed messages and writes to database."""
 
-def prGreen(prt):
-        print(f"\033[92m{prt}\033[00m")
-        
-def prYellow(prt):
-    print(f"\033[93m{prt}\033[00m")
-    
-def prRed(prt):
-    print(f"\033[91m{prt}\033[00m")
+    def __init__(self, config: Config):
+        self.config = config
+        self.conn: Optional[sqlite3.Connection] = None
+        self.cursor: Optional[sqlite3.Cursor] = None
 
+    def _open_db(self) -> None:
+        """Open database connection."""
+        self.conn = sqlite3.connect(DATABASE_FILE)
+        self.cursor = self.conn.cursor()
 
+    def _close_db(self) -> None:
+        """Close database connection."""
+        if self.cursor:
+            self.cursor.close()
+        if self.conn:
+            self.conn.close()
+        self.conn = None
+        self.cursor = None
 
+    @staticmethod
+    def extract_callsign(message_part: str) -> str:
+        """
+        Extract callsign from message component.
 
-def parseDirected():
-    global group1
-    global group2
-    membergrp1 = ""
-    membergrp2 = ""
-    global selectedgroup
+        Handles formats like 'CALLSIGN/SUFFIX: ...' or 'CALLSIGN: ...'
+        """
+        # Split by colon to get callsign portion
+        parts = message_part.split(':')
+        callsign_with_suffix = parts[0] if parts else ""
 
-    conn = sqlite3.connect("traffic.db3")
-    cur = conn.cursor()
-    datafile = open("copyDIRECTED.TXT", "r")
-    lines = datafile.readlines()
-    last_lines = lines[-50:]
-    for num, str1 in enumerate(last_lines, 1):
+        # Split by slash to remove suffix
+        parts = callsign_with_suffix.split('/')
+        return parts[0] if parts else ""
+
+    @staticmethod
+    def validate_field(value: str, valid_values: List[str], field_name: str,
+                       message: str, is_forwarded: bool = False) -> bool:
+        """
+        Validate a field value against allowed values.
+
+        Returns True if valid, False otherwise.
+        """
+        if value not in valid_values:
+            prefix = "Forwarded " if is_forwarded else ""
+            print_red(f"{prefix}StatRep failed for null {field_name} field: {message}\n")
+            return False
+        return True
+
+    @staticmethod
+    def parse_statrep_fields(srcode: str) -> Optional[Dict[str, str]]:
+        """
+        Parse the 12-character status code into individual fields.
+
+        Returns dict of field values or None if invalid.
+        """
+        if len(srcode) < 12:
+            return None
+
+        fields = list(srcode)
+        return {
+            'status': fields[0],
+            'commpwr': fields[1],
+            'pubwtr': fields[2],
+            'med': fields[3],
+            'ota': fields[4],
+            'trav': fields[5],
+            'net': fields[6],
+            'fuel': fields[7],
+            'food': fields[8],
+            'crime': fields[9],
+            'civil': fields[10],
+            'pol': fields[11]
+        }
+
+    def validate_statrep_fields(self, fields: Dict[str, str], message: str,
+                                 is_forwarded: bool = False) -> bool:
+        """Validate all statrep condition fields."""
+        # Status has different valid values for regular vs forwarded
+        status_valid = VALID_CONDITIONS if is_forwarded else VALID_STATUS
+
+        validations = [
+            (fields['status'], status_valid, 'status'),
+            (fields['commpwr'], VALID_CONDITIONS, 'commpwr'),
+            (fields['pubwtr'], VALID_CONDITIONS, 'pubwtr'),
+            (fields['med'], VALID_CONDITIONS, 'med'),
+            (fields['ota'], VALID_CONDITIONS, 'ota'),
+            (fields['trav'], VALID_CONDITIONS, 'trav'),
+            (fields['net'], VALID_CONDITIONS, 'net'),
+            (fields['fuel'], VALID_CONDITIONS, 'fuel'),
+            (fields['food'], VALID_CONDITIONS, 'food'),
+            (fields['crime'], VALID_CONDITIONS, 'crime'),
+            (fields['civil'], VALID_CONDITIONS, 'civil'),
+            (fields['pol'], VALID_CONDITIONS, 'pol'),
+        ]
+
+        for value, valid_values, field_name in validations:
+            if not self.validate_field(value, valid_values, field_name, message, is_forwarded):
+                return False
+
+        return True
+
+    def copy_directed(self) -> bool:
+        """Copy DIRECTED.TXT to working copy."""
         try:
-            if selectedgroup in str1:
-                currentgrp = selectedgroup
-                #print("group1 is in string : "+currentgrp)
-                membergrp1 = group1
-                membergrp2 = group2
-            
-            #if group2 in str1:
-            #    currentgrp = group2
-            #    membergrp2 = group2
-            #    print("group2 is in string : " +currentgrp)
-            
+            shutil.copy2(self.config.directed_path, DIRECTED_COPY)
+            return True
+        except Exception as e:
+            print_red(f"Failed to copy DIRECTED.TXT: {e}")
+            return False
 
+    def parse(self) -> None:
+        """Parse the copied DIRECTED.TXT file and write to database."""
+        if not os.path.exists(DIRECTED_COPY):
+            print_red(f"{DIRECTED_COPY} not found")
+            return
 
-            #if  group1 or group2 in currentgrp:
+        self._open_db()
 
-                if "{^%}" in str1: #THIS IS BULLETINS
-                    #arr = line.split('\t')
-                     #str1.replace('\t', ', ')
-                    arr = str1.split('\t')
-                    utc = arr[0]
-                    callsignmix = arr[4]
-                    arr2 = callsignmix.split(',')
-                    count = len(arr) + len(arr2)
-                    if count != 9:
-                        continue
-                    id = arr2[1]
-                    callsignlong = arr2[0]
-                    arr3 = callsignlong.split(':')
-                    callsignlg = arr3[0]
-                    arr4 = callsignlg.split('/')
-                    callsign = arr4[0]
-                    bulletin = arr2[2]
-                    #print(currentgrp)
-                    #print(arr)
+        try:
+            with open(DIRECTED_COPY, "r") as f:
+                lines = f.readlines()
 
-                    cur.execute("INSERT OR REPLACE INTO bulletins_Data (datetime, idnum, groupid, callsign, message) VALUES(?, ?, ?, ?, ? )", (utc, id, currentgrp, callsign, bulletin))
-                    conn.commit()
-                    
-                    prGreen(str1.rstrip())
-                    prGreen ("Added Bulletin from :"+callsign+" ID :"+id)
-                    prYellow("Attempting to add callsign :"+callsign+" to members list")
+            # Process last 50 lines
+            last_lines = lines[-50:]
 
-                    continue
+            for line in last_lines:
+                self._process_line(line)
 
-                #forwarded statrep
-                ###
-                if "{F%}" in str1:  # THIS IS A Forwarded STATREP
-                    mylist = ['1', '2', '3', '4', '5']
-                    arr = str1.split('\t')
-                    utc = arr[0]
-                    callsignmix = arr[4]
-                    arr2 = callsignmix.split(',')
-                    count = len(arr) + len(arr2)
-                    # print (count)
-                    if count != 13:
-                        prRed("StatRep forwarded message failed field count, missing fields \n" + str1 + " \n \n")
-                        continue
-                    id = arr2[1]
-                    callsignlong = arr2[0]
-                    arr3 = callsignlong.split(':')
-                    callsignlg = arr3[0]
-                    arr4 = callsignlg.split('/')
-                    callsign = arr4[0]
-                    curgrid = arr2[1]
-                    prec1 = arr2[2]
-                    orig_call = arr2[6]
-                    #print(orig_call)
-                    if prec1 == "1":
-                        prec = "My Location"
+        except Exception as e:
+            print_red(f"Error parsing directed file: {e}")
 
-                    if prec1 == "2":
-                        prec = "My Community"
+        finally:
+            self._close_db()
 
-                    if prec1 == "3":
-                        prec = "My County"
+    def _process_line(self, line: str) -> None:
+        """Process a single line from DIRECTED.TXT."""
+        try:
+            # Check if line contains selected group
+            if self.config.selected_group not in line:
+                self._handle_non_group_message(line)
+                return
 
-                    if prec1 == "4":
-                        prec = "My Region"
-                    if prec1 == "5":
-                        prec = "Other Location"
-    # for item in mylist:
-                    #    if item in prec1:
-                    #        print("StatRep failed for null precedence field :"+str1)
-                    #        continue
-                    #   else:
-                    #      print("here is the else statement")
+            current_group = self.config.selected_group
 
-                    if prec1 not in ["1", "2", "3", "4", "5"]:
-                        prRed("Forwarded StatRep failed for null precedence field :" + str1 + " \n \n")
-                        continue
-
-                    srid = arr2[3]
-
-                    srcode = arr2[4]
-                    arr5 = list(srcode)
-                    status = arr5[0]
-                    if status not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null status field :" + str1 + " \n \n")
-                        continue
-                    commpwr = arr5[1]
-                    if commpwr not in ["1", "2", "3", "4"]:
-                        print("Forwarded StatRep failed for null commpwr field :" + str1 + " \n \n")
-                        continue
-                    pubwtr = arr5[2]
-                    if pubwtr not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null pubwtr field :" + str1 + " \n \n")
-                        continue
-                    med = arr5[3]
-                    if med not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null med field :" + str1 + " \n \n")
-                        continue
-                    ota = arr5[4]
-                    if ota not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null ota field :" + str1 + " \n \n")
-                        continue
-                    trav = arr5[5]
-                    if trav not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null trav field :" + str1 + " \n \n")
-                        continue
-                    net = arr5[6]
-                    if net not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null net field :" + str1 + " \n \n")
-                        continue
-                    fuel = arr5[7]
-                    if fuel not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null fuel field :" + str1 + " \n \n")
-                        continue
-                    food = arr5[8]
-                    if food not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null food field :" + str1 + " \n \n")
-                        continue
-                    crime = arr5[9]
-                    if crime not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null crime field :" + str1 + " \n \n")
-                        continue
-                    civil = arr5[10]
-                    if civil not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null or missing civil field :" + str1 + " \n \n")
-                        continue
-                    pol = arr5[11]
-                    if pol not in ["1", "2", "3", "4"]:
-                        prRed("Forwarded StatRep failed for null pol field :" + str1 + " \n \n")
-                        continue
-
-
-                    comments = arr2[5]
-                    cur.execute(
-                        "INSERT OR REPLACE INTO Statrep_Data (datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel , food, crime, civil, political, comments) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ? )",
-                        (utc, orig_call, currentgrp, curgrid, srid, prec, status, commpwr, pubwtr, med, ota, trav, net,
-                         fuel, food, crime, civil, pol, comments))
-                    conn.commit()
-                    # print(arr2)
-                    prGreen(str1.rstrip())
-                    prGreen("Added StatRep from :" + orig_call + " ID :" + srid)
-                    #prYellow("Attempting to add or update callsign :" + orig_call + " to members list")
-
-                    continue
-
-
-
-                #original Statrep
-                if "{&%}" in str1: #THIS IS STATREP
-                    mylist = ['1','2','3','4' '5']
-                    arr = str1.split('\t')
-                    utc = arr[0]
-                    callsignmix = arr[4]
-                    arr2 = callsignmix.split(',')
-                    count = len(arr) + len(arr2)
-                    #print (count)
-                    if count != 12:
-                        prRed("StatRep message failed field count, missing fields \n"+str1+" \n \n")
-                        continue
-                    id = arr2[1]
-                    callsignlong = arr2[0]
-                    arr3 = callsignlong.split(':')
-                    callsignlg = arr3[0]
-                    arr4 = callsignlg.split('/')
-                    callsign = arr4[0]
-                    curgrid = arr2[1]
-                    prec1 = arr2[2]
-                    if prec1 == "1":
-                        prec = "My Location"
-
-                    if prec1 == "2":
-                        prec = "My Community"
-
-                    if prec1 == "3":
-                        prec = "My County"
-
-                    if prec1 == "4":
-                        prec = "My Region"
-                        
-                    if prec1 == "5":
-                        prec = "Other Location"                       
-                        
-                    #for item in mylist:
-                    #    if item in prec1:
-                    #        print("StatRep failed for null precedence field :"+str1)
-                    #        continue
-                     #   else:
-                      #      print("here is the else statement")
-                      
-                    if prec1 not in ["1","2","3","4", "5"] :
-                        prRed("StatRep failed for null precedence field :"+str1+" \n \n")
-                        continue
-                    
-                    srid = arr2[3]
-                    
-                    srcode = arr2[4]
-                    arr5 = list(srcode)
-                    status = arr5[0]
-                    if status not in ["1","2","3"] :
-                        prRed("StatRep failed for null status field :"+str1+" \n \n")
-                        continue
-                    commpwr = arr5[1]
-                    if commpwr not in ["1","2","3", "4"]:
-                        print("StatRep failed for null commpwr field :"+str1+" \n \n")
-                        continue
-                    pubwtr = arr5[2]
-                    if pubwtr not in ["1","2","3", "4"]:
-                        prRed("StatRep failed for null pubwtr field :"+str1+" \n \n")
-                        continue
-                    med = arr5[3]
-                    if med not in ["1","2","3", "4"]:
-                        prRed("StatRep failed for null med field :"+str1+" \n \n")
-                        continue
-                    ota = arr5[4]
-                    if ota not in ["1","2","3", "4"]:
-                        prRed("StatRep failed for null ota field :"+str1+" \n \n")
-                        continue
-                    trav = arr5[5]
-                    if trav not in["1","2","3", "4"] :
-                        prRed("StatRep failed for null trav field :"+str1+" \n \n")
-                        continue
-                    net = arr5[6]
-                    if net not in ["1","2","3", "4"]:
-                        prRed("StatRep failed for null net field :"+str1+" \n \n")
-                        continue
-                    fuel = arr5[7]
-                    if fuel not in ["1","2","3", "4"]:
-                        prRed("StatRep failed for null fuel field :"+str1+" \n \n")
-                        continue
-                    food = arr5[8]
-                    if food not in ["1","2","3", "4"]:
-                        prRed("StatRep failed for null food field :"+str1+" \n \n")
-                        continue
-                    crime = arr5[9]
-                    if crime not in ["1","2","3", "4"] :
-                        prRed("StatRep failed for null crime field :"+str1+" \n \n")
-                        continue
-                    civil = arr5[10]
-                    if civil not in ["1","2","3", "4"]:
-                        prRed("StatRep failed for null or missing civil field :"+str1+" \n \n")
-                        continue
-                    pol = arr5[11]
-                    if pol not in ["1","2","3", "4"]:
-                        prRed("StatRep failed for null pol field :"+str1+" \n \n")
-                        continue
-                        
-                    comments = arr2[5]
-                    cur.execute("INSERT OR REPLACE INTO Statrep_Data (datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel , food, crime, civil, political, comments) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ? )", (utc, callsign, currentgrp, curgrid, srid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, pol, comments))
-                    conn.commit()
-                    #print(arr2)
-                    prGreen(str1.rstrip())
-                    prGreen ("Added StatRep from :"+callsign+" ID :"+srid)
-                    #prYellow("Attempting to add or update callsign :"+callsign+" to members list")
-
-                    continue
-                if "{*%}" in str1:  #THIS IS MARQUEE
-                    arr = str1.split('\t')
-                    utc = arr[0]
-                    callsignmix = arr[4]
-                    arr2 = callsignmix.split(',')
-                    count = len(arr) + len(arr2)
-                    if count != 10:
-                        continue
-                    id = arr2[1]
-                    callsignlong = arr2[0]
-                    arr3 = callsignlong.split(':')
-                    callsignlg = arr3[0]
-                    arr4 = callsignlg.split('/')
-                    callsign = arr4[0]
-                    color = arr2[2]
-                    marquee = arr2[3]
-                    prYellow("Received marquee to be written - id :"+id+" callsign :"+callsign+" groupname :"+currentgrp+" time :"+utc+" color :"+color+" mesaage : "+marquee)
-                    cur.execute("INSERT OR REPLACE INTO marquees_Data (idnum, callsign, groupname, date, color, message) VALUES(?, ?, ?, ?, ?, ?)", (id, callsign, currentgrp, utc, color, marquee))
-                    conn.commit()
-                    
-                    #print(count)
-                    prGreen(str1.rstrip()) 
-                    prGreen("Added Marquee from :"+callsign+" ID :"+id)
-                    #prYellow("Attempting to add or update callsign "+callsign+" in members list")
-
-                    continue
-
-                if "CS?" in str1:  # THIS IS CS RESPONSE
-
-                    arr = str1.split('\t')
-                    utc = arr[0]
-                    callsignmix = arr[4]
-                    arr2 = callsignmix.split(',')
-                    count = len(arr) + len(arr2)
-                    #print(str(count))
-                    if count != 6:
-                        continue
-                    #id = arr2[1]
-                    callsignlong = arr2[0]
-                    arr3 = callsignlong.split(':')
-                    callsignlg = arr3[0]
-                    arr4 = callsignlg.split('/')
-                    callsign = arr4[0]
-                    #color = arr2[2]
-                    #marquee = arr2[3]
-                    prYellow("Received CS Request to be responsed to - from "+callsign)
-                    subprocess.run([sys.executable, "csresponder.py" , utc])
-
-
-
-
-
-                    #prGreen("Transmitted CS1 Capable")
-
-                    # prYellow("Attempting to add or update callsign "+callsign+" in members list")
-
-                    continue
-                
-                
-                if "{~%}" in str1:  # THIS IS CHECKIN
-                    gridlist = []
-                    arr = str1.split('\t')
-                    utc = arr[0]
-                    callsignmix = arr[4]
-                    arr2 = callsignmix.split(',')
-                    count = len(arr) + len(arr2)
-                    countstr1 = (str(count))
-                    if count != 10:
-                        prRed(str1.rstrip())
-                        prRed("Check in field count :"+countstr1+" 10 fields required, Commstatx cannot process this check in \n \n")
-                        continue
-                    #prGreen("checkin count is equal to 8 "+(countstr1)+" \n \n")
-                    id = arr2[1]
-                    callsignlong = arr2[0]
-                    arr3 = callsignlong.split(':')
-                    callsignlg = arr3[0]
-                    arr4 = callsignlg.split('/')
-                    callsign = arr4[0]
-
-                    traffic = arr2[1]
-                    state = arr2[2]
-                    grid = arr2[3]
-                    if len(grid) == 6:
-                        coords = mh.to_location(grid)
-                        #print("6 digit")
-                    else:
-                        coords = mh.to_location(grid, center=True)
-                    #print(state,grid)
-                    #coords = mh.to_location(grid, center=True)
-                    testlat = float(coords[0])
-                    testlong = float(coords[1])
-
-                    count = gridlist.count(grid)
-                    #print(callsign + " before lat  & Long " + str(testlat) + "  " + str(testlong))
-                    #if count > 0:
-                    #    print("latbefore :" + str(testlat))
-                    #    testlat =  100.00
-                    #
-                    #    print("latafter :" + str(testlat))
-                    #    testlong = testlong + (count * .010)
-                    #gridlist.append(grid)
-                    #print(callsign + " After lat  & Long " + str(testlat) + "  " + str(testlong))
-                    #testlat = float(testlat)
-                    #testlong = float(testlong)
-
-
-
-                    conn5 = sqlite3.connect("traffic.db3")
-                    cur5 = conn5.cursor()
-                    rowsQuery = "SELECT Count() FROM members_Data Where grid  = '" + grid + "'"
-                    cur5.execute(rowsQuery)
-                    numberOfRows = cur5.fetchone()[0]
-                    if numberOfRows > 1:
-                        print("latbefore :" + str(testlat))
-                        testlat = testlat + (numberOfRows * .010)
-                        #print("latafter :" + str(testlat))
-                        testlong = testlong + (numberOfRows * .010)
-
-                    conn0 = sqlite3.connect("traffic.db3")
-                    cur0 = conn0.cursor()
-                    cur0.execute(
-                        "INSERT OR REPLACE INTO members_Data (date, callsign, groupname1, groupname2, gridlat, gridlong, state, grid) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                        (utc, callsign, membergrp1, membergrp2, testlat, testlong, state, grid))
-                    conn0.commit()
-                    cur0.close()
-                    #print(str(numberOfRows))
-
-                        # print(lastheard, call, gridLat, gridLong)
-                    conn2 = sqlite3.connect("traffic.db3")
-                    cur2 = conn2.cursor()
-                    cur2.execute(
-                        "INSERT OR IGNORE INTO checkins_Data (date, callsign, groupname, traffic, gridlat, gridlong, state, grid) VALUES(?, ?, ?, ?, ? , ? , ? , ? )",
-                          (utc,callsign, currentgrp, traffic, testlat, testlong, state, grid))
-                    conn2.commit()
-                    cur2.close()
-                    prGreen(str1.rstrip())
-                    prGreen("Added Check in from callsign :"+callsign)
-                    prYellow("Attempting to add or update callsign to members list")
-
-                    continue
-
-                    #else:
-                    #    prRed(str1.rstrip())
-                    #    prRed("Found callsign:"+callsign+" Found group :"+currentgrp+ " failed parse criteria, or not callsign in database, unable to add msg to database")
-                    #    prYellow("Attempting to add or update callsign :"+callsign+" to members list")
-                    #
-                    #    continue
-                    
-                else:
-                    #prYellow("Message failed Commstatx msg criteria attempting to add to member list, current group :"+currentgrp)
-                    try:
-                        arr = str1.split('\t')
-                        utc = arr[0]
-                        callsignmix = arr[4]
-                        arr2 = callsignmix.split(',')
-                        callsignlong = arr2[0]
-                        arr3 = callsignlong.split(':')
-                        callsignlg = arr3[0]
-                        arr4 = callsignlg.split('/')
-                        callsign = arr4[0]
-                        if len(callsign) > 3 and len(callsign) < 7:
-                            #getheard(callsign, utc)
-                            prRed (str1.rstrip())
-                            prRed("Failed Commstatx criteria, probably not a Commstatx msg")
-                            #prGreen("Added :"+callsign+" to heard list ")
-                            #prYellow("Attempting to update Members List for Callsign "+callsign)
-
-                                
-                        else:
-                            prRed(str1.rstrip())
-                            prRed("Failed callsign structure criteria, msg not parsed into database \n \n")
-                            continue
-                        
-                    except IndexError:
-                        prRed(str1.rstrip())
-                        prRed(callsign+"Failed Commstatx index criteria, probably not a Commstatx msg not parsed into database")
-                        continue
-                    
-
-                    
+            # Determine message type and process
+            if MSG_BULLETIN in line:
+                self._process_bulletin(line, current_group)
+            elif MSG_FORWARDED_STATREP in line:
+                self._process_forwarded_statrep(line, current_group)
+            elif MSG_STATREP in line:
+                self._process_statrep(line, current_group)
+            elif MSG_MARQUEE in line:
+                self._process_marquee(line, current_group)
+            elif MSG_CS_REQUEST in line:
+                self._process_cs_request(line)
+            elif MSG_CHECKIN in line:
+                self._process_checkin(line, current_group)
             else:
-                #print("No group found in string, attempting to add to heard list :")
-                try:
-                    #print("An exception occurred")
-                    arr = str1.split('\t')
-                    utc = arr[0]
-                    callsignmix = arr[4]
-                    arr2 = callsignmix.split(',')
-                    callsignlong = arr2[0]
-                    arr3 = callsignlong.split(':')
-                    callsignlg = arr3[0]
-                    arr4 = callsignlg.split('/')
-                    callsign = arr4[0]
-
-                    
-                    if len(callsign) > 3 and len(callsign) < 7:
-
-                        prRed(str1.rstrip())
-                        prRed("Failed Commstatx msg criteria, incorrect group or possibly not a Commstatx msg ")
-                        #prGreen("Added :"+callsign+" to heard list ")
-                        #prYellow("Testing to see if callsign is in Members List")
-                        #test_member(callsign, membergrp1,membergrp2, utc)
-                        
-                        
-                        #prYellow("Attempting to update Members List for Callsign "+callsign)
-
-                                
-                    else:
-                        prRed(str1.rstrip())
-                        prRed("Failed callsign structure criteria, msg not parsed into database \n \n")
-                        continue
-                except:
-                        print(str1)
-                        print("An exception occurred with the above string, nothing could be done with this")
-
-
-
-
-
-                    #cur.execute("INSERT OR REPLACE INTO checkins_Data (date, callsign, groupname, traffic) VALUES(?, ?, ?, ?)",(utc, callsign, currentgrp, traffic))
-                    #conn.commit()
-
-                    #print(arr2[1])
+                self._handle_unrecognized_message(line)
 
         except IndexError:
-            prRed(str1.rstrip())
-            print("Received string failed index criteria, msg not parsed into database \n \n")
-            continue
+            print_red(line.rstrip())
+            print(f"Received string failed index criteria, msg not parsed into database\n")
 
+    def _parse_base_fields(self, line: str) -> Tuple[str, List[str], str]:
+        """
+        Parse common fields from a message line.
 
-def checkIfProcessRunning(processName):
-    '''
-    Check if there is any running process that contains the given name processName.
-    '''
-    #Iterate over the all the running process
-    for proc in psutil.process_iter():
-        try:
-            # Check if process name contains the given name string.
-            if processName.lower() in proc.name().lower():
-                return True
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
-    return False;
+        Returns (utc, arr2, callsign) tuple.
+        """
+        arr = line.split('\t')
+        utc = arr[0]
+        callsignmix = arr[4]
+        arr2 = callsignmix.split(',')
+        callsign = self.extract_callsign(arr2[0])
+        return utc, arr2, callsign
 
+    def _process_bulletin(self, line: str, group: str) -> None:
+        """Process a bulletin message."""
+        arr = line.split('\t')
+        utc = arr[0]
+        callsignmix = arr[4]
+        arr2 = callsignmix.split(',')
 
-copyDirected()
-parseDirected()
-now = QDateTime.currentDateTime()
-now = (now.toUTC().toString("yyyy-MM-dd HH:mm:ss"))
+        # Validate field count
+        count = len(arr) + len(arr2)
+        if count != FIELD_COUNT_BULLETIN:
+            return
 
+        id_num = arr2[1]
+        callsign = self.extract_callsign(arr2[0])
+        bulletin = arr2[2]
 
-#now = datetime.now()
-print("Datareader stopped :"+now)
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO bulletins_Data (datetime, idnum, groupid, callsign, message) "
+            "VALUES(?, ?, ?, ?, ?)",
+            (utc, id_num, group, callsign, bulletin)
+        )
+        self.conn.commit()
 
+        print_green(line.rstrip())
+        print_green(f"Added Bulletin from: {callsign} ID: {id_num}")
+        print_yellow(f"Attempting to add callsign: {callsign} to members list")
 
+    def _process_statrep(self, line: str, group: str) -> None:
+        """Process a statrep message."""
+        arr = line.split('\t')
+        utc = arr[0]
+        callsignmix = arr[4]
+        arr2 = callsignmix.split(',')
 
-def runreaders():
-    while True:
-        getConfig()
-        copyDirected()
-        parseDirected()
-        now = datetime.now()
-        print(now)
-        if checkIfProcessRunning('SQLiteSpy.exe'):
-            print('Yes CommStatX is still running')
+        # Validate field count
+        count = len(arr) + len(arr2)
+        if count != FIELD_COUNT_STATREP:
+            print_red(f"StatRep message failed field count, missing fields\n{line}\n")
+            return
+
+        callsign = self.extract_callsign(arr2[0])
+        curgrid = arr2[1]
+        prec1 = arr2[2]
+
+        # Validate precedence
+        if prec1 not in VALID_PRECEDENCE:
+            print_red(f"StatRep failed for null precedence field: {line}\n")
+            return
+
+        prec = PRECEDENCE_MAP.get(prec1, "Unknown")
+        srid = arr2[3]
+        srcode = arr2[4]
+
+        # Parse and validate condition fields
+        fields = self.parse_statrep_fields(srcode)
+        if not fields:
+            print_red(f"StatRep failed - invalid status code: {line}\n")
+            return
+
+        if not self.validate_statrep_fields(fields, line, is_forwarded=False):
+            return
+
+        comments = arr2[5] if len(arr2) > 5 else ""
+
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO Statrep_Data "
+            "(datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, "
+            "med, ota, trav, net, fuel, food, crime, civil, political, comments) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (utc, callsign, group, curgrid, srid, prec, fields['status'], fields['commpwr'],
+             fields['pubwtr'], fields['med'], fields['ota'], fields['trav'], fields['net'],
+             fields['fuel'], fields['food'], fields['crime'], fields['civil'], fields['pol'], comments)
+        )
+        self.conn.commit()
+
+        print_green(line.rstrip())
+        print_green(f"Added StatRep from: {callsign} ID: {srid}")
+
+    def _process_forwarded_statrep(self, line: str, group: str) -> None:
+        """Process a forwarded statrep message."""
+        arr = line.split('\t')
+        utc = arr[0]
+        callsignmix = arr[4]
+        arr2 = callsignmix.split(',')
+
+        # Validate field count
+        count = len(arr) + len(arr2)
+        if count != FIELD_COUNT_FORWARDED_STATREP:
+            print_red(f"StatRep forwarded message failed field count, missing fields\n{line}\n")
+            return
+
+        callsign = self.extract_callsign(arr2[0])
+        curgrid = arr2[1]
+        prec1 = arr2[2]
+        orig_call = arr2[6]
+
+        # Validate precedence
+        if prec1 not in VALID_PRECEDENCE:
+            print_red(f"Forwarded StatRep failed for null precedence field: {line}\n")
+            return
+
+        prec = PRECEDENCE_MAP.get(prec1, "Unknown")
+        srid = arr2[3]
+        srcode = arr2[4]
+
+        # Parse and validate condition fields
+        fields = self.parse_statrep_fields(srcode)
+        if not fields:
+            print_red(f"Forwarded StatRep failed - invalid status code: {line}\n")
+            return
+
+        if not self.validate_statrep_fields(fields, line, is_forwarded=True):
+            return
+
+        comments = arr2[5] if len(arr2) > 5 else ""
+
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO Statrep_Data "
+            "(datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, "
+            "med, ota, trav, net, fuel, food, crime, civil, political, comments) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (utc, orig_call, group, curgrid, srid, prec, fields['status'], fields['commpwr'],
+             fields['pubwtr'], fields['med'], fields['ota'], fields['trav'], fields['net'],
+             fields['fuel'], fields['food'], fields['crime'], fields['civil'], fields['pol'], comments)
+        )
+        self.conn.commit()
+
+        print_green(line.rstrip())
+        print_green(f"Added Forwarded StatRep from: {orig_call} ID: {srid}")
+
+    def _process_marquee(self, line: str, group: str) -> None:
+        """Process a marquee message."""
+        arr = line.split('\t')
+        utc = arr[0]
+        callsignmix = arr[4]
+        arr2 = callsignmix.split(',')
+
+        # Validate field count
+        count = len(arr) + len(arr2)
+        if count != FIELD_COUNT_MARQUEE:
+            return
+
+        id_num = arr2[1]
+        callsign = self.extract_callsign(arr2[0])
+        color = arr2[2]
+        marquee = arr2[3]
+
+        print_yellow(f"Received marquee to be written - id: {id_num} callsign: {callsign} "
+                     f"groupname: {group} time: {utc} color: {color} message: {marquee}")
+
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO marquees_Data (idnum, callsign, groupname, date, color, message) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
+            (id_num, callsign, group, utc, color, marquee)
+        )
+        self.conn.commit()
+
+        print_green(line.rstrip())
+        print_green(f"Added Marquee from: {callsign} ID: {id_num}")
+
+    def _process_cs_request(self, line: str) -> None:
+        """Process a CS (CommStat) request."""
+        arr = line.split('\t')
+        utc = arr[0]
+        callsignmix = arr[4]
+        arr2 = callsignmix.split(',')
+
+        # Validate field count
+        count = len(arr) + len(arr2)
+        if count != 6:
+            return
+
+        callsign = self.extract_callsign(arr2[0])
+        print_yellow(f"Received CS Request to be responded to - from {callsign}")
+
+        subprocess.run([sys.executable, "csresponder.py", utc])
+
+    def _process_checkin(self, line: str, group: str) -> None:
+        """Process a check-in message."""
+        arr = line.split('\t')
+        utc = arr[0]
+        callsignmix = arr[4]
+        arr2 = callsignmix.split(',')
+
+        # Validate field count
+        count = len(arr) + len(arr2)
+        if count != FIELD_COUNT_CHECKIN:
+            print_red(line.rstrip())
+            print_red(f"Check in field count: {count} - 10 fields required, CommStatX cannot process this check in\n")
+            return
+
+        callsign = self.extract_callsign(arr2[0])
+        traffic = arr2[1]
+        state = arr2[2]
+        grid = arr2[3]
+
+        # Convert grid to coordinates
+        if len(grid) == 6:
+            coords = mh.to_location(grid)
         else:
-            print( 'CommStatX has stopped')
-            quit()
-            #import sys
-            #sys.exit()
-        #time.sleep(30)
+            coords = mh.to_location(grid, center=True)
+
+        testlat = float(coords[0])
+        testlong = float(coords[1])
+
+        # Check for duplicate grids and offset
+        rows_query = f"SELECT Count() FROM members_Data WHERE grid = '{grid}'"
+        self.cursor.execute(rows_query)
+        num_rows = self.cursor.fetchone()[0]
+
+        if num_rows > 1:
+            testlat = testlat + (num_rows * 0.010)
+            testlong = testlong + (num_rows * 0.010)
+
+        # Insert into members_Data
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO members_Data "
+            "(date, callsign, groupname1, groupname2, gridlat, gridlong, state, grid) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+            (utc, callsign, self.config.group1, self.config.group2, testlat, testlong, state, grid)
+        )
+        self.conn.commit()
+
+        # Insert into checkins_Data
+        self.cursor.execute(
+            "INSERT OR IGNORE INTO checkins_Data "
+            "(date, callsign, groupname, traffic, gridlat, gridlong, state, grid) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+            (utc, callsign, group, traffic, testlat, testlong, state, grid)
+        )
+        self.conn.commit()
+
+        print_green(line.rstrip())
+        print_green(f"Added Check in from callsign: {callsign}")
+        print_yellow("Attempting to add or update callsign to members list")
+
+    def _handle_non_group_message(self, line: str) -> None:
+        """Handle messages that don't match the selected group."""
+        try:
+            arr = line.split('\t')
+            if len(arr) > 4:
+                callsignmix = arr[4]
+                arr2 = callsignmix.split(',')
+                callsign = self.extract_callsign(arr2[0])
+
+                if 3 < len(callsign) < 7:
+                    print_red(line.rstrip())
+                    print_red("Failed CommStatX msg criteria, incorrect group or possibly not a CommStatX msg")
+        except Exception:
+            print(line)
+            print("An exception occurred with the above string, nothing could be done with this")
+
+    def _handle_unrecognized_message(self, line: str) -> None:
+        """Handle messages that don't match any known type."""
+        try:
+            arr = line.split('\t')
+            if len(arr) > 4:
+                callsignmix = arr[4]
+                arr2 = callsignmix.split(',')
+                callsign = self.extract_callsign(arr2[0])
+
+                if 3 < len(callsign) < 7:
+                    print_red(line.rstrip())
+                    print_red("Failed CommStatX criteria, probably not a CommStatX msg")
+                else:
+                    print_red(line.rstrip())
+                    print_red("Failed callsign structure criteria, msg not parsed into database\n")
+        except IndexError:
+            print_red(line.rstrip())
+            print_red(f"Failed CommStatX index criteria, probably not a CommStatX msg not parsed into database")
 
 
-#runreaders()
+def run() -> None:
+    """Main entry point - copy and parse DIRECTED.TXT."""
+    config = Config()
+    parser = MessageParser(config)
 
+    if parser.copy_directed():
+        parser.parse()
+
+    now = QDateTime.currentDateTime()
+    now_str = now.toUTC().toString("yyyy-MM-dd HH:mm:ss")
+    print(f"Datareader stopped: {now_str}")
+
+
+if __name__ == "__main__":
+    run()
