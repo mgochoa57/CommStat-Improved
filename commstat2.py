@@ -47,8 +47,8 @@ DATABASE_FILE = "traffic.db3"
 # StatRep table column headers
 STATREP_HEADERS = [
     "Date Time UTC", "ID", "Callsign", "Grid", "Scope", "Map Pin",
-    "Pwr", "H2O", "Med", "Comm", "Trvl", "Int", "Fuel", "Food",
-    "Crime", "Civil", "Poli", "Remarks"
+    "Powr", "H2O", "Med", "Comm", "Trvl", "Inet", "Fuel", "Food",
+    "Crime", "Civil", "Polit", "Remarks"
 ]
 
 # Default grid filter (US state grid prefixes)
