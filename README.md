@@ -20,10 +20,10 @@ Commstat One is a Python version of the CommStat software <b>designed to run on 
 # CommStat-Improved Ver 2.5.0 Released 12/25/2025
 - Author: Manuel G Ochoa ~N0DDK
 <br>
+
+<h3>CommStat-Improved - Summary of Changes and Improvements</h3>
+<h3>Project rebuild and modernization effort - December 2025</h3>
 <br>
-<nr>
-CommStat-Improved - Summary of Changes and Improvements
-Project rebuild and modernization effort - December 2025
 
 1. NEW MAIN APPLICATION
 --------------------------------------
@@ -118,7 +118,7 @@ Project rebuild and modernization effort - December 2025
 
 9. FILES MODIFIED
 -----------------
-- commstat2.py (NEW - main application rebuild)
+- commstatpy (main application rebuild)
 - datareader.py (refactored)
 - install.py (updated)
 - config.ini.template (NEW)
@@ -131,7 +131,7 @@ Project rebuild and modernization effort - December 2025
 
 10. GIT COMMITS
 ---------------
-- Add commstat2.py - rebuilt application with best practices
+- Add commstat.py - rebuilt application with best practices
 - Refactor datareader.py with Python best practices
 - Use os.path.join for cross-platform path handling
 - Add psutil to install.py and clean up package installation
