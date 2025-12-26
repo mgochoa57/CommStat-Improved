@@ -86,7 +86,8 @@ class Ui_FormJS8SMS:
         self.note_label.setStyleSheet("color: #990000;")
         self.note_label.setText(
             "Because of carrier policy, recipients must often opt in on the SMS gateway page "
-            "before SMS delivery will work. This means that SMS message delivery is highly unreliable."
+            "before SMS delivery will work. This means that SMS message delivery is highly unreliable. "
+            "Text messages are limited to 67 characters."
         )
         self.note_label.setWordWrap(True)
         self.note_label.setObjectName("note_label")
