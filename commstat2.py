@@ -38,6 +38,7 @@ from colors import ColorsDialog
 from filter2 import FilterDialog
 from groups import GroupsDialog
 from js8mail import Ui_FormJS8Mail
+from js8sms import Ui_FormJS8SMS
 
 
 # =============================================================================
@@ -585,7 +586,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setMenuBar(self.menubar)
 
         # Create the main menu
-        self.menu = QtWidgets.QMenu("MENU", self.menubar)
+        self.menu = QtWidgets.QMenu("Menu", self.menubar)
         self.menubar.addMenu(self.menu)
 
         # Define menu actions: (name, text, handler)
@@ -605,13 +606,9 @@ class MainWindow(QtWidgets.QMainWindow):
             ("groups", "MANAGE GROUPS", self._on_groups),
             ("settings", "SETTINGS", self._on_settings),
             ("colors", "COLORS", self._on_colors),
-            ("help", "HELP", self._on_help),
-            ("about", "ABOUT", self._on_about),
-            None,  # Separator
-            ("exit", "EXIT", qApp.quit),
         ]
 
-        # Create actions
+        # Create actions for dropdown menu
         self.actions: Dict[str, QtWidgets.QAction] = {}
         for item in menu_items:
             if item is None:
@@ -622,6 +619,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 action.triggered.connect(handler)
                 self.menu.addAction(action)
                 self.actions[name] = action
+
+        # Add About, Help, Exit directly to menu bar
+        about_action = QtWidgets.QAction("About", self)
+        about_action.triggered.connect(self._on_about)
+        self.menubar.addAction(about_action)
+        self.actions["about"] = about_action
+
+        help_action = QtWidgets.QAction("Help", self)
+        help_action.triggered.connect(self._on_help)
+        self.menubar.addAction(help_action)
+        self.actions["help"] = help_action
+
+        exit_action = QtWidgets.QAction("Exit", self)
+        exit_action.triggered.connect(qApp.quit)
+        self.menubar.addAction(exit_action)
+        self.actions["exit"] = exit_action
 
         # Add status bar
         self.statusbar = QtWidgets.QStatusBar(self)
@@ -1217,7 +1230,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_js8sms(self) -> None:
         """Open JS8 SMS window."""
-        print("JS8SMS clicked - window not yet implemented")
+        dialog = QtWidgets.QDialog()
+        dialog.ui = Ui_FormJS8SMS()
+        dialog.ui.setupUi(dialog)
+        dialog.exec_()
 
     def _on_statrep(self) -> None:
         """Open StatRep window."""

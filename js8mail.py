@@ -87,7 +87,7 @@ class Ui_FormJS8Mail:
         note_font.setPointSize(9)
         note_font.setBold(True)
         self.note_label.setFont(note_font)
-        self.note_label.setStyleSheet("color: #CC0000;")
+        self.note_label.setStyleSheet("color: #990000;")
         self.note_label.setText(
             "APRS email messages are transmitted in the subject line and are limited to 67 characters. "
             "Replies to APRS emails are not supported."

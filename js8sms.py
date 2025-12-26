@@ -83,7 +83,7 @@ class Ui_FormJS8SMS:
         note_font.setPointSize(9)
         note_font.setBold(True)
         self.note_label.setFont(note_font)
-        self.note_label.setStyleSheet("color: #CC0000;")
+        self.note_label.setStyleSheet("color: #990000;")
         self.note_label.setText(
             "Because of carrier policy, recipients must often opt in on the SMS gateway page "
             "before SMS delivery will work. This means that SMS message delivery is highly unreliable."
