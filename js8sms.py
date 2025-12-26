@@ -27,7 +27,7 @@ class Ui_FormJS8SMS:
         """Initialize the UI components."""
         self.MainWindow = FormJS8SMS
         FormJS8SMS.setObjectName("FormJS8SMS")
-        FormJS8SMS.resize(835, 215)
+        FormJS8SMS.resize(835, 280)
 
         # Set font
         font = QtGui.QFont()
@@ -75,27 +75,43 @@ class Ui_FormJS8SMS:
         self.label_2.setFont(font)
         self.label_2.setObjectName("label_2")
 
+        # Note about SMS carrier opt-in
+        self.note_label = QtWidgets.QLabel(FormJS8SMS)
+        self.note_label.setGeometry(QtCore.QRect(58, 145, 700, 40))
+        note_font = QtGui.QFont()
+        note_font.setFamily("Arial")
+        note_font.setPointSize(9)
+        note_font.setBold(True)
+        self.note_label.setFont(note_font)
+        self.note_label.setStyleSheet("color: #CC0000;")
+        self.note_label.setText(
+            "Because of carrier policy, recipients must often opt in on the SMS gateway page "
+            "before SMS delivery will work. This means that SMS message delivery is highly unreliable."
+        )
+        self.note_label.setWordWrap(True)
+        self.note_label.setObjectName("note_label")
+
         # APRS SMS info link
         self.link_label = QtWidgets.QLabel(FormJS8SMS)
-        self.link_label.setGeometry(QtCore.QRect(58, 155, 412, 24))
+        self.link_label.setGeometry(QtCore.QRect(58, 195, 700, 24))
         self.link_label.setFont(font)
         self.link_label.setText(
             'Learn more about APRS SMS here: '
-            '<a href="https://smsgte.wixsite.com/smsgte">https://smsgte.wixsite.com/smsgte</a>'
+            '<a href="https://aprs.wiki/howto/">https://aprs.wiki/howto/</a>'
         )
         self.link_label.setOpenExternalLinks(True)
         self.link_label.setObjectName("link_label")
 
         # Transmit button
         self.pushButton = QtWidgets.QPushButton(FormJS8SMS)
-        self.pushButton.setGeometry(QtCore.QRect(510, 155, 111, 24))
+        self.pushButton.setGeometry(QtCore.QRect(510, 235, 111, 24))
         self.pushButton.setFont(font)
         self.pushButton.setObjectName("pushButton")
         self.pushButton.clicked.connect(self.transmit)
 
         # Cancel button
         self.pushButton_2 = QtWidgets.QPushButton(FormJS8SMS)
-        self.pushButton_2.setGeometry(QtCore.QRect(630, 155, 75, 24))
+        self.pushButton_2.setGeometry(QtCore.QRect(630, 235, 75, 24))
         self.pushButton_2.setFont(font)
         self.pushButton_2.setObjectName("pushButton_2")
         self.pushButton_2.clicked.connect(self.MainWindow.close)

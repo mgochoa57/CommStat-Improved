@@ -18,7 +18,7 @@ import js8callAPIsupport
 
 # Constants
 MIN_EMAIL_LENGTH = 8
-MIN_BODY_LENGTH = 8
+MIN_SUBJECT_LENGTH = 8
 EMAIL_PATTERN = r"^.+@(\[?)[a-zA-Z0-9-.]+\.([a-zA-Z]{2,3}|[0-9]{1,3})(]?)$"
 
 
@@ -29,7 +29,7 @@ class Ui_FormJS8Mail:
         """Initialize the UI components."""
         self.MainWindow = FormJS8Mail
         FormJS8Mail.setObjectName("FormJS8Mail")
-        FormJS8Mail.resize(835, 215)
+        FormJS8Mail.resize(835, 260)
 
         # Set font
         font = QtGui.QFont()
@@ -79,9 +79,25 @@ class Ui_FormJS8Mail:
         self.label_2.setFont(font)
         self.label_2.setObjectName("label_2")
 
+        # Note about APRS email limitations
+        self.note_label = QtWidgets.QLabel(FormJS8Mail)
+        self.note_label.setGeometry(QtCore.QRect(58, 145, 700, 30))
+        note_font = QtGui.QFont()
+        note_font.setFamily("Arial")
+        note_font.setPointSize(9)
+        note_font.setBold(True)
+        self.note_label.setFont(note_font)
+        self.note_label.setStyleSheet("color: #CC0000;")
+        self.note_label.setText(
+            "APRS email messages are transmitted in the subject line and are limited to 67 characters. "
+            "Replies to APRS emails are not supported."
+        )
+        self.note_label.setWordWrap(True)
+        self.note_label.setObjectName("note_label")
+
         # APRS email info link
         self.link_label = QtWidgets.QLabel(FormJS8Mail)
-        self.link_label.setGeometry(QtCore.QRect(58, 155, 412, 24))
+        self.link_label.setGeometry(QtCore.QRect(58, 185, 412, 24))
         self.link_label.setFont(font)
         self.link_label.setText(
             'Learn more about APRS email here: '
@@ -92,14 +108,14 @@ class Ui_FormJS8Mail:
 
         # Transmit button
         self.pushButton = QtWidgets.QPushButton(FormJS8Mail)
-        self.pushButton.setGeometry(QtCore.QRect(510, 155, 111, 24))
+        self.pushButton.setGeometry(QtCore.QRect(510, 220, 111, 24))
         self.pushButton.setFont(font)
         self.pushButton.setObjectName("pushButton")
         self.pushButton.clicked.connect(self.transmit)
 
         # Cancel button
         self.pushButton_2 = QtWidgets.QPushButton(FormJS8Mail)
-        self.pushButton_2.setGeometry(QtCore.QRect(630, 155, 75, 24))
+        self.pushButton_2.setGeometry(QtCore.QRect(630, 220, 75, 24))
         self.pushButton_2.setFont(font)
         self.pushButton_2.setObjectName("pushButton_2")
         self.pushButton_2.clicked.connect(self.MainWindow.close)
@@ -118,7 +134,7 @@ class Ui_FormJS8Mail:
         _translate = QtCore.QCoreApplication.translate
         FormJS8Mail.setWindowTitle(_translate("FormJS8Mail", "CommStat-Improved JS8Mail"))
         self.label.setText(_translate("FormJS8Mail", "Email Address : "))
-        self.label_2.setText(_translate("FormJS8Mail", "Email Body :"))
+        self.label_2.setText(_translate("FormJS8Mail", "Subject :"))
         self.pushButton.setText(_translate("FormJS8Mail", "Transmit"))
         self.pushButton_2.setText(_translate("FormJS8Mail", "Cancel"))
 
@@ -162,9 +178,9 @@ class Ui_FormJS8Mail:
             self._show_error("Email address is not valid!")
             return
 
-        # Validate body length
-        if len(body) < MIN_BODY_LENGTH:
-            self._show_error(f"Email body is too short (minimum {MIN_BODY_LENGTH} characters)!")
+        # Validate subject length
+        if len(body) < MIN_SUBJECT_LENGTH:
+            self._show_error(f"Subject is too short (minimum {MIN_SUBJECT_LENGTH} characters)!")
             return
 
         # Build and send message
