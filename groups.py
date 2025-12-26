@@ -88,21 +88,27 @@ class GroupsDialog(QDialog):
         self.name_input.setMaxLength(MAX_GROUP_NAME_LENGTH)
         self.name_input.setPlaceholderText("Group name (max 15 chars)")
         self.name_input.returnPressed.connect(self._add_group)
+        self.name_input.textChanged.connect(self._on_name_input_changed)
         add_layout.addWidget(self.name_input)
 
         self.add_btn = QPushButton("Add")
         self.add_btn.clicked.connect(self._add_group)
+        self.add_btn.setEnabled(False)
         add_layout.addWidget(self.add_btn)
 
         layout.addWidget(add_group)
 
-        # Close button
+        # Save and Cancel buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        self.close_btn = QPushButton("Close")
-        self.close_btn.clicked.connect(self.accept)
-        button_layout.addWidget(self.close_btn)
+        self.save_btn = QPushButton("Save")
+        self.save_btn.clicked.connect(self.accept)
+        button_layout.addWidget(self.save_btn)
+
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(self.cancel_btn)
 
         layout.addLayout(button_layout)
 
@@ -127,6 +133,10 @@ class GroupsDialog(QDialog):
         """Handle group selection."""
         self._update_buttons()
 
+    def _on_name_input_changed(self, text: str) -> None:
+        """Enable/disable Add button based on input text."""
+        self.add_btn.setEnabled(bool(text.strip()))
+
     def _update_buttons(self) -> None:
         """Update button states based on selection."""
         selected = self.groups_list.currentItem()
@@ -137,8 +147,8 @@ class GroupsDialog(QDialog):
 
         self.set_active_btn.setEnabled(has_selection and not is_active)
 
-        # Can only remove if more than 1 group and selection exists
-        can_remove = has_selection and self.db.get_group_count() > 1
+        # Can only remove if not active and more than 1 group exists
+        can_remove = has_selection and not is_active and self.db.get_group_count() > 1
         self.remove_btn.setEnabled(can_remove)
 
     def _get_selected_group_name(self) -> str:
