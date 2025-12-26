@@ -61,9 +61,14 @@ MAX_GROUP_NAME_LENGTH = 15
 DEFAULT_GROUPS = ["MAGNET", "AMRRON", "PREPPERNET"]
 
 # Map and layout dimensions
-MAP_WIDTH = 640
-MAP_HEIGHT = 350
+MAP_WIDTH = 620
+MAP_HEIGHT = 340
 FILTER_HEIGHT = 20
+
+# Map and layout dimensions defaults
+# MAP_WIDTH = 640
+# MAP_HEIGHT = 350
+# FILTER_HEIGHT = 20
 
 # StatRep table column headers
 STATREP_HEADERS = [
@@ -338,7 +343,7 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
                 cursor.execute(
-                    "SELECT * FROM marquees_data WHERE groupname = ? ORDER BY date DESC LIMIT 1",
+                    "SELECT idnum, callsign, groupname, date, color, message FROM marquees_data WHERE groupname = ? ORDER BY date DESC LIMIT 1",
                     [group]
                 )
                 return cursor.fetchone()
@@ -540,8 +545,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Row stretches: header doesn't stretch, others do
         self.main_layout.setRowStretch(0, 0)  # Header
-        self.main_layout.setRowStretch(1, 2)  # StatRep table (more space)
-        self.main_layout.setRowStretch(2, 1)  # Live feed (full width)
+        self.main_layout.setRowStretch(1, 1)  # StatRep table (50%)
+        self.main_layout.setRowStretch(2, 1)  # Live feed (50%)
         self.main_layout.setRowStretch(3, 0)  # Map row 1 / Filter (fixed heights)
         self.main_layout.setRowStretch(4, 0)  # Map row 2 / Bulletin (fixed heights)
 
@@ -776,7 +781,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.label_filter.setFont(font)
         self.label_filter.setStyleSheet(f"color: {fg_color};")
         self.label_filter.setText(
-            f"Filters:  Start: {filters.get('start', '')}  |  End: {filters.get('end', '')}"
+            f"Bulletin Filter:   Start Date: {filters.get('start', '')}  |  End Date: {filters.get('end', '')}"
         )
         self.label_filter.setSizePolicy(shrink_policy)
         self.label_filter.setFixedHeight(FILTER_HEIGHT)
@@ -823,7 +828,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Feed text area
         self.feed_text = QtWidgets.QPlainTextEdit(self.feed_container)
         self.feed_text.setObjectName("feedText")
-        self.feed_text.setFont(QtGui.QFont("Arial", 9))
+        self.feed_text.setFont(QtGui.QFont("Source Code Pro", 10))
         self.feed_text.setStyleSheet(
             f"background-color: {self.config.get_color('feed_background')};"
             f"color: {self.config.get_color('feed_foreground')};"
@@ -1176,14 +1181,14 @@ class MainWindow(QtWidgets.QMainWindow):
         result = self.db.get_latest_marquee(group)
 
         if result:
-            # Extract marquee data (id, date, group, callsign, msg, color)
+            # Extract marquee data (idnum, callsign, groupname, date, color, message)
             try:
                 sr_id = result[0] if len(result) > 0 else ""
-                date = result[1] if len(result) > 1 else ""
+                callsign = result[1] if len(result) > 1 else ""
                 msg_group = result[2] if len(result) > 2 else ""
-                callsign = result[3] if len(result) > 3 else ""
-                msg = result[4] if len(result) > 4 else ""
-                color = str(result[5]) if len(result) > 5 else "1"
+                date = result[3] if len(result) > 3 else ""
+                color = str(result[4]) if len(result) > 4 else "1"
+                msg = result[5] if len(result) > 5 else ""
 
                 # Set marquee color based on status
                 if color == "3":
@@ -1199,7 +1204,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
 
                 # Build marquee text
-                marquee_text = f" ID {sr_id} Received: {date}  From: {msg_group} by: {callsign} MSG: {msg}"
+                marquee_text = f" ID: {sr_id} | Received: {date} | From: {msg_group} | By: {callsign} | MSG: {msg}"
 
                 # Calculate how many characters fit in the marquee width
                 fm = self.marquee_label.fontMetrics()
