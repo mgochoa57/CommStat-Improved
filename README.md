@@ -153,7 +153,22 @@ Summary of Changes and Improvements</h3>
 - Removed grid-based filtering from SQL queries
 
 
-12. GIT COMMITS
+12. GROUP MANAGEMENT
+--------------------
+- Groups now stored in database (Groups table) instead of config.ini
+- Unlimited groups supported (previously limited to 2)
+- Group names: max 15 characters, stored in UPPERCASE
+- Default groups seeded on first run: MAGNET, AMRRON, PREPPERNET
+- New "MANAGE GROUPS" menu option with dialog to:
+  - View all groups (active group shown in bold)
+  - Add new groups
+  - Remove groups (cannot remove last group)
+  - Set any group as active
+- Removed group settings from Settings dialog
+- All data refreshes when active group changes
+
+
+13. GIT COMMITS
 ---------------
 - Add commstat.py - rebuilt application with best practices
 - Refactor datareader.py with Python best practices
@@ -166,6 +181,7 @@ Summary of Changes and Improvements</h3>
 - Activate JS8EMAIL and JS8SMS menu options
 - Activate Display Filter menu with simplified dialog
 - Add map position preservation during refresh
+- Add dynamic group management with database storage
 
 
 
