@@ -35,8 +35,8 @@ from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
 from about import Ui_FormAbout
 from settings2 import SettingsDialog
 from colors import ColorsDialog
+from filter2 import FilterDialog
 from js8mail import Ui_FormJS8Mail
-from js8sms import Ui_FormJS8SMS
 
 
 # =============================================================================
@@ -55,12 +55,6 @@ STATREP_HEADERS = [
     "Date Time UTC", "ID", "Callsign", "Grid", "Scope", "Map Pin",
     "Powr", "H2O", "Med", "Comm", "Trvl", "Inet", "Fuel", "Food",
     "Crime", "Civil", "Pol", "Remarks"
-]
-
-# Default grid filter (US state grid prefixes)
-DEFAULT_GRID_LIST = [
-    'AP', 'AO', 'BO', 'CN', 'CM', 'CO', 'DN', 'DM', 'DL', 'DO',
-    'EN', 'EM', 'EL', 'EO', 'FN', 'FM', 'FO'
 ]
 
 # Default color scheme
@@ -209,11 +203,7 @@ class ConfigManager:
         if config.has_section("FILTER"):
             self.filter_settings = {
                 'start': config.get("FILTER", "start", fallback="2023-01-01 00:00"),
-                'end': config.get("FILTER", "end", fallback="2030-01-01 00:00"),
-                'green': config.get("FILTER", "green", fallback="1"),
-                'yellow': config.get("FILTER", "yellow", fallback="2"),
-                'red': config.get("FILTER", "red", fallback="3"),
-                'grids': config.get("FILTER", "grids", fallback=""),
+                'end': config.get("FILTER", "end", fallback="2030-01-01 00:00")
             }
 
     def _load_colors(self, config: ConfigParser) -> None:
@@ -252,18 +242,6 @@ class ConfigManager:
             return f"{callsign}/{suffix}"
         return callsign
 
-    def get_grid_list(self) -> List[str]:
-        """Get the grid filter list."""
-        grids_str = self.filter_settings.get('grids', '')
-        if grids_str:
-            # Parse the grid list from config (stored as string representation of list)
-            try:
-                import ast
-                return ast.literal_eval(grids_str)
-            except (ValueError, SyntaxError):
-                return DEFAULT_GRID_LIST
-        return DEFAULT_GRID_LIST
-
 
 # =============================================================================
 # DatabaseManager - Handles all database operations
@@ -284,21 +262,15 @@ class DatabaseManager:
     def get_statrep_data(
         self,
         group: str,
-        green: str,
-        yellow: str,
-        red: str,
         start: str,
-        end: str,
-        grid_list: List[str]
+        end: str
     ) -> List[Tuple]:
         """
         Fetch StatRep data from database.
 
         Args:
             group: Selected group name
-            green/yellow/red: Status filter values
             start/end: Date range filter
-            grid_list: List of grid prefixes to include
 
         Returns:
             List of tuples containing StatRep records
@@ -312,12 +284,10 @@ class DatabaseManager:
                            fuel, food, crime, civil, political, comments
                     FROM StatRep_Data
                     WHERE groupname = ?
-                      AND (status = ? OR status = ? OR status = ?)
                       AND datetime BETWEEN ? AND ?
-                      AND substr(grid, 1, 2) IN ({})
-                """.format(', '.join('?' for _ in grid_list))
+                """
 
-                params = [group, green, yellow, red, start, end] + grid_list
+                params = [group, start, end]
                 cursor.execute(query, params)
                 return cursor.fetchall()
         except sqlite3.Error as error:
@@ -498,7 +468,6 @@ class MainWindow(QtWidgets.QMainWindow):
             ("flash_bulletin", "FLASH BULLETIN", self._on_flash_bulletin),
             None,  # Separator
             ("filter", "DISPLAY FILTER", self._on_filter),
-            ("data", "DATA MANAGER", self._on_data),
             ("settings", "SETTINGS", self._on_settings),
             ("colors", "COLORS", self._on_colors),
             ("help", "HELP", self._on_help),
@@ -643,38 +612,21 @@ class MainWindow(QtWidgets.QMainWindow):
         fg_color = self.config.get_color('program_foreground')
         font = QtGui.QFont("Arial", 9)
 
-        # Determine ON/OFF status for each filter
-        green_stat = "ON" if "1" in filters.get('green', '1') else "OFF"
-        yellow_stat = "ON" if "2" in filters.get('yellow', '2') else "OFF"
-        red_stat = "ON" if "3" in filters.get('red', '3') else "OFF"
-
         # Size policy that allows labels to shrink
         shrink_policy = QtWidgets.QSizePolicy(
             QtWidgets.QSizePolicy.Ignored,
             QtWidgets.QSizePolicy.Preferred
         )
 
-        # First filter label (start, end, green, yellow)
-        self.label_filter1 = QtWidgets.QLabel(self.central_widget)
-        self.label_filter1.setFont(font)
-        self.label_filter1.setStyleSheet(f"color: {fg_color};")
-        self.label_filter1.setText(
-            f"Filters: Start: {filters.get('start', '')}  |  "
-            f"End: {filters.get('end', '')}  |  "
-            f"Green: {green_stat}  |  Yellow: {yellow_stat}  |"
+        # Filter label (date range only)
+        self.label_filter = QtWidgets.QLabel(self.central_widget)
+        self.label_filter.setFont(font)
+        self.label_filter.setStyleSheet(f"color: {fg_color};")
+        self.label_filter.setText(
+            f"Filters:  Start: {filters.get('start', '')}  |  End: {filters.get('end', '')}"
         )
-        self.label_filter1.setSizePolicy(shrink_policy)
-        self.main_layout.addWidget(self.label_filter1, 2, 0, 1, 2)
-
-        # Second filter label (red, grids)
-        self.label_filter2 = QtWidgets.QLabel(self.central_widget)
-        self.label_filter2.setFont(font)
-        self.label_filter2.setStyleSheet(f"color: {fg_color};")
-        self.label_filter2.setText(
-            f"Red: {red_stat}  |  Grids: {filters.get('grids', '')}"
-        )
-        self.label_filter2.setSizePolicy(shrink_policy)
-        self.main_layout.addWidget(self.label_filter2, 2, 2, 1, 3)
+        self.label_filter.setSizePolicy(shrink_policy)
+        self.main_layout.addWidget(self.label_filter, 2, 0, 1, 5)
 
         # Row 2 (filter labels) doesn't stretch
         self.main_layout.setRowStretch(2, 0)
@@ -831,11 +783,13 @@ class MainWindow(QtWidgets.QMainWindow):
         """Generate and display the folium map with StatRep pins."""
         filters = self.config.filter_settings
         group = self.config.get_selected_group()
-        grid_list = self.config.get_grid_list()
 
-        # Create map centered on US
-        coordinate = (38.8199286, -96.7782551)
-        m = folium.Map(zoom_start=4, location=coordinate)
+        # Use saved map position or default to US center
+        if not hasattr(self, 'map_center'):
+            self.map_center = (38.8199286, -96.7782551)
+            self.map_zoom = 4
+
+        m = folium.Map(zoom_start=self.map_zoom, location=self.map_center)
 
         # Add local tile layer
         folium.raster_layers.TileLayer(
@@ -850,12 +804,8 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             data = self.db.get_statrep_data(
                 group=group,
-                green=filters.get('green', '1'),
-                yellow=filters.get('yellow', '2'),
-                red=filters.get('red', '3'),
                 start=filters.get('start', '2023-01-01 00:00'),
-                end=filters.get('end', '2030-01-01 00:00'),
-                grid_list=grid_list
+                end=filters.get('end', '2030-01-01 00:00')
             )
 
             gridlist = []
@@ -927,28 +877,57 @@ class MainWindow(QtWidgets.QMainWindow):
         map_data = io.BytesIO()
         m.save(map_data, close_file=False)
 
-        if self.map_loaded:
-            self.map_widget.reload()
-        else:
-            self.map_widget.setHtml(map_data.getvalue().decode())
-            self.map_loaded = True
+        # Always set new HTML content (reload() only refreshes cached content)
+        self.map_widget.setHtml(map_data.getvalue().decode())
+        self.map_loaded = True
+
+    def _save_map_position(self, callback=None) -> None:
+        """Save current map center and zoom via JavaScript."""
+        if not self.map_loaded:
+            if callback:
+                callback()
+            return
+
+        js_code = """
+        (function() {
+            try {
+                var mapId = Object.keys(window).find(k => k.startsWith('map_'));
+                if (mapId && window[mapId]) {
+                    var map = window[mapId];
+                    var center = map.getCenter();
+                    var zoom = map.getZoom();
+                    return JSON.stringify({lat: center.lat, lng: center.lng, zoom: zoom});
+                }
+            } catch(e) {}
+            return null;
+        })();
+        """
+
+        def handle_result(result):
+            if result:
+                try:
+                    import json
+                    data = json.loads(result)
+                    self.map_center = (data['lat'], data['lng'])
+                    self.map_zoom = data['zoom']
+                except:
+                    pass
+            if callback:
+                callback()
+
+        self.map_widget.page().runJavaScript(js_code, handle_result)
 
     def _load_statrep_data(self) -> None:
         """Load StatRep data from database into the table."""
         # Get filter settings
         filters = self.config.filter_settings
         group = self.config.get_selected_group()
-        grid_list = self.config.get_grid_list()
 
         # Fetch data from database
         data = self.db.get_statrep_data(
             group=group,
-            green=filters.get('green', '1'),
-            yellow=filters.get('yellow', '2'),
-            red=filters.get('red', '3'),
             start=filters.get('start', '2023-01-01 00:00'),
-            end=filters.get('end', '2030-01-01 00:00'),
-            grid_list=grid_list
+            end=filters.get('end', '2030-01-01 00:00')
         )
 
         # Clear and populate table
@@ -1018,7 +997,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._load_statrep_data()
         self._load_live_feed()
         self._load_bulletin_data()
-        self._load_map()
+
+        # Save map position before refresh, then reload map
+        self._save_map_position(callback=self._load_map)
 
     def _update_time(self) -> None:
         """Update the time display with current UTC time."""
@@ -1101,10 +1082,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_js8sms(self) -> None:
         """Open JS8 SMS window."""
-        dialog = QtWidgets.QDialog()
-        dialog.ui = Ui_FormJS8SMS()
-        dialog.ui.setupUi(dialog)
-        dialog.exec_()
+        print("JS8SMS clicked - window not yet implemented")
 
     def _on_statrep(self) -> None:
         """Open StatRep window."""
@@ -1136,11 +1114,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_filter(self) -> None:
         """Open Display Filter window."""
-        print("DISPLAY FILTER clicked - window not yet implemented")
-
-    def _on_data(self) -> None:
-        """Open Data Manager window."""
-        print("DATA MANAGER clicked - window not yet implemented")
+        dialog = FilterDialog(self)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            # Reload config and refresh data
+            self.config = ConfigManager()
+            self._setup_filter_labels()
+            self._load_statrep_data()
+            # Save map position before refresh, then reload map
+            self._save_map_position(callback=self._load_map)
 
     def _on_settings(self) -> None:
         """Open Settings window."""

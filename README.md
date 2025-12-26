@@ -130,7 +130,30 @@ Summary of Changes and Improvements</h3>
   settings.py, statack.py, statrep.py (UDP_port rename)
 
 
-10. GIT COMMITS
+10. MENU ACTIVATION (December 2025)
+-----------------------------------
+- JS8EMAIL: Send emails via APRS gateway
+  - Cleaned up js8mail.py: removed globals, added helper methods
+  - Added APRS email info link and service availability warning
+  - Fixed "CommStatX" references to "CommStat-Improved"
+- JS8SMS: Send SMS via APRS gateway
+  - Cleaned up js8sms.py: same improvements as js8mail
+  - Fixed error messages (was incorrectly saying "email" instead of "phone/SMS")
+  - Added APRS SMS info link and service availability warning
+- DISPLAY FILTER: New simplified filter dialog (filter2.py)
+  - Date range picker (start/end dates)
+  - Shows all status colors (green/yellow/red) - no color filtering
+  - Removed complex grid filter (now shows all stations)
+- Removed unused DATA MANAGER menu option
+
+
+11. MAP IMPROVEMENTS
+--------------------
+- Map preserves position and zoom during 20-second auto-refresh
+- Removed grid-based filtering from SQL queries
+
+
+12. GIT COMMITS
 ---------------
 - Add commstat.py - rebuilt application with best practices
 - Refactor datareader.py with Python best practices
@@ -140,6 +163,9 @@ Summary of Changes and Improvements</h3>
 - Add template files and rename port to UDP_port
 - Fix filter labels blocking resize and add datareader call
 - Import datareader as module with timestamp tracking
+- Activate JS8EMAIL and JS8SMS menu options
+- Activate Display Filter menu with simplified dialog
+- Add map position preservation during refresh
 
 
 
