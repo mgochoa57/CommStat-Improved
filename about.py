@@ -23,15 +23,6 @@ class Ui_FormAbout(object):
         icon.addPixmap(QtGui.QPixmap("radiation-32.jpg"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         FormAbout.setWindowIcon(icon)
 
-        # Set background image
-        FormAbout.setStyleSheet("""
-            QDialog {
-                background-image: url('ChatGPT_Image_Nov_12-2025.png');
-                background-repeat: no-repeat;
-                background-position: center;
-            }
-        """)
-
         self.gridLayout_2 = QtWidgets.QGridLayout(FormAbout)
         self.gridLayout_2.setObjectName("gridLayout_2")
         self.gridLayout = QtWidgets.QGridLayout()
@@ -43,14 +34,6 @@ class Ui_FormAbout(object):
         self.label.setFont(font)
         self.label.setWordWrap(True)
         self.label.setObjectName("label")
-        # Semi-transparent background for text readability
-        self.label.setStyleSheet("""
-            QLabel {
-                background-color: rgba(255, 255, 255, 180);
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
         self.gridLayout.addWidget(self.label, 3, 0, 1, 1)
         self.pushButton_2 = QtWidgets.QPushButton(FormAbout)
         self.pushButton_2.setObjectName("pushButton_2")

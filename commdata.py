@@ -198,14 +198,27 @@ class UI(QMainWindow):
             return
 
 
+    def _get_active_group_from_db(self):
+        """Get the active group from the database."""
+        try:
+            conn = sqlite3.connect("commstat.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM Groups WHERE is_active = 1")
+            result = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if result:
+                return result[0]
+        except sqlite3.Error as e:
+            print(f"Error reading active group from database: {e}")
+        return ""
+
     def readconfig(self):
         # Read config.ini file
         config_object = configparser.ConfigParser()
         config_object.read("config.ini")
         global callsign
         global callsignSuffix
-        global group1
-        global group2
         global grid
         global path
         global selectedgroup
@@ -213,23 +226,11 @@ class UI(QMainWindow):
 
         # Get the password
         userinfo = config_object["USERINFO"]
-        #print("callsign is {}".format(userinfo["callsign"]))
-        #print("callsignsuffix is {}".format(userinfo["callsignsuffix"]))
-        #print("group1 is {}".format(userinfo["group1"]))
-        #print("group2 is {}".format(userinfo["group2"]))
-        #print("grid is {}".format(userinfo["grid"]))
         systeminfo = config_object["DIRECTEDCONFIG"]
-        #print("file path  is {}".format(systeminfo["path"]))
         callsign = format(userinfo["callsign"])
         callsignSuffix = format(userinfo["callsignsuffix"])
-        group1 = format(userinfo["group1"])
-        group2 = format(userinfo["group2"])
         grid = format(userinfo["grid"])
-        #path1 = format(systeminfo["path"])
-        #path = (path1+""+OS_Directed)
-        selectedgroup = format(userinfo["selectedgroup"])
-        #print("this is the new path :"+path)
-        #print(selectedgroup)
+        selectedgroup = self._get_active_group_from_db()
         if (callsign =="NOCALL"):
             #self.settings_window()
             print("no callsign")

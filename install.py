@@ -19,36 +19,27 @@ osver = ""
 
 
 def oscheck():
-    global OS
-    global bull1
-    global bull2
     global osver
-    pios = "aarch64"
-    lin = "Linux"
-    win = "Windows"
-    if pios in (platform.platform()):
-        print("This is Pi 64bit OS")
-        osver = "pi"
-        bull1 = 0
-        bull2 = 4
-        osver = lin
-        test_python()
-    # sudo apt install ./python-pyqt5.qtwebengine_5.15.2-2_arm64.deb
 
-    elif lin in (platform.platform()):
-        osver = lin
-        with open('/etc/issue') as f:
-            first_line = f.readline()
-            f.close
-        if "21" or "20" in first_line:
-            print("here is the first line :" + first_line)
-            test_python()
-    elif win in (platform.platform()):
-        print("This is Windows")
-        osver = win
+    if sys.platform == 'win32':
+        print("Detected: Windows")
+        osver = "Windows"
+        test_python()
+    elif sys.platform == 'darwin':
+        print("Detected: macOS")
+        osver = "macOS"
+        test_python()
+    elif sys.platform.startswith('linux'):
+        # Check for Raspberry Pi
+        if "aarch64" in platform.platform():
+            print("Detected: Raspberry Pi 64-bit")
+        else:
+            print("Detected: Linux")
+        osver = "Linux"
         test_python()
     else:
-        print("Commstat does not recognize this operating system and cannot proceed.")
+        print("CommStat does not recognize this operating system and cannot proceed.")
+        print(f"Platform detected: {sys.platform}")
         return
 
 
@@ -108,19 +99,46 @@ def test_python():
     except:
         print("Exception while testing Python version, cannot continue installation")
         sys.exit()
-    if "Windows" in osver:
+    if osver == "Windows":
         print("Installing for Windows 10 or 11")
         wininstall()
-    elif "pi" or "Linux" in osver:
-        print("Installing for Linux Mint 20-21 Mate or Pi4 Bullseye 64bit")
+    elif osver == "macOS":
+        print("Installing for macOS")
+        macinstall()
+    elif osver == "Linux":
+        print("Installing for Linux")
         lininstall()
     else:
-        print("system not recognized")
+        print("System not recognized")
 
 
 def lininstall():
     """Install dependencies for Linux/Pi systems."""
     packages = [
+        "feedparser",
+        "file-read-backwards",
+        "folium",
+        "pandas",
+        "maidenhead",
+        "psutil",
+    ]
+    for package in packages:
+        install(package)
+    runsettings()
+
+
+def macinstall():
+    """Install dependencies for macOS systems."""
+    print("\n" + "="*60)
+    print("macOS Installation Notes:")
+    print("="*60)
+    print("If PyQt5 fails to install via pip, install via Homebrew:")
+    print("  brew install pyqt5")
+    print("="*60 + "\n")
+
+    packages = [
+        "pyqt5",
+        "PyQtWebEngine",
         "feedparser",
         "file-read-backwards",
         "folium",

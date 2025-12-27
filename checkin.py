@@ -94,6 +94,21 @@ class Ui_FormCheckin(object):
         self.pushButton_2.setText(_translate("FormCheckin", "Cancel"))
 
 
+    def _get_active_group_from_db(self):
+        """Get the active group from the database."""
+        try:
+            conn = sqlite3.connect("commstat.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM Groups WHERE is_active = 1")
+            result = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if result:
+                return result[0]
+        except sqlite3.Error as e:
+            print(f"Error reading active group from database: {e}")
+        return ""
+
     def getConfig(self):
         global serverip
         global serverport
@@ -108,14 +123,12 @@ class Ui_FormCheckin(object):
             systeminfo = config_object["DIRECTEDCONFIG"]
             callsign = format(userinfo["callsign"])
             callsignSuffix = format(userinfo["callsignsuffix"])
-            group1 = format(userinfo["group1"])
-            group2 = format(userinfo["group2"])
             grid = format(userinfo["grid"])
             path = format(systeminfo["path"])
             serverip = format(systeminfo["server"])
             serverport = format(systeminfo["UDP_port"])
             state = format(systeminfo["state"])
-            selectedgroup = format(userinfo["selectedgroup"])
+            selectedgroup = self._get_active_group_from_db()
 
 
 

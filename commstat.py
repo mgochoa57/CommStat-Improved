@@ -135,7 +135,8 @@ def start_local_server(port: int = 8000) -> Optional[int]:
                 httpd.serve_forever()
             return p
         except OSError as e:
-            if e.errno in (98, 10048):  # Address already in use (Linux/Windows)
+            # Address already in use: 48=macOS, 98=Linux, 10048=Windows
+            if e.errno in (48, 98, 10048):
                 print(f"Port {p} in use, trying next...")
                 continue
             raise

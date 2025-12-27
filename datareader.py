@@ -23,8 +23,9 @@ from PyQt5.QtWidgets import QMessageBox
 from PyQt5.QtCore import QDateTime
 import maidenhead as mh
 
-# Initialize Windows terminal colors
-os.system('')
+# Initialize Windows terminal colors (enables ANSI escape sequences)
+if sys.platform == 'win32':
+    os.system('')
 
 # Message type markers
 MSG_BULLETIN = "{^%}"
@@ -90,8 +91,6 @@ class Config:
     def __init__(self):
         self.callsign: str = ""
         self.callsign_suffix: str = ""
-        self.group1: str = ""
-        self.group2: str = ""
         self.grid: str = ""
         self.path: str = ""
         self.selected_group: str = ""
@@ -118,16 +117,10 @@ class Config:
         userinfo = config["USERINFO"]
         self.callsign = userinfo.get("callsign", "")
         self.callsign_suffix = userinfo.get("callsignsuffix", "")
-        self.group1 = userinfo.get("group1", "")
-        self.group2 = userinfo.get("group2", "")
         self.grid = userinfo.get("grid", "")
 
         # Get active group from database
         self.selected_group = self._get_active_group_from_db()
-
-        # If group2 is too short, use group1
-        if len(self.group2) < 4:
-            self.group2 = self.group1
 
         systeminfo = config["DIRECTEDCONFIG"]
         self.path = systeminfo.get("path", "")
@@ -590,12 +583,13 @@ class MessageParser:
             testlat = testlat + (num_rows * 0.010)
             testlong = testlong + (num_rows * 0.010)
 
-        # Insert into members_Data
+        # Insert into members_Data (use active group for both columns)
+        active_group = self.config.selected_group
         self.cursor.execute(
             "INSERT OR REPLACE INTO members_Data "
             "(date, callsign, groupname1, groupname2, gridlat, gridlong, state, grid) "
             "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-            (utc, callsign, self.config.group1, self.config.group2, testlat, testlong, state, grid)
+            (utc, callsign, active_group, active_group, testlat, testlong, state, grid)
         )
         self.conn.commit()
 

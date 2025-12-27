@@ -9,6 +9,7 @@ User settings only - colors are in a separate dialog.
 """
 
 import os
+import sys
 import platform
 from configparser import ConfigParser
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -59,10 +60,15 @@ class SettingsDialog(QDialog):
 
     def _detect_os(self):
         """Detect operating system for path handling."""
-        if "Windows" in platform.platform():
+        if sys.platform == 'win32':
             self.os_directed = r"\DIRECTED.TXT"
-        else:
+            self.default_path = os.path.expandvars(r"%LOCALAPPDATA%\JS8Call")
+        elif sys.platform == 'darwin':
             self.os_directed = "/DIRECTED.TXT"
+            self.default_path = os.path.expanduser("~/Library/Application Support/JS8Call")
+        else:  # Linux
+            self.os_directed = "/DIRECTED.TXT"
+            self.default_path = os.path.expanduser("~/.local/share/JS8Call")
 
     def _setup_ui(self):
         """Setup the main UI layout."""
@@ -132,7 +138,7 @@ class SettingsDialog(QDialog):
         connection_layout.addWidget(QLabel("JS8Call Path:"), 1, 0)
         self.path_edit = QLineEdit()
         self.path_edit.setMinimumHeight(28)
-        self.path_edit.setPlaceholderText("Path to JS8Call data folder")
+        self.path_edit.setPlaceholderText(self.default_path)
         connection_layout.addWidget(self.path_edit, 1, 1, 1, 3)
 
         layout.addWidget(connection_group)
@@ -156,6 +162,8 @@ class SettingsDialog(QDialog):
     def _load_config(self):
         """Load settings from config.ini."""
         if not os.path.exists("config.ini"):
+            # Set default path for new installations
+            self.path_edit.setText(self.default_path)
             return
 
         config = ConfigParser()

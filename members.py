@@ -75,6 +75,21 @@ class Ui_FormMembers(object):
         #self.label.setText(_translate("FormMembers", labeltext))
         
 
+    def _get_active_group_from_db(self):
+        """Get the active group from the database."""
+        try:
+            conn = sqlite3.connect("commstat.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM Groups WHERE is_active = 1")
+            result = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if result:
+                return result[0]
+        except sqlite3.Error as e:
+            print(f"Error reading active group from database: {e}")
+        return ""
+
     def getConfig(self):
         global serverip
         global serverport
@@ -88,13 +103,11 @@ class Ui_FormMembers(object):
             systeminfo = config_object["DIRECTEDCONFIG"]
             callsign = format(userinfo["callsign"])
             callsignSuffix = format(userinfo["callsignsuffix"])
-            group1 = format(userinfo["group1"])
-            group2 = format(userinfo["group2"])
             grid = format(userinfo["grid"])
             path = format(systeminfo["path"])
             serverip = format(systeminfo["server"])
             serverport = format(systeminfo["UDP_port"])
-            selectedgroup = format(userinfo["selectedgroup"])
+            selectedgroup = self._get_active_group_from_db()
             labeltext = ("Currently Active Group : " + selectedgroup)
             print(labeltext)
             self.label.setText("net tezt here")
