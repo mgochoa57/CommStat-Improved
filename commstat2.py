@@ -18,6 +18,9 @@ import threading
 import subprocess
 import http.server
 import socketserver
+import urllib.request
+import tempfile
+import webbrowser
 from configparser import ConfigParser
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
@@ -49,7 +52,7 @@ from bulletin import Ui_FormBull
 
 VERSION = "2.5.0"
 WINDOW_TITLE = f"CommStat-Improved (v{VERSION}) by N0DDK"
-WINDOW_SIZE = (1400, 818)
+WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
 ICON_FILE = "radiation-32.jpg"
 DATABASE_FILE = "traffic.db3"
@@ -66,6 +69,8 @@ DEFAULT_GROUPS = ["MAGNET", "AMRRON", "PREPPERNET"]
 MAP_WIDTH = 604
 MAP_HEIGHT = 340
 FILTER_HEIGHT = 20
+SLIDESHOW_INTERVAL = 1  # Minutes between image changes
+PLAYLIST_URL = "https://js8call-improved.com/playlist.php"
 
 # Map and layout dimensions defaults
 # MAP_WIDTH = 604
@@ -135,6 +140,20 @@ def start_local_server(port: int = 8000) -> Optional[int]:
             raise
     print("Failed to start tile server")
     return None
+
+
+# =============================================================================
+# Clickable Label for Slideshow
+# =============================================================================
+
+class ClickableLabel(QtWidgets.QLabel):
+    """A QLabel that emits a clicked signal when clicked."""
+    clicked = QtCore.pyqtSignal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 # =============================================================================
@@ -651,6 +670,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._load_live_feed()
         self._load_bulletin_data()
 
+        # Check playlist on startup for Force/Skip commands
+        self._check_playlist_on_startup()
+
     def _setup_menu(self) -> None:
         """Create the menu bar with all actions."""
         self.menubar = QtWidgets.QMenuBar(self)
@@ -919,26 +941,385 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.config.get_hide_map():
             self.map_widget.hide()
             self.map_disabled_label.show()
+            self._start_slideshow()
         else:
             self.map_disabled_label.hide()
 
     def _setup_map_disabled_label(self) -> None:
-        """Create the 'Map Disabled' label shown when map is hidden."""
-        self.map_disabled_label = QtWidgets.QLabel(self.central_widget)
+        """Create the label/image display shown when map is hidden."""
+        self.map_disabled_label = ClickableLabel(self.central_widget)
         self.map_disabled_label.setFixedSize(MAP_WIDTH, MAP_HEIGHT)
         self.map_disabled_label.setAlignment(Qt.AlignCenter)
+        self.map_disabled_label.setCursor(QtGui.QCursor(Qt.PointingHandCursor))
+        self.map_disabled_label.clicked.connect(self._on_slideshow_click)
 
-        # Use feed colors
+        # Use feed colors for background
         bg_color = self.config.get_color('feed_background')
         fg_color = self.config.get_color('feed_foreground')
         self.map_disabled_label.setStyleSheet(
             f"background-color: {bg_color}; color: {fg_color}; font-size: 18px; font-weight: bold;"
         )
-        self.map_disabled_label.setText("Map Disabled")
 
         # Add to same layout position as map
         self.main_layout.addWidget(self.map_disabled_label, 3, 0, 2, 1, Qt.AlignLeft | Qt.AlignTop)
-        self.main_layout.setColumnStretch(1, 1)  # Bulletin (stretches)
+
+        # Image slideshow state: list of (image_path, click_url) tuples
+        self.slideshow_items: List[Tuple[str, Optional[str]]] = []
+        self.slideshow_index: int = 0
+        self.playlist_message: Optional[str] = None  # Message from playlist to display
+
+        # Timer for slideshow
+        self.slideshow_timer = QtCore.QTimer(self)
+        self.slideshow_timer.timeout.connect(self._show_next_image)
+        self.slideshow_timer.setInterval(SLIDESHOW_INTERVAL * 60000)  # Convert minutes to ms
+
+    def _check_playlist_on_startup(self) -> None:
+        """Check playlist on startup for Force/Skip commands (runs in background thread)."""
+        thread = threading.Thread(target=self._check_playlist_for_force_async, daemon=True)
+        thread.start()
+
+    def _check_playlist_for_force_async(self) -> None:
+        """Background thread version of Force check - emits signal to update UI."""
+        import re
+        from datetime import datetime
+        try:
+            with urllib.request.urlopen(PLAYLIST_URL, timeout=10) as response:
+                content = response.read().decode('utf-8')
+
+                # Extract content between <pre> tags if present
+                pre_match = re.search(r'<pre>(.*?)</pre>', content, re.DOTALL)
+                if pre_match:
+                    content = pre_match.group(1)
+
+                content = content.strip()
+                lines = [line.strip() for line in content.split('\n') if line.strip()]
+
+                print(f"Playlist lines: {lines[:3]}")  # Debug output
+
+                if not lines:
+                    return
+
+                # Line 1: Check for expiration date (case-insensitive)
+                first_line = lines[0]
+                date_match = re.match(r'date:\s*(\d{4}-\d{2}-\d{2})', first_line, re.IGNORECASE)
+                if date_match:
+                    expiry_date = datetime.strptime(date_match.group(1), '%Y-%m-%d').date()
+                    today = datetime.now().date()
+                    print(f"Playlist date: {expiry_date}, Today: {today}")  # Debug
+                    if expiry_date < today:
+                        # Date has passed - skip all playlist rules including Force
+                        print("Playlist expired, skipping Force check")
+                        return
+                    # Remove date line
+                    lines = lines[1:]
+
+                # Line 2: Check for Force/Skip
+                if lines and lines[0].startswith("Force"):
+                    print("Force command detected, hiding map")  # Debug
+                    # Schedule UI update on main thread
+                    QtCore.QMetaObject.invokeMethod(
+                        self, "_apply_force_hide_map",
+                        QtCore.Qt.QueuedConnection
+                    )
+
+        except Exception as e:
+            print(f"Failed to check playlist: {e}")
+
+    @QtCore.pyqtSlot()
+    def _apply_force_hide_map(self) -> None:
+        """Apply force hide map from background thread signal (runs on main thread)."""
+        if not self.config.get_hide_map():
+            self.config.set_hide_map(True)
+            self.hide_map_action.setChecked(True)
+            self.map_widget.hide()
+            self.map_disabled_label.show()
+            self._start_slideshow()
+
+    def _fetch_remote_playlist(self) -> List[Tuple[str, Optional[str]]]:
+        """Fetch and parse the remote playlist, download images to temp files.
+
+        Playlist format:
+        - Line 1: Date: YYYY-MM-DD (expiration date - if passed, skip all rules)
+        - Line 2: Force, Skip, or neither
+        - Remaining: MESSAGE START/END block or image URLs
+
+        Returns empty list if Skip command found, date expired, or if showing a message.
+        """
+        import re
+        from datetime import datetime
+        items = []
+        self.playlist_message = None  # Reset message
+
+        try:
+            with urllib.request.urlopen(PLAYLIST_URL, timeout=10) as response:
+                content = response.read().decode('utf-8')
+
+                # Extract content between <pre> tags if present
+                pre_match = re.search(r'<pre>(.*?)</pre>', content, re.DOTALL)
+                if pre_match:
+                    content = pre_match.group(1)
+
+                content = content.strip()
+                lines = [line.strip() for line in content.split('\n') if line.strip()]
+
+                if not lines:
+                    return []
+
+                # Line 1: Check for expiration date (case-insensitive)
+                first_line = lines[0]
+                date_match = re.match(r'date:\s*(\d{4}-\d{2}-\d{2})', first_line, re.IGNORECASE)
+                if date_match:
+                    expiry_date = datetime.strptime(date_match.group(1), '%Y-%m-%d').date()
+                    today = datetime.now().date()
+                    if expiry_date < today:
+                        # Date has passed - skip all playlist rules
+                        print(f"Playlist expired on {expiry_date}, skipping rules")
+                        return []
+                    # Remove date line
+                    lines = lines[1:]
+
+                # Line 2: Check for Skip command
+                if lines and lines[0].startswith("Skip"):
+                    return []
+
+                # Check for Force command - remove it from lines
+                if lines and lines[0].startswith("Force"):
+                    lines = lines[1:]
+
+                # Rebuild content for MESSAGE check
+                content = '\n'.join(lines)
+
+                # Check for MESSAGE START/END block
+                msg_match = re.search(r'MESSAGE START\s*\n(.*?)\nMESSAGE END', content, re.DOTALL)
+                if msg_match:
+                    self.playlist_message = msg_match.group(1)
+                    return []  # Don't load images when showing message
+
+                for line in lines:
+                    # Skip MESSAGE markers
+                    if line in ("MESSAGE START", "MESSAGE END"):
+                        continue
+
+                    # Find all URLs in the line
+                    urls = re.findall(r'https?://[^\s]+', line)
+                    if not urls:
+                        continue
+
+                    image_url = urls[0]
+                    click_url = urls[1] if len(urls) > 1 else None
+
+                    # Download image to temp file
+                    try:
+                        temp_path = self._download_image(image_url)
+                        if temp_path:
+                            items.append((temp_path, click_url))
+                    except Exception as e:
+                        print(f"Failed to download {image_url}: {e}")
+
+        except Exception as e:
+            print(f"Failed to fetch playlist: {e}")
+
+        return items
+
+    def _download_image(self, url: str) -> Optional[str]:
+        """Download an image from URL to a temp file, return the path."""
+        try:
+            # Get file extension from URL
+            ext = os.path.splitext(url)[1] or '.png'
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+
+            with urllib.request.urlopen(url, timeout=10) as response:
+                temp_file.write(response.read())
+            temp_file.close()
+            return temp_file.name
+        except Exception as e:
+            print(f"Failed to download image {url}: {e}")
+            return None
+
+    def _load_slideshow_images(self) -> None:
+        """Load images from remote playlist first, then local folder."""
+        self.slideshow_items = []
+        self.slideshow_index = 0
+
+        # First, fetch remote playlist
+        remote_items = self._fetch_remote_playlist()
+        self.slideshow_items.extend(remote_items)
+
+        # Then, load local images from images folder
+        images_folder = os.path.join(os.getcwd(), "images")
+        if os.path.isdir(images_folder):
+            valid_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp')
+            files = sorted(os.listdir(images_folder))
+            for filename in files:
+                if filename.lower().endswith(valid_extensions):
+                    image_path = os.path.join(images_folder, filename)
+                    self.slideshow_items.append((image_path, None))
+
+    def _start_slideshow(self) -> None:
+        """Start the image slideshow or display playlist message."""
+        self._load_slideshow_images()
+
+        # Check if we have a message to display
+        if self.playlist_message:
+            self._display_playlist_message()
+            self.slideshow_timer.start()  # Keep timer running to check for changes
+        elif self.slideshow_items:
+            self._show_current_image()
+            self.slideshow_timer.start()
+        else:
+            # No images and no message - show "Map Disabled"
+            self.map_disabled_label.setPixmap(QtGui.QPixmap())
+            self.map_disabled_label.setText("Map Disabled")
+
+    @QtCore.pyqtSlot()
+    def _display_playlist_message(self) -> None:
+        """Display the playlist message centered in the label."""
+        if not self.playlist_message:
+            return
+
+        # Clear any existing pixmap
+        self.map_disabled_label.setPixmap(QtGui.QPixmap())
+
+        # Set text with center alignment (both horizontal and vertical)
+        self.map_disabled_label.setText(self.playlist_message)
+        self.map_disabled_label.setAlignment(Qt.AlignCenter)
+        self.map_disabled_label.setWordWrap(True)
+
+    def _stop_slideshow(self) -> None:
+        """Stop the image slideshow."""
+        self.slideshow_timer.stop()
+
+    def _show_current_image(self) -> None:
+        """Display the current slideshow image."""
+        if not self.slideshow_items:
+            return
+
+        image_path, _ = self.slideshow_items[self.slideshow_index]
+        pixmap = QtGui.QPixmap(image_path)
+
+        # Scale to fit while maintaining aspect ratio
+        scaled_pixmap = pixmap.scaled(
+            MAP_WIDTH, MAP_HEIGHT,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
+        )
+        self.map_disabled_label.setPixmap(scaled_pixmap)
+        self.map_disabled_label.setText("")
+
+    def _show_next_image(self) -> None:
+        """Advance to the next image in the slideshow or refresh message."""
+        # Check playlist for updates in background (at each interval)
+        thread = threading.Thread(target=self._check_playlist_content_async, daemon=True)
+        thread.start()
+
+        # If showing a message, just keep displaying it (will be updated by async check)
+        if self.playlist_message:
+            return
+
+        # Otherwise advance to next image
+        if not self.slideshow_items:
+            return
+
+        self.slideshow_index = (self.slideshow_index + 1) % len(self.slideshow_items)
+        self._show_current_image()
+
+    def _check_playlist_content_async(self) -> None:
+        """Background thread to check playlist for message changes."""
+        import re
+        from datetime import datetime
+        try:
+            with urllib.request.urlopen(PLAYLIST_URL, timeout=10) as response:
+                content = response.read().decode('utf-8')
+
+                # Extract content between <pre> tags if present
+                pre_match = re.search(r'<pre>(.*?)</pre>', content, re.DOTALL)
+                if pre_match:
+                    content = pre_match.group(1)
+
+                content = content.strip()
+                lines = [line.strip() for line in content.split('\n') if line.strip()]
+
+                if not lines:
+                    return
+
+                # Line 1: Check for expiration date (case-insensitive)
+                first_line = lines[0]
+                date_match = re.match(r'date:\s*(\d{4}-\d{2}-\d{2})', first_line, re.IGNORECASE)
+                if date_match:
+                    expiry_date = datetime.strptime(date_match.group(1), '%Y-%m-%d').date()
+                    today = datetime.now().date()
+                    if expiry_date < today:
+                        # Date has passed - skip all playlist rules, clear any message
+                        if self.playlist_message:
+                            self.playlist_message = None
+                            QtCore.QMetaObject.invokeMethod(
+                                self, "_reload_slideshow",
+                                QtCore.Qt.QueuedConnection
+                            )
+                        return
+                    # Remove date line
+                    lines = lines[1:]
+
+                # Check for Skip - no message
+                if lines and lines[0].startswith("Skip"):
+                    if self.playlist_message:
+                        self.playlist_message = None
+                        QtCore.QMetaObject.invokeMethod(
+                            self, "_reload_slideshow",
+                            QtCore.Qt.QueuedConnection
+                        )
+                    return
+
+                # Check for Force command - remove it from lines
+                if lines and lines[0].startswith("Force"):
+                    lines = lines[1:]
+
+                # Rebuild content for MESSAGE check
+                content = '\n'.join(lines)
+
+                # Check for MESSAGE START/END block
+                msg_match = re.search(r'MESSAGE START\s*\n(.*?)\nMESSAGE END', content, re.DOTALL)
+                if msg_match:
+                    new_message = msg_match.group(1)
+                    # Only update if message changed
+                    if new_message != self.playlist_message:
+                        self.playlist_message = new_message
+                        QtCore.QMetaObject.invokeMethod(
+                            self, "_display_playlist_message",
+                            QtCore.Qt.QueuedConnection
+                        )
+                elif self.playlist_message:
+                    # Message was removed from playlist
+                    self.playlist_message = None
+                    QtCore.QMetaObject.invokeMethod(
+                        self, "_reload_slideshow",
+                        QtCore.Qt.QueuedConnection
+                    )
+
+        except Exception as e:
+            print(f"Failed to check playlist content: {e}")
+
+    @QtCore.pyqtSlot()
+    def _reload_slideshow(self) -> None:
+        """Reload the slideshow (called from background thread via signal)."""
+        self._load_slideshow_images()
+        if self.playlist_message:
+            self._display_playlist_message()
+        elif self.slideshow_items:
+            self.slideshow_index = 0
+            self._show_current_image()
+        else:
+            self.map_disabled_label.setPixmap(QtGui.QPixmap())
+            self.map_disabled_label.setText("Map Disabled")
+
+    def _on_slideshow_click(self) -> None:
+        """Handle click on slideshow image - open associated URL if any."""
+        if not self.slideshow_items:
+            return
+
+        _, click_url = self.slideshow_items[self.slideshow_index]
+        if click_url:
+            webbrowser.open(click_url)
 
     def _setup_live_feed(self) -> None:
         """Create the live feed text area."""
@@ -1275,6 +1656,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # Save map position before refresh, then reload map
         self._save_map_position(callback=self._load_map)
 
+        # Check playlist for Force command in background (even when map is shown)
+        thread = threading.Thread(target=self._check_playlist_for_force_async, daemon=True)
+        thread.start()
+
     def _update_time(self) -> None:
         """Update the time display with current UTC time."""
         current_time = QDateTime.currentDateTimeUtc()
@@ -1419,12 +1804,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._load_marquee()
 
     def _on_toggle_hide_map(self, checked: bool) -> None:
-        """Toggle between map and disabled label."""
+        """Toggle between map and image slideshow."""
         self.config.set_hide_map(checked)
         if checked:
             self.map_widget.hide()
             self.map_disabled_label.show()
+            self._start_slideshow()
         else:
+            self._stop_slideshow()
+            self.playlist_message = None  # Clear any message
             self.map_disabled_label.hide()
             self.map_widget.show()
 
