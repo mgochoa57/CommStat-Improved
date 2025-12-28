@@ -60,7 +60,7 @@ class Ui_FormMarquee:
 
         # Set icon
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("radiation-32.jpg"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap("radiation-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         FormMarquee.setWindowIcon(icon)
 
         # Color selection label

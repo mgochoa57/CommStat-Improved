@@ -31,7 +31,7 @@ class Ui_FormStatack(object):
         font.setPointSize(10)
         FormStatack.setFont(font)
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("radiation-32.jpg"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap("radiation-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         FormStatack.setWindowIcon(icon)
         self.gridLayout_2 = QtWidgets.QGridLayout(FormStatack)
         self.gridLayout_2.setObjectName("gridLayout_2")

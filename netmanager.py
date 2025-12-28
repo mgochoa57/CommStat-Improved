@@ -59,7 +59,7 @@ class Ui_Form_Net_Manager(object):
         icon = QtGui.QIcon()
 
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("radiation-32.jpg"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap("radiation-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         Form_Net_Manager.setWindowIcon(icon)
 
 

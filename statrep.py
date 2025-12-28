@@ -104,8 +104,8 @@ class StatRepDialog(QDialog):
         )
 
         # Set window icon
-        if os.path.exists("radiation-32.jpg"):
-            self.setWindowIcon(QtGui.QIcon("radiation-32.jpg"))
+        if os.path.exists("radiation-32.png"):
+            self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
 
         # Configuration
         self.server_ip = "127.0.0.1"

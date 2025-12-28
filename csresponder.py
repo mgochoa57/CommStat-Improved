@@ -27,7 +27,7 @@ class Ui_FormJS8Mail(object):
         font.setPointSize(10)
         FormJS8Mail.setFont(font)
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("radiation-32.jpg"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap("radiation-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         FormJS8Mail.setWindowIcon(icon)
         self.lineEdit = QtWidgets.QLineEdit(FormJS8Mail)
         self.lineEdit.setGeometry(QtCore.QRect(160, 50, 221, 22))

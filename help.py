@@ -19,7 +19,7 @@ class Ui_FormHelp(object):
         font.setPointSize(10)
         FormHelp.setFont(font)
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("radiation-32.jpg"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap("radiation-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         FormHelp.setWindowIcon(icon)
         self.gridLayout_2 = QtWidgets.QGridLayout(FormHelp)
         self.gridLayout_2.setObjectName("gridLayout_2")

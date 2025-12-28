@@ -55,7 +55,7 @@ VERSION = "2.5.0"
 WINDOW_TITLE = f"CommStat-Improved (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
-ICON_FILE = "radiation-32.jpg"
+ICON_FILE = "radiation-32.png"
 DATABASE_FILE = "traffic.db3"
 
 # Default filter date range

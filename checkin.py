@@ -28,7 +28,7 @@ class Ui_FormCheckin(object):
         font.setPointSize(10)
         FormCheckin.setFont(font)
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("radiation-32.jpg"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap("radiation-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         FormCheckin.setWindowIcon(icon)
         self.lineEdit_2 = QtWidgets.QLineEdit(FormCheckin)
         self.lineEdit_2.setGeometry(QtCore.QRect(171, 126, 481, 22))

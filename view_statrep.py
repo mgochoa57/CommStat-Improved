@@ -23,8 +23,8 @@ class StatRepDialog(QDialog):
         self.setMinimumSize(560, 600)
         self.resize(650, 600)
         self.setStyleSheet("background-color: rgb(255, 255, 255);")
-        if os.path.exists("radiation-32.jpg"):
-            self.setWindowIcon(QtGui.QIcon("radiation-32.jpg"))
+        if os.path.exists("radiation-32.png"):
+            self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
         # Main layout
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(10, 10, 10, 10)
