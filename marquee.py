@@ -282,7 +282,7 @@ class Ui_FormMarquee:
     def _save_to_database(self, callsign: str, color: str, message: str) -> None:
         """Save marquee to database."""
         now = QDateTime.currentDateTime()
-        date = now.toUTC().toString("yy-MM-dd HH:mm")
+        date = now.toUTC().toString("yyyy-MM-dd HH:mm")
 
         conn = sqlite3.connect(DATABASE_FILE)
         try:

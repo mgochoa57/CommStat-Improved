@@ -419,12 +419,18 @@ class DatabaseManager:
             print(f"Database error: {error}")
             return []
 
-    def get_bulletin_data(self, group: Optional[str]) -> List[Tuple]:
+    def get_bulletin_data(
+        self,
+        group: Optional[str],
+        start: str,
+        end: str
+    ) -> List[Tuple]:
         """
         Fetch bulletin data from database.
 
         Args:
             group: Selected group name, or None for all groups
+            start/end: Date range filter
 
         Returns:
             List of tuples containing bulletin records
@@ -434,12 +440,17 @@ class DatabaseManager:
                 cursor = connection.cursor()
                 if group:
                     cursor.execute(
-                        "SELECT datetime, groupid, callsign, message FROM bulletins_Data WHERE groupid = ?",
-                        [group]
+                        """SELECT datetime, groupid, callsign, message
+                           FROM bulletins_Data
+                           WHERE groupid = ? AND datetime BETWEEN ? AND ?""",
+                        [group, start, end]
                     )
                 else:
                     cursor.execute(
-                        "SELECT datetime, groupid, callsign, message FROM bulletins_Data"
+                        """SELECT datetime, groupid, callsign, message
+                           FROM bulletins_Data
+                           WHERE datetime BETWEEN ? AND ?""",
+                        [start, end]
                     )
                 return cursor.fetchall()
         except sqlite3.Error as error:
@@ -646,12 +657,64 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(*WINDOW_SIZE)
 
+        # Restore window position from config
+        self._restore_window_position()
+
         # Set window icon
         icon_path = Path(ICON_FILE)
         if icon_path.exists():
             icon = QtGui.QIcon()
             icon.addPixmap(QtGui.QPixmap(str(icon_path)), QtGui.QIcon.Normal, QtGui.QIcon.Off)
             self.setWindowIcon(icon)
+
+    def _restore_window_position(self) -> None:
+        """Restore window position from config.ini."""
+        config = ConfigParser()
+        if not os.path.exists(CONFIG_FILE):
+            return
+
+        config.read(CONFIG_FILE)
+
+        if config.has_section("WINDOW"):
+            try:
+                x = config.getint("WINDOW", "x", fallback=None)
+                y = config.getint("WINDOW", "y", fallback=None)
+                width = config.getint("WINDOW", "width", fallback=None)
+                height = config.getint("WINDOW", "height", fallback=None)
+
+                if x is not None and y is not None:
+                    self.move(x, y)
+                if width is not None and height is not None:
+                    self.resize(width, height)
+            except (ValueError, TypeError):
+                pass  # Use defaults if config is invalid
+
+    def closeEvent(self, event) -> None:
+        """Save window position before closing."""
+        self._save_window_position()
+        event.accept()
+
+    def _save_window_position(self) -> None:
+        """Save window position to config.ini."""
+        config = ConfigParser()
+        if os.path.exists(CONFIG_FILE):
+            config.read(CONFIG_FILE)
+
+        if not config.has_section("WINDOW"):
+            config.add_section("WINDOW")
+
+        pos = self.pos()
+        size = self.size()
+        config.set("WINDOW", "x", str(pos.x()))
+        config.set("WINDOW", "y", str(pos.y()))
+        config.set("WINDOW", "width", str(size.width()))
+        config.set("WINDOW", "height", str(size.height()))
+
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                config.write(f)
+        except IOError as e:
+            print(f"Warning: Could not save window position: {e}")
 
     def _setup_ui(self) -> None:
         """Build the user interface."""
@@ -1459,8 +1522,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _load_bulletin_data(self) -> None:
         """Load bulletin data from database into the table."""
+        filters = self.config.filter_settings
         group = None if self.config.get_show_all_groups() else self.db.get_active_group()
-        data = self.db.get_bulletin_data(group)
+        data = self.db.get_bulletin_data(
+            group=group,
+            start=filters.get('start', DEFAULT_FILTER_START),
+            end=filters.get('end', DEFAULT_FILTER_END)
+        )
 
         # Clear and populate table
         self.bulletin_table.setRowCount(0)
@@ -1824,6 +1892,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.config = ConfigManager()
             self._setup_filter_labels()
             self._load_statrep_data()
+            self._load_bulletin_data()
             # Save map position before refresh, then reload map
             self._save_map_position(callback=self._load_map)
 
@@ -1852,6 +1921,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config = ConfigManager()
         self._setup_filter_labels()
         self._load_statrep_data()
+        self._load_bulletin_data()
         self._save_map_position(callback=self._load_map)
 
         print(f"Filter reset: start={new_start}, end={new_end}")
