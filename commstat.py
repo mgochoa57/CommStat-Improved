@@ -976,7 +976,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.slideshow_timer.setInterval(SLIDESHOW_INTERVAL * 60000)  # Convert minutes to ms
 
     def _check_playlist_on_startup(self) -> None:
-        """Check playlist on startup for Force/Skip commands (runs in background thread)."""
+        """Check playlist on startup for Force command (runs in background thread)."""
         thread = threading.Thread(target=self._check_playlist_for_force_async, daemon=True)
         thread.start()
 
@@ -1015,7 +1015,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     # Remove date line
                     lines = lines[1:]
 
-                # Line 2: Check for Force/Skip
+                # Line 2: Check for Force command
                 if lines and lines[0].startswith("Force"):
                     print("Force command detected, hiding map")  # Debug
                     # Schedule UI update on main thread
@@ -1041,11 +1041,11 @@ class MainWindow(QtWidgets.QMainWindow):
         """Fetch and parse the remote playlist, download images to temp files.
 
         Playlist format:
-        - Line 1: Date: YYYY-MM-DD (expiration date - if passed, skip all rules)
-        - Line 2: Force, Skip, or neither
+        - Line 1: Date: YYYY-MM-DD (expiration date - if passed, ignore playlist)
+        - Line 2: Force or nothing (Force hides map on startup)
         - Remaining: MESSAGE START/END block or image URLs
 
-        Returns empty list if Skip command found, date expired, or if showing a message.
+        Returns empty list if date expired or if showing a message.
         """
         import re
         from datetime import datetime
@@ -1079,10 +1079,6 @@ class MainWindow(QtWidgets.QMainWindow):
                         return []
                     # Remove date line
                     lines = lines[1:]
-
-                # Line 2: Check for Skip command
-                if lines and lines[0].startswith("Skip"):
-                    return []
 
                 # Check for Force command - remove it from lines
                 if lines and lines[0].startswith("Force"):
@@ -1139,23 +1135,26 @@ class MainWindow(QtWidgets.QMainWindow):
             return None
 
     def _load_slideshow_images(self) -> None:
-        """Load images from remote playlist first, then local folder."""
+        """Load images from remote playlist if available, otherwise local folder."""
         self.slideshow_items = []
         self.slideshow_index = 0
 
-        # First, fetch remote playlist
+        # Fetch remote playlist
         remote_items = self._fetch_remote_playlist()
-        self.slideshow_items.extend(remote_items)
 
-        # Then, load local images from images folder
-        images_folder = os.path.join(os.getcwd(), "images")
-        if os.path.isdir(images_folder):
-            valid_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp')
-            files = sorted(os.listdir(images_folder))
-            for filename in files:
-                if filename.lower().endswith(valid_extensions):
-                    image_path = os.path.join(images_folder, filename)
-                    self.slideshow_items.append((image_path, None))
+        if remote_items:
+            # Use remote playlist only
+            self.slideshow_items.extend(remote_items)
+        else:
+            # No remote playlist - load local images from images folder
+            images_folder = os.path.join(os.getcwd(), "images")
+            if os.path.isdir(images_folder):
+                valid_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp')
+                files = sorted(os.listdir(images_folder))
+                for filename in files:
+                    if filename.lower().endswith(valid_extensions):
+                        image_path = os.path.join(images_folder, filename)
+                        self.slideshow_items.append((image_path, None))
 
     def _start_slideshow(self) -> None:
         """Start the image slideshow or display playlist message."""
@@ -1261,16 +1260,6 @@ class MainWindow(QtWidgets.QMainWindow):
                         return
                     # Remove date line
                     lines = lines[1:]
-
-                # Check for Skip - no message
-                if lines and lines[0].startswith("Skip"):
-                    if self.playlist_message:
-                        self.playlist_message = None
-                        QtCore.QMetaObject.invokeMethod(
-                            self, "_reload_slideshow",
-                            QtCore.Qt.QueuedConnection
-                        )
-                    return
 
                 # Check for Force command - remove it from lines
                 if lines and lines[0].startswith("Force"):
