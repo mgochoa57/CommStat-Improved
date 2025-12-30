@@ -9,6 +9,10 @@ CommStat and its related projects were created to support **organized HF digital
 
 Over time, these tools have been used by members and participants associated with organizations and communities such as **AmRRON**, **MPURN**, **PREPPERNET**, and other independent emergency communications and preparedness groups.
 
+- AmRRON: https://amrron.com/  
+- MPURN: https://mpurn.wordpress.com/  
+- PREPPERNET: https://preppernet.com/
+
 > **Important Notice**  
 > References to AmRRON, MPURN, PREPPERNET, or any other organization are **historical and descriptive only** and do **not** imply endorsement, sponsorship, or official affiliation unless explicitly stated by those organizations.
 
@@ -84,7 +88,6 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - Filter labels use size policy to allow window resizing
 - 20-second auto-refresh for StatRep, bulletins, live feed, and map
 
-
 2. DATAREADER REFACTORING (datareader.py)
 -----------------------------------------
 - Reduced from 675 to ~620 lines while adding features
@@ -104,7 +107,6 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - Removed 100+ lines of commented/dead code
 - Added type hints and docstrings
 
-
 3. MODULE INTEGRATION (datareader + commstat2)
 ----------------------------------------------
 - datareader imported as module instead of subprocess call
@@ -115,13 +117,11 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - Much cleaner terminal output - only shows genuinely new messages
 - No subprocess overhead every 20 seconds
 
-
 4. CROSS-PLATFORM PATH HANDLING
 -------------------------------
 - Replaced OS-specific path separators with os.path.join()
 - Works on Windows, Linux, and macOS without code changes
 - Simplified _detect_os() to _log_os_info() (just logs OS name)
-
 
 5. CONFIGURATION IMPROVEMENTS
 -----------------------------
@@ -132,7 +132,6 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - .gitignore updated to track templates but ignore user files
 - Renamed 'port' to 'UDP_port' for clarity (15 Python files updated)
 
-
 6. INSTALL.PY UPDATES
 ---------------------
 - Added psutil to package list
@@ -140,14 +139,12 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - Added create_from_template() function
 - Added setup_files() to create config and database from templates
 
-
 7. UI IMPROVEMENTS
 ------------------
 - Menu bar: 24px height with 4px padding for centered text
 - Menu colors configurable via config.ini (menu_background, menu_foreground)
 - Filter labels allow window to be narrowed (QSizePolicy.Ignored)
 - Color validation: invalid colors fall back to defaults with warning
-
 
 8. CODE QUALITY
 ---------------
@@ -159,7 +156,6 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - Error handling with graceful failures
 - f-strings for consistent string formatting
 - Private methods use _ prefix
-
 
 9. FILES MODIFIED
 -----------------
@@ -173,7 +169,6 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
   js8mail.py, js8sms.py, marquee.py, members.py, netmanager.py,
   settings.py, statack.py, statrep.py (modernized dialogs)
 
-
 10. MENU ACTIVATION (December 2025)
 -----------------------------------
 - JS8EMAIL: Send emails via APRS gateway
@@ -181,12 +176,10 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - DISPLAY FILTER: Simplified filter dialog
 - Removed unused DATA MANAGER menu option
 
-
 11. MAP IMPROVEMENTS
 --------------------
 - Map preserves position and zoom during 20-second auto-refresh
 - Removed grid-based filtering from SQL queries
-
 
 12. GROUP MANAGEMENT
 --------------------
@@ -197,14 +190,12 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - New "MANAGE GROUPS" menu option
 - All data refreshes when active group changes
 
-
 13. FILE CLEANUP AND REORGANIZATION (December 2025)
 ----------------------------------------------------
 - Renamed modernized files
 - Replaced images and icons
 - Moved obsolete files to trash/
 - Cleaned up UI labels and spacing
-
 
 14. MODERNIZED DIALOGS
 ----------------------
@@ -213,7 +204,6 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - JS8 SMS
 - Filter
 - Settings
-
 
 15. GIT COMMITS
 ---------------
@@ -232,7 +222,11 @@ Copyright © 2025 Manuel Ochoa
 This project is licensed under the **GNU General Public License v3.0**.
 
 CommStat-Improved is derived from earlier CommStat projects originally created by **Daniel M. Hurd (W5DMH)** and later expanded by **Rich W. Whittington (KD9DSS)**.  
-The original CommStat design incorporated concepts and workflows developed in collaboration with **AmRRON**, **MPURN**, and **PREPPERNET**.
+The original CommStat design incorporated concepts and workflows developed in collaboration with:
+
+- **AmRRON** — https://amrron.com/  
+- **MPURN** — https://mpurn.wordpress.com/  
+- **PREPPERNET** — https://preppernet.com/
 
 References to organizations are **historical and descriptive only**.
 
