@@ -675,9 +675,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_feed_messages = 500  # Limit buffer size
 
         # Add "Connecting..." messages for each configured rig before connecting
+        from datetime import datetime, timezone
         connectors = self.connector_manager.get_all_connectors()
         for conn in connectors:
-            self.feed_messages.append(f"[{conn['rig_name']}] Connecting...")
+            utc_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d   %H:%M:%S")
+            self.feed_messages.append(f"{utc_str}\t[{conn['rig_name']}] Connecting...")
 
         # Now initiate connections
         self.tcp_pool.connect_all()
