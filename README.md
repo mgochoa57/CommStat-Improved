@@ -248,6 +248,17 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - Playlist check moved to 60-second interval
 - More responsive UI with reduced unnecessary database queries
 
+18. DATE FILTERING (January 2026)
+---------------------------------
+- Start date automatically set to today when program launches
+- No end date by default (shows all data from today forward)
+- Display Filter dialog (Menu > DISPLAY FILTER) allows viewing historical data:
+  - Set custom start date to view older StatReps
+  - Set end date to limit the date range
+- Filter settings stored in memory (not saved to config.ini)
+- Each program restart resets to today's date
+- Removed [FILTER] section from config.ini
+
 ---
 
 ## License & Copyright
