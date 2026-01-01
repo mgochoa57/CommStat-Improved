@@ -2017,26 +2017,12 @@ class MainWindow(QtWidgets.QMainWindow):
             rig_name: Name of the rig.
             is_connected: True if connected, False if disconnected.
         """
-        # Remove any previous status messages for this rig
-        status_prefixes = [
-            f"[{rig_name}] Connecting...",
-            f"[{rig_name}] Connected!",
-            f"[{rig_name}] Disconnected",
-        ]
-        self.feed_messages = [
-            msg for msg in self.feed_messages
-            if msg not in status_prefixes
-        ]
-
-        # Add new status
-        if is_connected:
-            status_line = f"[{rig_name}] Connected!"
-        else:
+        # For connects, the full message with speed will come via status_message
+        # For disconnects, add the message here
+        if not is_connected:
             status_line = f"[{rig_name}] Disconnected"
-
-        # Insert at beginning (newest first)
-        self.feed_messages.insert(0, status_line)
-        self._update_feed_display()
+            self.feed_messages.insert(0, status_line)
+            self._update_feed_display()
 
     def _handle_status_message(self, rig_name: str, message: str) -> None:
         """

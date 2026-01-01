@@ -38,7 +38,11 @@ class JS8CallTCPClient(QObject):
     callsign_received = pyqtSignal(str, str)      # rig_name, callsign
     grid_received = pyqtSignal(str, str)          # rig_name, grid
     frequency_received = pyqtSignal(str, int)     # rig_name, frequency
+    speed_received = pyqtSignal(str, int)         # rig_name, speed (submode)
     status_message = pyqtSignal(str, str)         # rig_name, message (for live feed)
+
+    # Speed mode names
+    SPEED_NAMES = {0: "NORMAL", 1: "FAST", 2: "TURBO", 4: "SLOW", 8: "ULTRA"}
 
     def __init__(self, rig_name: str, port: int, parent: QObject = None):
         """
@@ -56,6 +60,7 @@ class JS8CallTCPClient(QObject):
         self.buffer = b""
         self._auto_reconnect = True
         self._reconnect_attempts = 0
+        self._pending_connect_speed = False  # Waiting for speed after connect
 
         # Create socket
         self.socket = QTcpSocket(self)
@@ -147,6 +152,10 @@ class JS8CallTCPClient(QObject):
         """Request frequency from JS8Call. Result emitted via frequency_received signal."""
         self.send_message("RIG.GET_FREQ")
 
+    def get_speed(self) -> None:
+        """Request speed mode from JS8Call. Result emitted via speed_received signal."""
+        self.send_message("MODE.GET_SPEED")
+
     def send_tx_message(self, text: str) -> int:
         """
         Send a message to be transmitted by JS8Call.
@@ -165,15 +174,15 @@ class JS8CallTCPClient(QObject):
         self._reconnect_timer.stop()
         self._reconnect_attempts = 0  # Reset counter on successful connection
         self._auto_reconnect = True   # Re-enable auto-reconnect
+        self._pending_connect_speed = True  # Wait for speed before emitting full status
         self.connection_changed.emit(self.rig_name, True)
-        self.status_message.emit(self.rig_name, f"[{self.rig_name}] Connected")
+        self.get_speed()  # Request speed mode
 
     def _on_disconnected(self) -> None:
         """Handle disconnection."""
         print(f"[{self.rig_name}] Disconnected from JS8Call")
         self.buffer = b""
         self.connection_changed.emit(self.rig_name, False)
-        self.status_message.emit(self.rig_name, f"[{self.rig_name}] Disconnected")
 
         # Schedule reconnect if auto-reconnect is enabled and under max attempts
         if self._auto_reconnect and self._reconnect_attempts < MAX_RECONNECT_ATTEMPTS:
@@ -219,6 +228,18 @@ class JS8CallTCPClient(QObject):
         elif msg_type == "RIG.FREQ":
             freq = params.get("FREQ", 0)
             self.frequency_received.emit(self.rig_name, freq)
+
+        elif msg_type == "MODE.SPEED":
+            speed = params.get("SPEED", 0)
+            self.speed_received.emit(self.rig_name, speed)
+            # If this is the speed response after connecting, emit the full status
+            if self._pending_connect_speed:
+                self._pending_connect_speed = False
+                speed_name = self.SPEED_NAMES.get(speed, f"MODE {speed}")
+                self.status_message.emit(
+                    self.rig_name,
+                    f"[{self.rig_name}] Connected  Running in {speed_name} mode"
+                )
 
         elif msg_type == "RX.DIRECTED":
             # Directed message received - emit for processing
