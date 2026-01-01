@@ -23,15 +23,85 @@ QRZ_API_URL = "https://xmldata.qrz.com/xml/current/"
 CACHE_DAYS = 30  # How long to cache callsign data
 DB_PATH = Path(__file__).parent / "traffic.db3"
 CONFIG_PATH = Path(__file__).parent / "config.ini"
+DEBUG_PATH = Path(__file__).parent / "debug.ini"
+
+
+def is_debug_enabled() -> bool:
+    """Check if debug mode is enabled via debug.ini."""
+    try:
+        if not DEBUG_PATH.exists():
+            return False
+        config = configparser.ConfigParser()
+        config.read(DEBUG_PATH)
+        return config.getboolean("DEBUG", "debug", fallback=False)
+    except Exception:
+        return False
+
+
+# Cache debug state
+_DEBUG = is_debug_enabled()
+
+
+def debug_print(msg: str) -> None:
+    """Print message only if debug mode is enabled."""
+    if _DEBUG:
+        print(msg)
+
+
+def ensure_qrz_config() -> None:
+    """
+    Ensure config.ini exists and has [QRZ] section with default values.
+    Creates config.ini from template if missing.
+    """
+    template_path = Path(__file__).parent / "config.ini.template"
+
+    try:
+        # If config.ini doesn't exist, create from template
+        if not CONFIG_PATH.exists():
+            if template_path.exists():
+                import shutil
+                shutil.copy(template_path, CONFIG_PATH)
+                debug_print(f"QRZ: Created config.ini from template")
+            else:
+                # Create minimal config.ini
+                config = configparser.ConfigParser()
+                config.add_section("QRZ")
+                config.set("QRZ", "active", "False")
+                config.set("QRZ", "username", "")
+                config.set("QRZ", "password", "")
+                with open(CONFIG_PATH, "w") as f:
+                    config.write(f)
+                debug_print(f"QRZ: Created new config.ini")
+                return
+
+        # Ensure [QRZ] section exists
+        config = configparser.ConfigParser()
+        config.read(CONFIG_PATH)
+
+        if not config.has_section("QRZ"):
+            config.add_section("QRZ")
+            config.set("QRZ", "active", "False")
+            config.set("QRZ", "username", "")
+            config.set("QRZ", "password", "")
+
+            with open(CONFIG_PATH, "w") as f:
+                config.write(f)
+            debug_print("QRZ: Added [QRZ] section to config.ini")
+    except Exception as e:
+        debug_print(f"Error ensuring QRZ config: {e}")
 
 
 def load_qrz_config() -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Load QRZ configuration from config.ini.
+    Creates [QRZ] section if missing.
 
     Returns:
         Tuple of (active, username, password)
     """
+    # Ensure section exists
+    ensure_qrz_config()
+
     try:
         config = configparser.ConfigParser()
         config.read(CONFIG_PATH)
@@ -42,7 +112,7 @@ def load_qrz_config() -> Tuple[bool, Optional[str], Optional[str]]:
 
         return active, username or None, password or None
     except Exception as e:
-        print(f"Error reading QRZ config: {e}")
+        debug_print(f"Error reading QRZ config: {e}")
         return False, None, None
 
 
@@ -70,7 +140,7 @@ def set_qrz_active(active: bool) -> bool:
 
         return True
     except Exception as e:
-        print(f"Error writing QRZ config: {e}")
+        debug_print(f"Error writing QRZ config: {e}")
         return False
 
 
@@ -140,7 +210,7 @@ class QRZClient:
                 """)
                 conn.commit()
         except sqlite3.Error as e:
-            print(f"Error creating QRZ cache table: {e}")
+            debug_print(f"Error creating QRZ cache table: {e}")
 
     def _get_cached(self, callsign: str) -> Optional[Dict]:
         """
@@ -179,7 +249,7 @@ class QRZClient:
 
                 return None
         except sqlite3.Error as e:
-            print(f"Error reading QRZ cache: {e}")
+            debug_print(f"Error reading QRZ cache: {e}")
             return None
 
     def _save_to_cache(self, data: Dict) -> None:
@@ -223,7 +293,7 @@ class QRZClient:
                 ))
                 conn.commit()
         except sqlite3.Error as e:
-            print(f"Error saving to QRZ cache: {e}")
+            debug_print(f"Error saving to QRZ cache: {e}")
 
     def _api_request(self, params: Dict) -> Optional[ET.Element]:
         """
@@ -239,17 +309,17 @@ class QRZClient:
             url = QRZ_API_URL + "?" + urllib.parse.urlencode(params, safe="")
             # Debug: show URL (mask password)
             debug_url = url.replace(params.get("password", ""), "***") if "password" in params else url
-            print(f"QRZ Request URL: {debug_url}")
+            debug_print(f"QRZ Request URL: {debug_url}")
 
             with urllib.request.urlopen(url, timeout=10) as response:
                 xml_data = response.read().decode("utf-8")
                 return ET.fromstring(xml_data)
 
         except urllib.error.URLError as e:
-            print(f"QRZ API error: {e}")
+            debug_print(f"QRZ API error: {e}")
             return None
         except ET.ParseError as e:
-            print(f"QRZ XML parse error: {e}")
+            debug_print(f"QRZ XML parse error: {e}")
             return None
 
     def login(self, username: str = None, password: str = None) -> bool:
@@ -267,7 +337,7 @@ class QRZClient:
         password = password or self.password
 
         if not username or not password:
-            print("QRZ: Username and password required")
+            debug_print("QRZ: Username and password required")
             return False
 
         self.username = username
@@ -281,7 +351,7 @@ class QRZClient:
 
         root = self._api_request(params)
         if root is None:
-            print("QRZ: No response from API")
+            debug_print("QRZ: No response from API")
             return False
 
         # Handle XML namespace - QRZ uses xmlns="http://xmldata.qrz.com"
@@ -293,7 +363,7 @@ class QRZClient:
             session = root.find(".//Session")
 
         if session is None:
-            print("QRZ: No Session element in response")
+            debug_print("QRZ: No Session element in response")
             return False
 
         # Find Key element (with and without namespace)
@@ -303,14 +373,14 @@ class QRZClient:
 
         if key_elem is not None and key_elem.text:
             self.session_key = key_elem.text
-            print(f"QRZ: Login successful")
+            debug_print(f"QRZ: Login successful")
 
             # Check subscription status
             sub_exp = session.find("qrz:SubExp", ns)
             if sub_exp is None:
                 sub_exp = session.find("SubExp")
             if sub_exp is not None and sub_exp.text:
-                print(f"QRZ: Subscription expires {sub_exp.text}")
+                debug_print(f"QRZ: Subscription expires {sub_exp.text}")
 
             return True
 
@@ -319,10 +389,10 @@ class QRZClient:
         if error is None:
             error = session.find("Error")
         if error is not None and error.text:
-            print(f"QRZ: {error.text}")
+            debug_print(f"QRZ: {error.text}")
             # Disable QRZ on authentication errors
             if "invalid" in error.text.lower() or "password" in error.text.lower():
-                print("QRZ: Disabling QRZ lookups due to auth failure")
+                debug_print("QRZ: Disabling QRZ lookups due to auth failure")
                 set_qrz_active(False)
 
         return False
@@ -344,12 +414,12 @@ class QRZClient:
         if use_cache:
             cached = self._get_cached(callsign)
             if cached:
-                print(f"QRZ: {callsign} found in cache")
+                debug_print(f"QRZ: {callsign} found in cache")
                 return cached
 
         # Check if QRZ is active before making API calls
         if not self.is_active():
-            print("QRZ: Lookups disabled (active = False in config.ini)")
+            debug_print("QRZ: Lookups disabled (active = False in config.ini)")
             return None
 
         # Need session key
@@ -384,7 +454,7 @@ class QRZClient:
                     self.session_key = None
                     if self.login():
                         return self.lookup(callsign, use_cache=False)
-                print(f"QRZ: {error.text}")
+                debug_print(f"QRZ: {error.text}")
                 return None
 
         # Parse callsign data
@@ -392,7 +462,7 @@ class QRZClient:
         if callsign_elem is None:
             callsign_elem = root.find(".//Callsign")
         if callsign_elem is None:
-            print(f"QRZ: {callsign} not found")
+            debug_print(f"QRZ: {callsign} not found")
             return None
 
         # Extract all fields (strip namespace from tag names)
@@ -405,7 +475,7 @@ class QRZClient:
         # Save to cache
         self._save_to_cache(data)
 
-        print(f"QRZ: {callsign} fetched from API")
+        debug_print(f"QRZ: {callsign} fetched from API")
         return data
 
 

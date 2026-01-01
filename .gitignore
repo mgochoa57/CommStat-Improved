@@ -35,3 +35,6 @@ copyDIRECTED.TXT
 
 # Claude Code context file (private)
 CLAUDE.md
+
+# Debug config (local only)
+debug.ini
