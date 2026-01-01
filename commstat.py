@@ -2056,8 +2056,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # Format feed line to match DIRECTED.TXT format:
             # DATETIME    FREQ_MHZ    OFFSET    SNR    CALLSIGN: MESSAGE
-            freq_mhz = freq / 1000000 if freq else 0
-            feed_line = f"{utc_str}    {freq_mhz:.6f}    {offset:04d}    {snr:+03d}    {from_call}: {value}"
+            # FREQ from JS8Call is dial + offset, so subtract offset to get dial frequency
+            dial_freq_mhz = (freq - offset) / 1000000 if freq else 0
+            feed_line = f"{utc_str}    {dial_freq_mhz:.6f}    {offset:04d}    {snr:+03d}    {from_call}: {value}"
 
             # Add to feed buffer (newest first)
             self._add_to_feed(feed_line, rig_name)
@@ -2082,8 +2083,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
             if value and from_call:
                 utc_str = datetime.utcfromtimestamp(utc_ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
-                freq_mhz = freq / 1000000 if freq else 0
-                feed_line = f"{utc_str}    {freq_mhz:.6f}    {offset:04d}    {snr:+03d}    {from_call}: {value}"
+                dial_freq_mhz = (freq - offset) / 1000000 if freq else 0
+                feed_line = f"{utc_str}    {dial_freq_mhz:.6f}    {offset:04d}    {snr:+03d}    {from_call}: {value}"
                 self._add_to_feed(feed_line, rig_name)
 
     def _add_to_feed(self, line: str, rig_name: str) -> None:
