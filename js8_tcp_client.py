@@ -79,7 +79,7 @@ class JS8CallTCPClient(QObject):
         state = self.socket.state()
         if state == QAbstractSocket.UnconnectedState:
             print(f"[{self.rig_name}] Connecting to {self.host}:{self.port}...")
-            self.status_message.emit(self.rig_name, f"[{self.rig_name}] Connecting...")
+            self.status_message.emit(self.rig_name, f"[{self.rig_name}] Attempting to connect on TCP port {self.port}")
             self.socket.connectToHost(self.host, self.port)
         elif state in (QAbstractSocket.ClosingState, QAbstractSocket.ConnectedState):
             # Wait for socket to fully close before reconnecting
@@ -87,7 +87,7 @@ class JS8CallTCPClient(QObject):
         else:
             # Force abort and reconnect
             print(f"[{self.rig_name}] Aborting stale connection (state: {state})...")
-            self.status_message.emit(self.rig_name, f"[{self.rig_name}] Connecting...")
+            self.status_message.emit(self.rig_name, f"[{self.rig_name}] Attempting to connect on TCP port {self.port}")
             self.socket.abort()
             self.socket.connectToHost(self.host, self.port)
 
@@ -240,7 +240,7 @@ class JS8CallTCPClient(QObject):
                 speed_name = self.SPEED_NAMES.get(speed, f"MODE {speed}")
                 self.status_message.emit(
                     self.rig_name,
-                    f"[{self.rig_name}] Connected  Running in {speed_name} mode"
+                    f"[{self.rig_name}] Connected on TCP port {self.port}  Running in {speed_name} mode"
                 )
 
         elif msg_type == "RX.DIRECTED":
@@ -314,7 +314,6 @@ class JS8CallTCPClient(QObject):
         self._auto_reconnect = True
         self._reconnect_timer.stop()
         print(f"[{self.rig_name}] Manual reconnect requested...")
-        self.status_message.emit(self.rig_name, f"[{self.rig_name}] Reconnecting...")
         self.connect_to_host()
 
 
