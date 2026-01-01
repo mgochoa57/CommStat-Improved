@@ -70,19 +70,7 @@ def launch_main_app() -> None:
         sys.exit(1)
 
     python = sys.executable
-
-    if sys.platform == "win32":
-        subprocess.Popen(
-            [python, str(MAIN_APP)],
-            cwd=str(SCRIPT_DIR),
-            creationflags=subprocess.CREATE_NEW_CONSOLE
-        )
-    else:
-        subprocess.Popen(
-            [python, str(MAIN_APP)],
-            cwd=str(SCRIPT_DIR),
-            start_new_session=True
-        )
+    subprocess.run([python, str(MAIN_APP)], cwd=str(SCRIPT_DIR))
 
 
 def main() -> None:
