@@ -27,7 +27,6 @@ from typing import Dict, Any, Optional, List, Tuple
 
 import folium
 import maidenhead as mh
-import datareader
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtGui import QColor
@@ -241,12 +240,9 @@ class ConfigManager:
             }
 
     def _load_directed_config(self, config: ConfigParser) -> None:
-        """Load directed configuration section."""
+        """Load display configuration section."""
         if config.has_section("DIRECTEDCONFIG"):
             self.directed_config = {
-                'path': config.get("DIRECTEDCONFIG", "path", fallback=""),
-                'server': config.get("DIRECTEDCONFIG", "server", fallback="127.0.0.1"),
-                'UDP_port': config.get("DIRECTEDCONFIG", "UDP_port", fallback="2442"),
                 'state': config.get("DIRECTEDCONFIG", "state", fallback=""),
                 'hide_heartbeat': config.getboolean("DIRECTEDCONFIG", "hide_heartbeat", fallback=False),
                 'show_all_groups': config.getboolean("DIRECTEDCONFIG", "show_all_groups", fallback=False),
@@ -648,9 +644,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tcp_pool.any_message_received.connect(self._handle_tcp_message)
         self.tcp_pool.connect_all()
 
-        # Initialize datareader for parsing DIRECTED.TXT
-        self.datareader_config = datareader.Config()
-        self.datareader_parser = datareader.MessageParser(self.datareader_config)
+        # Live feed message buffer (stores messages from all TCP connections)
+        self.feed_messages: List[str] = []
+        self.max_feed_messages = 500  # Limit buffer size
 
         # Start tile server for map
         self.server_thread = threading.Thread(target=start_local_server, daemon=True)
@@ -1475,30 +1471,37 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_layout.addWidget(self.feed_text, 2, 0, 1, 2)
 
     def _load_live_feed(self) -> None:
-        """Load DIRECTED.TXT content into the live feed (reversed order)."""
-        directed_path = self.config.directed_config.get('path', '')
-        if not directed_path:
-            self.feed_text.setPlainText("No DIRECTED.TXT path configured")
+        """Initialize the live feed display from buffer."""
+        self._update_feed_display()
+
+    def _update_feed_display(self) -> None:
+        """Update the live feed display from the message buffer."""
+        if not self.feed_messages:
+            # Show helpful message when no TCP messages yet
+            connected_rigs = self.tcp_pool.get_connected_rig_names()
+            if connected_rigs:
+                self.feed_text.setPlainText(
+                    f"Connected to: {', '.join(connected_rigs)}\n\n"
+                    "Waiting for messages..."
+                )
+            else:
+                self.feed_text.setPlainText(
+                    "No JS8Call connections.\n\n"
+                    "Use Menu > JS8 CONNECTORS to add a connection."
+                )
             return
 
-        # Build full path to DIRECTED.TXT
-        full_path = os.path.join(directed_path, "DIRECTED.TXT")
+        # Filter messages based on settings
+        messages = self.feed_messages
+        if self.config.get_hide_heartbeat():
+            messages = [
+                msg for msg in messages
+                if 'HEARTBEAT' not in msg.upper()
+                and '@ALLCALL CQ' not in msg.upper()
+            ]
 
-        try:
-            with open(full_path, 'r') as f:
-                lines = f.readlines()
-            # Filter out heartbeat and CQ messages if setting is enabled
-            if self.config.get_hide_heartbeat():
-                lines = [line for line in lines
-                         if 'HEARTBEAT' not in line.upper()
-                         and '@ALLCALL CQ' not in line.upper()]
-            # Reverse the lines so newest is at top
-            reversed_text = ''.join(reversed(lines))
-            self.feed_text.setPlainText(reversed_text)
-        except FileNotFoundError:
-            self.feed_text.setPlainText(f"File not found: {full_path}")
-        except Exception as e:
-            self.feed_text.setPlainText(f"Error reading feed: {e}")
+        # Join messages (already in newest-first order)
+        self.feed_text.setPlainText('\n'.join(messages))
 
     def _setup_bulletin_table(self) -> None:
         """Create the bulletin data table."""
@@ -1781,16 +1784,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.marquee_chars = 0
 
     def _refresh_data(self) -> None:
-        """Run datareader and refresh StatRep, live feed, and bulletin data."""
-        # Parse new messages from DIRECTED.TXT (only processes new lines)
-        if self.datareader_parser.copy_directed():
-            new_count = self.datareader_parser.parse()
-            if new_count > 0:
-                print(f"Processed {new_count} new lines")
-
-        # Reload data from database
+        """Refresh StatRep, bulletin data, and map from database."""
+        # Reload data from database (TCP handler inserts data directly)
         self._load_statrep_data()
-        self._load_live_feed()
         self._load_bulletin_data()
 
         # Save map position before refresh, then reload map
@@ -2009,12 +2005,14 @@ class MainWindow(QtWidgets.QMainWindow):
             rig_name: Name of the rig that received the message.
             message: Parsed JSON message from JS8Call.
         """
+        from datetime import datetime
+
         msg_type = message.get("type", "")
+        value = message.get("value", "")
         params = message.get("params", {})
 
+        # Handle RX.DIRECTED messages
         if msg_type == "RX.DIRECTED":
-            # Extract data from the directed message
-            value = message.get("value", "")
             from_call = params.get("FROM", "")
             to_call = params.get("TO", "")
             grid = params.get("GRID", "")
@@ -2023,18 +2021,59 @@ class MainWindow(QtWidgets.QMainWindow):
             utc_ms = params.get("UTC", 0)
 
             # Convert UTC milliseconds to datetime string
-            from datetime import datetime
             utc_str = datetime.utcfromtimestamp(utc_ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
+
+            # Format feed line similar to DIRECTED.TXT format
+            # Format: UTC  SNR  FREQ  FROM: VALUE
+            freq_khz = freq / 1000 if freq else 0
+            feed_line = f"{utc_str}\t{snr:+d}\t{freq_khz:.1f}\t{from_call}: {value}"
+
+            # Add to feed buffer (newest first)
+            self._add_to_feed(feed_line, rig_name)
 
             print(f"[{rig_name}] RX.DIRECTED: {from_call} -> {to_call}: {value}")
 
-            # Process the message directly via TCP (no file polling needed)
+            # Process the message for database insertion
             processed = self._process_directed_message(
                 rig_name, value, from_call, to_call, grid, freq, snr, utc_str
             )
 
             if processed:
                 self._refresh_data()
+
+        # Handle RX.ACTIVITY messages (band activity for live feed)
+        elif msg_type == "RX.ACTIVITY":
+            from_call = params.get("FROM", "")
+            freq = params.get("FREQ", 0)
+            snr = params.get("SNR", 0)
+            utc_ms = params.get("UTC", 0)
+
+            if value and from_call:
+                utc_str = datetime.utcfromtimestamp(utc_ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
+                freq_khz = freq / 1000 if freq else 0
+                feed_line = f"{utc_str}\t{snr:+d}\t{freq_khz:.1f}\t{from_call}: {value}"
+                self._add_to_feed(feed_line, rig_name)
+
+    def _add_to_feed(self, line: str, rig_name: str) -> None:
+        """
+        Add a message line to the live feed buffer.
+
+        Args:
+            line: Formatted message line.
+            rig_name: Name of the rig (prepended to line).
+        """
+        # Prepend rig name for multi-rig identification
+        tagged_line = f"[{rig_name}] {line}"
+
+        # Insert at beginning (newest first)
+        self.feed_messages.insert(0, tagged_line)
+
+        # Trim buffer if too large
+        if len(self.feed_messages) > self.max_feed_messages:
+            self.feed_messages = self.feed_messages[:self.max_feed_messages]
+
+        # Update display
+        self._update_feed_display()
 
     def _process_directed_message(
         self,

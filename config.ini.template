@@ -1,10 +1,4 @@
 [DIRECTEDCONFIG]
-# Path to JS8Call data directory (used for live feed display)
-# Windows: C:\Users\YourUser\AppData\Local\JS8Call
-# macOS:   ~/Library/Application Support/JS8Call
-# Linux:   ~/.local/share/JS8Call
-path =
-
 # State abbreviation for display purposes
 state = TX
 
