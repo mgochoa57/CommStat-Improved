@@ -642,11 +642,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.connector_manager.add_frequency_columns()
         self.tcp_pool = TCPConnectionPool(self.connector_manager, self)
         self.tcp_pool.any_message_received.connect(self._handle_tcp_message)
-        self.tcp_pool.connect_all()
+        self.tcp_pool.any_connection_changed.connect(self._handle_connection_changed)
 
         # Live feed message buffer (stores messages from all TCP connections)
         self.feed_messages: List[str] = []
         self.max_feed_messages = 500  # Limit buffer size
+
+        # Add "Connecting..." messages for each configured rig before connecting
+        connectors = self.connector_manager.get_all_connectors()
+        for conn in connectors:
+            self.feed_messages.append(f"[{conn['rig_name']}] Connecting...")
+
+        # Now initiate connections
+        self.tcp_pool.connect_all()
 
         # Start tile server for map
         self.server_thread = threading.Thread(target=start_local_server, daemon=True)
@@ -1477,18 +1485,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_feed_display(self) -> None:
         """Update the live feed display from the message buffer."""
         if not self.feed_messages:
-            # Show helpful message when no TCP messages yet
-            connected_rigs = self.tcp_pool.get_connected_rig_names()
-            if connected_rigs:
-                self.feed_text.setPlainText(
-                    f"Connected to: {', '.join(connected_rigs)}\n\n"
-                    "Waiting for messages..."
-                )
-            else:
-                self.feed_text.setPlainText(
-                    "No JS8Call connections.\n\n"
-                    "Use Menu > JS8 CONNECTORS to add a connection."
-                )
+            # No connectors configured
+            self.feed_text.setPlainText(
+                "No JS8Call connectors configured.\n\n"
+                "Use Menu > JS8 CONNECTORS to add a connection."
+            )
             return
 
         # Filter messages based on settings
@@ -1997,6 +1998,23 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = JS8ConnectorsDialog(self.connector_manager, self.tcp_pool, self)
         dialog.exec_()
 
+    def _handle_connection_changed(self, rig_name: str, is_connected: bool) -> None:
+        """
+        Handle TCP connection status changes.
+
+        Args:
+            rig_name: Name of the rig.
+            is_connected: True if connected, False if disconnected.
+        """
+        if is_connected:
+            status_line = f"[{rig_name}] Connected!"
+        else:
+            status_line = f"[{rig_name}] Disconnected"
+
+        # Insert at beginning (newest first)
+        self.feed_messages.insert(0, status_line)
+        self._update_feed_display()
+
     def _handle_tcp_message(self, rig_name: str, message: dict) -> None:
         """
         Handle incoming TCP message from JS8Call.
@@ -2060,13 +2078,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         Args:
             line: Formatted message line.
-            rig_name: Name of the rig (prepended to line).
+            rig_name: Name of the rig (unused, frequency identifies rig).
         """
-        # Prepend rig name for multi-rig identification
-        tagged_line = f"[{rig_name}] {line}"
-
         # Insert at beginning (newest first)
-        self.feed_messages.insert(0, tagged_line)
+        self.feed_messages.insert(0, line)
 
         # Trim buffer if too large
         if len(self.feed_messages) > self.max_feed_messages:
