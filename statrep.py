@@ -83,8 +83,8 @@ STATUS_COLORS = {
 # Styling
 FONT_FAMILY = "Arial"
 FONT_SIZE = 10
-WINDOW_WIDTH = 520
-WINDOW_HEIGHT = 480
+WINDOW_WIDTH = 700
+WINDOW_HEIGHT = 580
 
 
 # =============================================================================
@@ -207,6 +207,10 @@ class StatRepDialog(QDialog):
                 self.grid_field.setText("")
             return
 
+        if not self.tcp_pool:
+            print("[StatRep] No TCP pool available")
+            return
+
         client = self.tcp_pool.get_client(rig_name)
         if client and client.is_connected():
             # Connect signals for this client (disconnect any existing first)
@@ -223,8 +227,11 @@ class StatRepDialog(QDialog):
             client.grid_received.connect(self._on_grid_received)
 
             # Request callsign and grid from JS8Call
+            print(f"[StatRep] Requesting callsign and grid from {rig_name}")
             client.get_callsign()
             client.get_grid()
+        else:
+            print(f"[StatRep] Client not available or not connected for {rig_name}")
 
     def _on_callsign_received(self, rig_name: str, callsign: str) -> None:
         """Handle callsign received from JS8Call."""
@@ -236,6 +243,7 @@ class StatRepDialog(QDialog):
 
     def _on_grid_received(self, rig_name: str, grid: str) -> None:
         """Handle grid received from JS8Call."""
+        print(f"[StatRep] Grid received from {rig_name}: {grid}")
         # Only update if this is the currently selected rig
         if self.rig_combo.currentText() == rig_name:
             self.grid = grid
@@ -278,7 +286,8 @@ class StatRepDialog(QDialog):
         rig_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.rig_combo = QtWidgets.QComboBox()
         self.rig_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.rig_combo.setMinimumWidth(150)
+        self.rig_combo.setMinimumWidth(180)
+        self.rig_combo.setMinimumHeight(28)
         self.rig_combo.currentTextChanged.connect(self._on_rig_changed)
         rig_layout.addWidget(rig_label)
         rig_layout.addWidget(self.rig_combo)
@@ -295,6 +304,8 @@ class StatRepDialog(QDialog):
         to_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.to_combo = QtWidgets.QComboBox()
         self.to_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        self.to_combo.setMinimumWidth(150)
+        self.to_combo.setMinimumHeight(28)
         # Populate with all groups
         all_groups = self._get_all_groups_from_db()
         for group in all_groups:
@@ -315,6 +326,8 @@ class StatRepDialog(QDialog):
         self.from_field = QtWidgets.QLineEdit(self.callsign)
         self.from_field.setReadOnly(True)
         self.from_field.setStyleSheet("background-color: #e9ecef;")
+        self.from_field.setMinimumWidth(150)
+        self.from_field.setMinimumHeight(28)
         from_layout.addWidget(from_label)
         from_layout.addWidget(self.from_field)
         header_layout.addLayout(from_layout)
@@ -326,7 +339,8 @@ class StatRepDialog(QDialog):
         self.grid_field = QtWidgets.QLineEdit(self.grid)
         self.grid_field.setReadOnly(True)
         self.grid_field.setStyleSheet("background-color: #e9ecef;")
-        self.grid_field.setMaximumWidth(80)
+        self.grid_field.setMinimumWidth(150)
+        self.grid_field.setMinimumHeight(28)
         grid_layout.addWidget(grid_label)
         grid_layout.addWidget(self.grid_field)
         header_layout.addLayout(grid_layout)
@@ -339,6 +353,8 @@ class StatRepDialog(QDialog):
         scope_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.scope_combo = QtWidgets.QComboBox()
         self.scope_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        self.scope_combo.setMinimumWidth(150)
+        self.scope_combo.setMinimumHeight(28)
         for display, code in SCOPE_OPTIONS:
             self.scope_combo.addItem(display, code)
         scope_layout.addWidget(scope_label)
@@ -386,6 +402,7 @@ class StatRepDialog(QDialog):
         remarks_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.remarks_field = QtWidgets.QLineEdit()
         self.remarks_field.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        self.remarks_field.setMinimumHeight(36)
         self.remarks_field.setMaxLength(60)
         self.remarks_field.setPlaceholderText("Optional - max 60 characters")
         remarks_layout.addWidget(remarks_label)
@@ -430,7 +447,8 @@ class StatRepDialog(QDialog):
         """Create a status dropdown with color-coded options."""
         combo = QtWidgets.QComboBox()
         combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        combo.setMinimumWidth(90)
+        combo.setMinimumWidth(130)
+        combo.setMinimumHeight(28)
 
         for display, code in STATUS_OPTIONS:
             combo.addItem(display, code)
