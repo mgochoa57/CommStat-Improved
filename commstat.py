@@ -2017,18 +2017,250 @@ class MainWindow(QtWidgets.QMainWindow):
             value = message.get("value", "")
             from_call = params.get("FROM", "")
             to_call = params.get("TO", "")
-            cmd = params.get("CMD", "")
             grid = params.get("GRID", "")
             freq = params.get("FREQ", 0)
             snr = params.get("SNR", 0)
-            utc = params.get("UTC", 0)
+            utc_ms = params.get("UTC", 0)
+
+            # Convert UTC milliseconds to datetime string
+            from datetime import datetime
+            utc_str = datetime.utcfromtimestamp(utc_ms / 1000).strftime("%Y-%m-%d %H:%M:%S")
 
             print(f"[{rig_name}] RX.DIRECTED: {from_call} -> {to_call}: {value}")
 
-            # The datareader already handles parsing DIRECTED.TXT
-            # For now, just refresh the UI to pick up any new data
-            # Future: Process RX.DIRECTED directly without file polling
-            self._refresh_data()
+            # Process the message directly via TCP (no file polling needed)
+            processed = self._process_directed_message(
+                rig_name, value, from_call, to_call, grid, freq, snr, utc_str
+            )
+
+            if processed:
+                self._refresh_data()
+
+    def _process_directed_message(
+        self,
+        rig_name: str,
+        value: str,
+        from_call: str,
+        to_call: str,
+        grid: str,
+        freq: int,
+        snr: int,
+        utc: str
+    ) -> bool:
+        """
+        Process a directed message received via TCP.
+
+        Args:
+            rig_name: Name of the rig that received the message.
+            value: The message text content.
+            from_call: Sender callsign.
+            to_call: Recipient (callsign or @GROUP).
+            grid: Sender's grid square.
+            freq: Frequency in Hz.
+            snr: Signal-to-noise ratio.
+            utc: UTC timestamp string.
+
+        Returns:
+            True if message was processed and inserted into database.
+        """
+        import re
+        import maidenhead as mh
+
+        # Message type markers (same as datareader)
+        MSG_BULLETIN = "{^%}"
+        MSG_STATREP = "{&%}"
+        MSG_FORWARDED_STATREP = "{F%}"
+        MSG_MARQUEE = "{*%}"
+        MSG_CHECKIN = "{~%}"
+
+        # Precedence mapping
+        PRECEDENCE_MAP = {
+            "1": "My Location",
+            "2": "My Community",
+            "3": "My County",
+            "4": "My Region",
+            "5": "Other Location"
+        }
+
+        # Extract group from to_call (e.g., "@MAGNET" -> "MAGNET")
+        group = ""
+        if to_call.startswith("@"):
+            group = to_call[1:]
+
+        # Extract callsign (remove suffix like /P)
+        callsign = from_call.split("/")[0] if from_call else ""
+
+        try:
+            conn = sqlite3.connect(DATABASE_FILE, timeout=10)
+            cursor = conn.cursor()
+
+            # Determine message type and process
+            if MSG_BULLETIN in value:
+                # Parse bulletin: {^%} ID,MESSAGE
+                match = re.search(r'\{\^\%\}\s*(.+)', value)
+                if match:
+                    fields = match.group(1).split(",")
+                    if len(fields) >= 2:
+                        id_num = fields[0].strip()
+                        bulletin = ",".join(fields[1:]).strip()
+
+                        cursor.execute(
+                            "INSERT OR REPLACE INTO bulletins_Data "
+                            "(datetime, idnum, groupid, callsign, message, frequency) "
+                            "VALUES(?, ?, ?, ?, ?, ?)",
+                            (utc, id_num, group, callsign, bulletin, freq)
+                        )
+                        conn.commit()
+                        print(f"\033[92m[{rig_name}] Added Bulletin from: {callsign} ID: {id_num}\033[0m")
+                        conn.close()
+                        return True
+
+            elif MSG_FORWARDED_STATREP in value:
+                # Parse forwarded statrep: {F%} GRID,PREC,SRID,SRCODE,COMMENTS,ORIG_CALL
+                match = re.search(r'\{F\%\}\s*(.+)', value)
+                if match:
+                    fields = match.group(1).split(",")
+                    if len(fields) >= 6:
+                        curgrid = fields[0].strip()
+                        prec1 = fields[1].strip()
+                        srid = fields[2].strip()
+                        srcode = fields[3].strip()
+                        comments = fields[4].strip() if len(fields) > 4 else ""
+                        orig_call = fields[5].strip() if len(fields) > 5 else callsign
+
+                        prec = PRECEDENCE_MAP.get(prec1, "Unknown")
+
+                        if len(srcode) >= 12:
+                            sr_fields = list(srcode)
+                            cursor.execute(
+                                "INSERT OR IGNORE INTO Statrep_Data "
+                                "(datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, "
+                                "med, ota, trav, net, fuel, food, crime, civil, political, comments, source, frequency) "
+                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                (utc, orig_call, group, curgrid, srid, prec,
+                                 sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
+                                 sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
+                                 sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
+                                 comments, "1", freq)
+                            )
+                            conn.commit()
+                            print(f"\033[92m[{rig_name}] Added Forwarded StatRep from: {orig_call} ID: {srid}\033[0m")
+                            conn.close()
+                            return True
+
+            elif MSG_STATREP in value:
+                # Parse statrep: {&%} GRID,PREC,SRID,SRCODE,COMMENTS
+                match = re.search(r'\{&\%\}\s*(.+)', value)
+                if match:
+                    fields = match.group(1).split(",")
+                    if len(fields) >= 4:
+                        curgrid = fields[0].strip()
+                        prec1 = fields[1].strip()
+                        srid = fields[2].strip()
+                        srcode = fields[3].strip()
+                        comments = fields[4].strip() if len(fields) > 4 else ""
+
+                        prec = PRECEDENCE_MAP.get(prec1, "Unknown")
+
+                        if len(srcode) >= 12:
+                            sr_fields = list(srcode)
+                            cursor.execute(
+                                "INSERT OR IGNORE INTO Statrep_Data "
+                                "(datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, "
+                                "med, ota, trav, net, fuel, food, crime, civil, political, comments, source, frequency) "
+                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                (utc, callsign, group, curgrid, srid, prec,
+                                 sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
+                                 sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
+                                 sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
+                                 comments, "1", freq)
+                            )
+                            conn.commit()
+                            print(f"\033[92m[{rig_name}] Added StatRep from: {callsign} ID: {srid}\033[0m")
+                            conn.close()
+                            return True
+
+            elif MSG_MARQUEE in value:
+                # Parse marquee: {*%} ID,COLOR,MESSAGE
+                match = re.search(r'\{\*\%\}\s*(.+)', value)
+                if match:
+                    fields = match.group(1).split(",")
+                    if len(fields) >= 3:
+                        id_num = fields[0].strip()
+                        color = fields[1].strip()
+                        marquee = ",".join(fields[2:]).strip()
+
+                        cursor.execute(
+                            "INSERT OR REPLACE INTO marquees_Data "
+                            "(idnum, callsign, groupname, date, color, message, frequency) "
+                            "VALUES(?, ?, ?, ?, ?, ?, ?)",
+                            (id_num, callsign, group, utc, color, marquee, freq)
+                        )
+                        conn.commit()
+                        print(f"\033[92m[{rig_name}] Added Marquee from: {callsign} ID: {id_num}\033[0m")
+                        conn.close()
+                        return True
+
+            elif MSG_CHECKIN in value:
+                # Parse checkin: {~%} TRAFFIC,STATE,GRID
+                match = re.search(r'\{~\%\}\s*(.+)', value)
+                if match:
+                    fields = match.group(1).split(",")
+                    if len(fields) >= 3:
+                        traffic = fields[0].strip()
+                        state = fields[1].strip()
+                        checkin_grid = fields[2].strip()
+
+                        # Convert grid to coordinates
+                        try:
+                            if len(checkin_grid) == 6:
+                                coords = mh.to_location(checkin_grid)
+                            else:
+                                coords = mh.to_location(checkin_grid, center=True)
+                            testlat = float(coords[0])
+                            testlong = float(coords[1])
+                        except Exception:
+                            testlat = 0.0
+                            testlong = 0.0
+
+                        # Check for duplicate grids and offset
+                        cursor.execute("SELECT Count() FROM members_Data WHERE grid = ?", (checkin_grid,))
+                        num_rows = cursor.fetchone()[0]
+                        if num_rows > 1:
+                            testlat = testlat + (num_rows * 0.010)
+                            testlong = testlong + (num_rows * 0.010)
+
+                        # Get active group
+                        active_group = self.db.get_active_group()
+
+                        # Insert into members_Data
+                        cursor.execute(
+                            "INSERT OR REPLACE INTO members_Data "
+                            "(date, callsign, groupname1, groupname2, gridlat, gridlong, state, grid) "
+                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                            (utc, callsign, active_group, active_group, testlat, testlong, state, checkin_grid)
+                        )
+
+                        # Insert into checkins_Data
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO checkins_Data "
+                            "(date, callsign, groupname, traffic, gridlat, gridlong, state, grid) "
+                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                            (utc, callsign, group, traffic, testlat, testlong, state, checkin_grid)
+                        )
+                        conn.commit()
+                        print(f"\033[92m[{rig_name}] Added Check-in from: {callsign}\033[0m")
+                        conn.close()
+                        return True
+
+            conn.close()
+
+        except sqlite3.Error as e:
+            print(f"\033[91m[{rig_name}] Database error: {e}\033[0m")
+        except Exception as e:
+            print(f"\033[91m[{rig_name}] Error processing message: {e}\033[0m")
+
+        return False
 
     def _update_active_group_label(self) -> None:
         """Update the Active Group label in the header."""
