@@ -1504,6 +1504,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_feed_display(self) -> None:
         """Update the live feed display from the message buffer."""
+        # Safety check - feed_text may not exist during startup
+        if not hasattr(self, 'feed_text'):
+            return
+
         if not self.feed_messages:
             # No connectors configured
             self.feed_text.setPlainText(
