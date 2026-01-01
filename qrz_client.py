@@ -278,10 +278,19 @@ class QRZClient:
 
         root = self._api_request(params)
         if root is None:
+            print("QRZ: No response from API")
             return False
+
+        # Debug: print raw XML response
+        import xml.etree.ElementTree as ET
+        print(f"QRZ Response: {ET.tostring(root, encoding='unicode')[:500]}")
 
         # Check for session key
         session = root.find(".//Session")
+        if session is None:
+            print("QRZ: No Session element in response")
+            return False
+
         if session is not None:
             key_elem = session.find("Key")
             if key_elem is not None and key_elem.text:
