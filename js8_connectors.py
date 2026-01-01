@@ -360,7 +360,7 @@ class JS8ConnectorsDialog(QDialog):
             )
 
     def _reconnect(self) -> None:
-        """Reconnect the selected connector."""
+        """Reconnect the selected connector (resets attempt counter)."""
         if self._selected_id is None:
             return
 
@@ -372,11 +372,12 @@ class JS8ConnectorsDialog(QDialog):
         client = self.tcp_pool.get_client(rig_name)
 
         if client:
-            client.disconnect_from_host()
-            client.connect_to_host()
+            # Use manual_reconnect to reset attempt counter and re-enable auto-reconnect
+            client.manual_reconnect()
             QMessageBox.information(
                 self, "Reconnecting",
-                f"Attempting to reconnect to '{rig_name}'..."
+                f"Attempting to reconnect to '{rig_name}'...\n\n"
+                f"Auto-reconnect has been re-enabled."
             )
 
         # Reload to show updated status

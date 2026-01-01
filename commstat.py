@@ -668,6 +668,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tcp_pool = TCPConnectionPool(self.connector_manager, self)
         self.tcp_pool.any_message_received.connect(self._handle_tcp_message)
         self.tcp_pool.any_connection_changed.connect(self._handle_connection_changed)
+        self.tcp_pool.any_status_message.connect(self._handle_status_message)
 
         # Live feed message buffer (stores messages from all TCP connections)
         self.feed_messages: List[str] = []
@@ -2035,6 +2036,23 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Insert at beginning (newest first)
         self.feed_messages.insert(0, status_line)
+        self._update_feed_display()
+
+    def _handle_status_message(self, rig_name: str, message: str) -> None:
+        """
+        Handle status message from TCP client (for live feed display).
+
+        Args:
+            rig_name: Name of the rig.
+            message: Status message to display.
+        """
+        # Insert at beginning (newest first)
+        self.feed_messages.insert(0, message)
+
+        # Trim buffer if needed
+        if len(self.feed_messages) > self.max_feed_messages:
+            self.feed_messages = self.feed_messages[:self.max_feed_messages]
+
         self._update_feed_display()
 
     def _handle_tcp_message(self, rig_name: str, message: dict) -> None:

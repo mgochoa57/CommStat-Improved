@@ -21,6 +21,7 @@ from connector_manager import ConnectorManager
 # Constants
 DEFAULT_HOST = "127.0.0.1"
 RECONNECT_INTERVAL_MS = 5000  # 5 seconds
+MAX_RECONNECT_ATTEMPTS = 12   # 12 attempts = 1 minute
 
 
 class JS8CallTCPClient(QObject):
@@ -28,7 +29,7 @@ class JS8CallTCPClient(QObject):
     Persistent TCP client for a single JS8Call instance.
 
     Uses Qt signals for asynchronous communication.
-    Automatically handles reconnection on disconnect.
+    Automatically handles reconnection on disconnect (up to 1 minute).
     """
 
     # Signals
@@ -37,6 +38,7 @@ class JS8CallTCPClient(QObject):
     callsign_received = pyqtSignal(str, str)      # rig_name, callsign
     grid_received = pyqtSignal(str, str)          # rig_name, grid
     frequency_received = pyqtSignal(str, int)     # rig_name, frequency
+    status_message = pyqtSignal(str, str)         # rig_name, message (for live feed)
 
     def __init__(self, rig_name: str, port: int, parent: QObject = None):
         """
@@ -53,6 +55,7 @@ class JS8CallTCPClient(QObject):
         self.host = DEFAULT_HOST
         self.buffer = b""
         self._auto_reconnect = True
+        self._reconnect_attempts = 0
 
         # Create socket
         self.socket = QTcpSocket(self)
@@ -68,8 +71,17 @@ class JS8CallTCPClient(QObject):
 
     def connect_to_host(self) -> None:
         """Initiate connection to JS8Call."""
-        if self.socket.state() == QAbstractSocket.UnconnectedState:
+        state = self.socket.state()
+        if state == QAbstractSocket.UnconnectedState:
             print(f"[{self.rig_name}] Connecting to {self.host}:{self.port}...")
+            self.socket.connectToHost(self.host, self.port)
+        elif state in (QAbstractSocket.ClosingState, QAbstractSocket.ConnectedState):
+            # Wait for socket to fully close before reconnecting
+            pass
+        else:
+            # Force abort and reconnect
+            print(f"[{self.rig_name}] Aborting stale connection (state: {state})...")
+            self.socket.abort()
             self.socket.connectToHost(self.host, self.port)
 
     def disconnect_from_host(self) -> None:
@@ -151,16 +163,20 @@ class JS8CallTCPClient(QObject):
         """Handle successful connection."""
         print(f"[{self.rig_name}] Connected to JS8Call on port {self.port}")
         self._reconnect_timer.stop()
+        self._reconnect_attempts = 0  # Reset counter on successful connection
+        self._auto_reconnect = True   # Re-enable auto-reconnect
         self.connection_changed.emit(self.rig_name, True)
+        self.status_message.emit(self.rig_name, f"[{self.rig_name}] Connected")
 
     def _on_disconnected(self) -> None:
         """Handle disconnection."""
         print(f"[{self.rig_name}] Disconnected from JS8Call")
         self.buffer = b""
         self.connection_changed.emit(self.rig_name, False)
+        self.status_message.emit(self.rig_name, f"[{self.rig_name}] Disconnected")
 
-        # Schedule reconnect if auto-reconnect is enabled
-        if self._auto_reconnect:
+        # Schedule reconnect if auto-reconnect is enabled and under max attempts
+        if self._auto_reconnect and self._reconnect_attempts < MAX_RECONNECT_ATTEMPTS:
             print(f"[{self.rig_name}] Will retry in {RECONNECT_INTERVAL_MS // 1000}s...")
             self._reconnect_timer.start(RECONNECT_INTERVAL_MS)
 
@@ -229,10 +245,45 @@ class JS8CallTCPClient(QObject):
         else:
             print(f"[{self.rig_name}] Socket error: {self.socket.errorString()}")
 
+        # Schedule reconnect on connection errors (if under max attempts)
+        if self._auto_reconnect and self._reconnect_attempts < MAX_RECONNECT_ATTEMPTS and error in (
+            QAbstractSocket.ConnectionRefusedError,
+            QAbstractSocket.RemoteHostClosedError,
+            QAbstractSocket.NetworkError
+        ):
+            if not self._reconnect_timer.isActive():
+                print(f"[{self.rig_name}] Will retry in {RECONNECT_INTERVAL_MS // 1000}s...")
+                self._reconnect_timer.start(RECONNECT_INTERVAL_MS)
+
     def _try_reconnect(self) -> None:
         """Attempt to reconnect to JS8Call."""
-        if self._auto_reconnect and not self.is_connected():
-            self.connect_to_host()
+        if not self._auto_reconnect or self.is_connected():
+            return
+
+        self._reconnect_attempts += 1
+
+        if self._reconnect_attempts > MAX_RECONNECT_ATTEMPTS:
+            # Give up after max attempts
+            self._auto_reconnect = False
+            print(f"[{self.rig_name}] Giving up after {MAX_RECONNECT_ATTEMPTS} attempts. Use JS8 Connectors to reconnect.")
+            self.status_message.emit(
+                self.rig_name,
+                f"[{self.rig_name}] Reconnect failed. Use Menu > JS8 CONNECTORS to reconnect."
+            )
+            return
+
+        remaining = MAX_RECONNECT_ATTEMPTS - self._reconnect_attempts
+        print(f"[{self.rig_name}] Reconnect attempt {self._reconnect_attempts}/{MAX_RECONNECT_ATTEMPTS}...")
+        self.connect_to_host()
+
+    def manual_reconnect(self) -> None:
+        """Manually trigger reconnection (resets attempt counter)."""
+        self._reconnect_attempts = 0
+        self._auto_reconnect = True
+        self._reconnect_timer.stop()
+        print(f"[{self.rig_name}] Manual reconnect requested...")
+        self.status_message.emit(self.rig_name, f"[{self.rig_name}] Reconnecting...")
+        self.connect_to_host()
 
 
 class TCPConnectionPool(QObject):
@@ -246,6 +297,7 @@ class TCPConnectionPool(QObject):
     # Aggregate signals (from any client)
     any_message_received = pyqtSignal(str, dict)    # rig_name, message
     any_connection_changed = pyqtSignal(str, bool)  # rig_name, is_connected
+    any_status_message = pyqtSignal(str, str)       # rig_name, message (for live feed)
 
     def __init__(self, connector_manager: ConnectorManager, parent: QObject = None):
         """
@@ -313,6 +365,7 @@ class TCPConnectionPool(QObject):
         # Connect signals to aggregate signals
         client.message_received.connect(self.any_message_received)
         client.connection_changed.connect(self.any_connection_changed)
+        client.status_message.connect(self.any_status_message)
 
         self.clients[rig_name] = client
         client.connect_to_host()
