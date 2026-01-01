@@ -2404,7 +2404,9 @@ class MainWindow(QtWidgets.QMainWindow):
         close_btn.clicked.connect(dialog.close)
         layout.addWidget(close_btn, alignment=Qt.AlignCenter)
 
-        # Fetch image in background
+        # Storage for fetched data
+        fetch_result = {'data': None, 'error': None}
+
         def fetch_image():
             try:
                 url = "https://www.hamqsl.com/solarmuf.php"
@@ -2414,29 +2416,28 @@ class MainWindow(QtWidgets.QMainWindow):
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
                 with urllib.request.urlopen(request, timeout=15, context=ssl_context) as response:
-                    data = response.read()
-                    pixmap = QtGui.QPixmap()
-                    pixmap.loadFromData(data)
-                    # Update UI from main thread
-                    QtCore.QMetaObject.invokeMethod(
-                        image_label, "setPixmap",
-                        Qt.QueuedConnection,
-                        QtCore.Q_ARG(QtGui.QPixmap, pixmap)
-                    )
-                    # Resize dialog to fit image
-                    QtCore.QMetaObject.invokeMethod(
-                        dialog, "adjustSize",
-                        Qt.QueuedConnection
-                    )
+                    fetch_result['data'] = response.read()
             except Exception as e:
-                QtCore.QMetaObject.invokeMethod(
-                    image_label, "setText",
-                    Qt.QueuedConnection,
-                    QtCore.Q_ARG(str, f"Failed to load solar data: {e}")
-                )
+                fetch_result['error'] = str(e)
 
+        def update_ui():
+            if fetch_result['data']:
+                pixmap = QtGui.QPixmap()
+                pixmap.loadFromData(fetch_result['data'])
+                image_label.setPixmap(pixmap)
+                dialog.adjustSize()
+            elif fetch_result['error']:
+                image_label.setText(f"Failed to load solar data: {fetch_result['error']}")
+            else:
+                # Still loading, check again
+                QTimer.singleShot(100, update_ui)
+
+        # Start fetch in background thread
         thread = threading.Thread(target=fetch_image, daemon=True)
         thread.start()
+
+        # Start polling for result
+        QTimer.singleShot(100, update_ui)
 
         dialog.exec_()
 
