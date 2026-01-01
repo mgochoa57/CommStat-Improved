@@ -284,37 +284,46 @@ class QRZClient:
             print("QRZ: No response from API")
             return False
 
-        # Debug: print raw XML response
-        import xml.etree.ElementTree as ET
-        print(f"QRZ Response: {ET.tostring(root, encoding='unicode')[:500]}")
+        # Handle XML namespace - QRZ uses xmlns="http://xmldata.qrz.com"
+        ns = {"qrz": "http://xmldata.qrz.com"}
 
-        # Check for session key
-        session = root.find(".//Session")
+        # Try with namespace first, then without (for compatibility)
+        session = root.find(".//qrz:Session", ns)
+        if session is None:
+            session = root.find(".//Session")
+
         if session is None:
             print("QRZ: No Session element in response")
             return False
 
-        if session is not None:
+        # Find Key element (with and without namespace)
+        key_elem = session.find("qrz:Key", ns)
+        if key_elem is None:
             key_elem = session.find("Key")
-            if key_elem is not None and key_elem.text:
-                self.session_key = key_elem.text
-                print(f"QRZ: Login successful")
 
-                # Check subscription status
+        if key_elem is not None and key_elem.text:
+            self.session_key = key_elem.text
+            print(f"QRZ: Login successful")
+
+            # Check subscription status
+            sub_exp = session.find("qrz:SubExp", ns)
+            if sub_exp is None:
                 sub_exp = session.find("SubExp")
-                if sub_exp is not None and sub_exp.text:
-                    print(f"QRZ: Subscription expires {sub_exp.text}")
+            if sub_exp is not None and sub_exp.text:
+                print(f"QRZ: Subscription expires {sub_exp.text}")
 
-                return True
+            return True
 
-            # Check for error - disable QRZ on auth failure
+        # Check for error - disable QRZ on auth failure
+        error = session.find("qrz:Error", ns)
+        if error is None:
             error = session.find("Error")
-            if error is not None and error.text:
-                print(f"QRZ: {error.text}")
-                # Disable QRZ on authentication errors
-                if "invalid" in error.text.lower() or "password" in error.text.lower():
-                    print("QRZ: Disabling QRZ lookups due to auth failure")
-                    set_qrz_active(False)
+        if error is not None and error.text:
+            print(f"QRZ: {error.text}")
+            # Disable QRZ on authentication errors
+            if "invalid" in error.text.lower() or "password" in error.text.lower():
+                print("QRZ: Disabling QRZ lookups due to auth failure")
+                set_qrz_active(False)
 
         return False
 
@@ -358,10 +367,17 @@ class QRZClient:
         if root is None:
             return None
 
+        # Handle XML namespace
+        ns = {"qrz": "http://xmldata.qrz.com"}
+
         # Check for errors (session expired, not found, etc.)
-        session = root.find(".//Session")
+        session = root.find(".//qrz:Session", ns)
+        if session is None:
+            session = root.find(".//Session")
         if session is not None:
-            error = session.find("Error")
+            error = session.find("qrz:Error", ns)
+            if error is None:
+                error = session.find("Error")
             if error is not None and error.text:
                 if "Session Timeout" in error.text or "Invalid session" in error.text:
                     # Session expired, re-login and retry
@@ -372,15 +388,19 @@ class QRZClient:
                 return None
 
         # Parse callsign data
-        callsign_elem = root.find(".//Callsign")
+        callsign_elem = root.find(".//qrz:Callsign", ns)
+        if callsign_elem is None:
+            callsign_elem = root.find(".//Callsign")
         if callsign_elem is None:
             print(f"QRZ: {callsign} not found")
             return None
 
-        # Extract all fields
+        # Extract all fields (strip namespace from tag names)
         data = {}
         for child in callsign_elem:
-            data[child.tag] = child.text
+            # Remove namespace prefix like {http://xmldata.qrz.com}
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            data[tag] = child.text
 
         # Save to cache
         self._save_to_cache(data)
