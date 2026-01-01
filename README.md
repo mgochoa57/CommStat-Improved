@@ -259,6 +259,13 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - Each program restart resets to today's date
 - Removed [FILTER] section from config.ini
 
+19. STATREP COMPRESSION (January 2026)
+--------------------------------------
+- All-green StatReps (111111111111) are compressed to "+" when transmitted
+- Saves 11 characters over the air for faster transmission
+- Receiving stations automatically expand "+" back to 12 ones
+- Works for both regular and forwarded StatReps
+
 ---
 
 ## License & Copyright

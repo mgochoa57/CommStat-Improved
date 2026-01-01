@@ -574,6 +574,10 @@ class StatRepDialog(QDialog):
             values["political"],
         ])
 
+        # Compress: if all green (111111111111), send as "+"
+        if status_str == "111111111111":
+            status_str = "+"
+
         # Format: @GROUP ,GRID,SCOPE,ID,STATUSES,REMARKS,{&%}
         group = f"@{self.to_combo.currentText()}"
         message = f"{group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{{&%}}"

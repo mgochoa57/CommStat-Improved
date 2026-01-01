@@ -2219,6 +2219,10 @@ class MainWindow(QtWidgets.QMainWindow):
                         comments = fields[4].strip() if len(fields) > 4 else ""
                         orig_call = fields[5].strip() if len(fields) > 5 else callsign
 
+                        # Expand compressed "+" to all green (111111111111)
+                        if srcode == "+":
+                            srcode = "111111111111"
+
                         prec = PRECEDENCE_MAP.get(prec1, "Unknown")
 
                         if len(srcode) >= 12:
@@ -2250,6 +2254,10 @@ class MainWindow(QtWidgets.QMainWindow):
                         srid = fields[2].strip()
                         srcode = fields[3].strip()
                         comments = fields[4].strip() if len(fields) > 4 else ""
+
+                        # Expand compressed "+" to all green (111111111111)
+                        if srcode == "+":
+                            srcode = "111111111111"
 
                         prec = PRECEDENCE_MAP.get(prec1, "Unknown")
 
