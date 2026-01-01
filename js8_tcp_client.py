@@ -79,6 +79,7 @@ class JS8CallTCPClient(QObject):
         state = self.socket.state()
         if state == QAbstractSocket.UnconnectedState:
             print(f"[{self.rig_name}] Connecting to {self.host}:{self.port}...")
+            self.status_message.emit(self.rig_name, f"[{self.rig_name}] Connecting...")
             self.socket.connectToHost(self.host, self.port)
         elif state in (QAbstractSocket.ClosingState, QAbstractSocket.ConnectedState):
             # Wait for socket to fully close before reconnecting
@@ -86,6 +87,7 @@ class JS8CallTCPClient(QObject):
         else:
             # Force abort and reconnect
             print(f"[{self.rig_name}] Aborting stale connection (state: {state})...")
+            self.status_message.emit(self.rig_name, f"[{self.rig_name}] Connecting...")
             self.socket.abort()
             self.socket.connectToHost(self.host, self.port)
 
