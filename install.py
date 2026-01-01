@@ -61,7 +61,7 @@ def setup_files():
 
 def runsettings():
     setup_files()
-    subprocess.call([sys.executable, "settings.py"])
+    print("\nInstallation complete. Run 'python commstat.py' to start the program.")
 
 
 def install(package):

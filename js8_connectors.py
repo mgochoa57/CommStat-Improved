@@ -125,8 +125,8 @@ class JS8ConnectorsDialog(QDialog):
         # Rig Name
         edit_layout.addWidget(QLabel("Rig Name:"), 0, 0)
         self.rig_name_edit = QLineEdit()
-        self.rig_name_edit.setMaxLength(20)
-        self.rig_name_edit.setPlaceholderText("e.g., IC-7300, HF Rig, VHF")
+        self.rig_name_edit.setMaxLength(8)
+        self.rig_name_edit.setPlaceholderText("e.g., IC-7300, HF, VHF")
         self.rig_name_edit.setMinimumHeight(28)
         self.rig_name_edit.textChanged.connect(self._on_input_changed)
         edit_layout.addWidget(self.rig_name_edit, 0, 1)

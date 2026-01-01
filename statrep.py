@@ -294,9 +294,21 @@ class StatRepDialog(QDialog):
         rig_layout.addStretch()
         layout.addLayout(rig_layout)
 
-        # Header info (To, From, Grid)
+        # Header info (From, To, Grid, Scope) - all on one line
         header_layout = QtWidgets.QHBoxLayout()
-        header_layout.setSpacing(15)
+        header_layout.setSpacing(10)
+
+        # From (Callsign)
+        from_layout = QtWidgets.QVBoxLayout()
+        from_label = QtWidgets.QLabel("From:")
+        from_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
+        self.from_field = QtWidgets.QLineEdit(self.callsign)
+        self.from_field.setReadOnly(True)
+        self.from_field.setStyleSheet("background-color: #e9ecef;")
+        self.from_field.setMinimumHeight(28)
+        from_layout.addWidget(from_label)
+        from_layout.addWidget(self.from_field)
+        header_layout.addLayout(from_layout)
 
         # To (Group) - dropdown with all groups
         to_layout = QtWidgets.QVBoxLayout()
@@ -304,7 +316,6 @@ class StatRepDialog(QDialog):
         to_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.to_combo = QtWidgets.QComboBox()
         self.to_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.to_combo.setMinimumWidth(150)
         self.to_combo.setMinimumHeight(28)
         # Populate with all groups
         all_groups = self._get_all_groups_from_db()
@@ -319,19 +330,6 @@ class StatRepDialog(QDialog):
         to_layout.addWidget(self.to_combo)
         header_layout.addLayout(to_layout)
 
-        # From (Callsign)
-        from_layout = QtWidgets.QVBoxLayout()
-        from_label = QtWidgets.QLabel("From:")
-        from_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
-        self.from_field = QtWidgets.QLineEdit(self.callsign)
-        self.from_field.setReadOnly(True)
-        self.from_field.setStyleSheet("background-color: #e9ecef;")
-        self.from_field.setMinimumWidth(150)
-        self.from_field.setMinimumHeight(28)
-        from_layout.addWidget(from_label)
-        from_layout.addWidget(self.from_field)
-        header_layout.addLayout(from_layout)
-
         # Grid
         grid_layout = QtWidgets.QVBoxLayout()
         grid_label = QtWidgets.QLabel("Grid:")
@@ -339,28 +337,25 @@ class StatRepDialog(QDialog):
         self.grid_field = QtWidgets.QLineEdit(self.grid)
         self.grid_field.setReadOnly(True)
         self.grid_field.setStyleSheet("background-color: #e9ecef;")
-        self.grid_field.setMinimumWidth(150)
         self.grid_field.setMinimumHeight(28)
         grid_layout.addWidget(grid_label)
         grid_layout.addWidget(self.grid_field)
         header_layout.addLayout(grid_layout)
 
-        layout.addLayout(header_layout)
-
-        # Scope dropdown
-        scope_layout = QtWidgets.QHBoxLayout()
+        # Scope
+        scope_layout = QtWidgets.QVBoxLayout()
         scope_label = QtWidgets.QLabel("Scope:")
         scope_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.scope_combo = QtWidgets.QComboBox()
         self.scope_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.scope_combo.setMinimumWidth(150)
         self.scope_combo.setMinimumHeight(28)
         for display, code in SCOPE_OPTIONS:
             self.scope_combo.addItem(display, code)
         scope_layout.addWidget(scope_label)
         scope_layout.addWidget(self.scope_combo)
-        scope_layout.addStretch()
-        layout.addLayout(scope_layout)
+        header_layout.addLayout(scope_layout)
+
+        layout.addLayout(header_layout)
 
         # Legend
         legend = QtWidgets.QLabel(
