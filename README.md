@@ -266,6 +266,11 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 - Receiving stations automatically expand "+" back to 12 ones
 - Works for both regular and forwarded StatReps
 
+20. TOOLS MENU (January 2026)
+-----------------------------
+- Band Conditions: Solar-terrestrial data from N0NBH (https://www.hamqsl.com/solar.html)
+- World Map: HF propagation world map
+
 ---
 
 ## License & Copyright

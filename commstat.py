@@ -2439,7 +2439,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         def fetch_image():
             try:
-                url = "https://www.hamqsl.com/solarn0nbh.php"
+                url = "https://www.hamqsl.com/solar101pic.php"
                 request = urllib.request.Request(url, headers={'User-Agent': 'CommStat-Improved/2.5'})
                 # Create SSL context that bypasses certificate verification
                 ssl_context = ssl.create_default_context()
