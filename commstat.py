@@ -19,6 +19,7 @@ import subprocess
 import http.server
 import socketserver
 import urllib.request
+import ssl
 import tempfile
 import webbrowser
 from configparser import ConfigParser
@@ -2392,7 +2393,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Link label
         link_label = QtWidgets.QLabel(
-            '<a href="http://www.n0nbh.com/">View more at n0nbh.com</a>'
+            '<a href="https://www.hamqsl.com/solar.html">View more at hamqsl.com</a>'
         )
         link_label.setOpenExternalLinks(True)
         link_label.setAlignment(Qt.AlignCenter)
@@ -2406,9 +2407,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # Fetch image in background
         def fetch_image():
             try:
-                url = "http://www.n0nbh.com/Sun/Solar.gif"
+                url = "https://www.hamqsl.com/solarmuf.php"
                 request = urllib.request.Request(url, headers={'User-Agent': 'CommStat-Improved/2.5'})
-                with urllib.request.urlopen(request, timeout=15) as response:
+                # Create SSL context that bypasses certificate verification
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+                with urllib.request.urlopen(request, timeout=15, context=ssl_context) as response:
                     data = response.read()
                     pixmap = QtGui.QPixmap()
                     pixmap.loadFromData(data)
