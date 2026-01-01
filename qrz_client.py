@@ -237,6 +237,9 @@ class QRZClient:
         """
         try:
             url = QRZ_API_URL + "?" + urllib.parse.urlencode(params, safe="")
+            # Debug: show URL (mask password)
+            debug_url = url.replace(params.get("password", ""), "***") if "password" in params else url
+            print(f"QRZ Request URL: {debug_url}")
 
             with urllib.request.urlopen(url, timeout=10) as response:
                 xml_data = response.read().decode("utf-8")
