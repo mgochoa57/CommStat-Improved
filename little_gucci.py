@@ -849,7 +849,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 pass  # Use defaults if config is invalid
 
     def closeEvent(self, event) -> None:
-        """Save window position before closing."""
+        """Clean up resources and save window position before closing."""
+        # Stop all timers
+        if hasattr(self, 'clock_timer'):
+            self.clock_timer.stop()
+        if hasattr(self, 'slideshow_timer'):
+            self.slideshow_timer.stop()
+        if hasattr(self, 'ping_timer'):
+            self.ping_timer.stop()
+        if hasattr(self, 'internet_timer'):
+            self.internet_timer.stop()
+
+        # Disconnect all TCP connections gracefully
+        if hasattr(self, 'tcp_pool'):
+            print("Closing TCP connections...")
+            self.tcp_pool.disconnect_all()
+
+        # Save window position
         self._save_window_position()
         event.accept()
 
