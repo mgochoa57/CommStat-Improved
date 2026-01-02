@@ -429,7 +429,7 @@ class DatabaseManager:
 
     def get_statrep_data(
         self,
-        group: Optional[str],
+        groups: List[str],
         start: str,
         end: str = ''
     ) -> List[Tuple]:
@@ -437,13 +437,17 @@ class DatabaseManager:
         Fetch StatRep data from database.
 
         Args:
-            group: Selected group name, or None for all groups
+            groups: List of active group names (empty list returns no data)
             start: Start date filter (required)
             end: End date filter (optional, empty string means no upper limit)
 
         Returns:
             List of tuples containing StatRep records
         """
+        # If no active groups, return empty list
+        if not groups:
+            return []
+
         try:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
@@ -456,24 +460,16 @@ class DatabaseManager:
                     date_condition = "datetime >= ?"
                     date_params = [start]
 
-                if group:
-                    query = f"""
-                        SELECT datetime, groupname, callsign, grid, prec, status,
-                               commpwr, pubwtr, med, ota, trav, net,
-                               fuel, food, crime, civil, political, comments
-                        FROM StatRep_Data
-                        WHERE groupname = ? AND {date_condition}
-                    """
-                    params = [group] + date_params
-                else:
-                    query = f"""
-                        SELECT datetime, groupname, callsign, grid, prec, status,
-                               commpwr, pubwtr, med, ota, trav, net,
-                               fuel, food, crime, civil, political, comments
-                        FROM StatRep_Data
-                        WHERE {date_condition}
-                    """
-                    params = date_params
+                # Build group filter for multiple groups
+                placeholders = ",".join("?" * len(groups))
+                query = f"""
+                    SELECT datetime, groupname, callsign, grid, prec, status,
+                           commpwr, pubwtr, med, ota, trav, net,
+                           fuel, food, crime, civil, political, comments
+                    FROM StatRep_Data
+                    WHERE groupname IN ({placeholders}) AND {date_condition}
+                """
+                params = list(groups) + date_params
 
                 cursor.execute(query, params)
                 return cursor.fetchall()
@@ -483,7 +479,7 @@ class DatabaseManager:
 
     def get_message_data(
         self,
-        group: Optional[str],
+        groups: List[str],
         start: str,
         end: str = ''
     ) -> List[Tuple]:
@@ -491,13 +487,17 @@ class DatabaseManager:
         Fetch message data from database.
 
         Args:
-            group: Selected group name, or None for all groups
+            groups: List of active group names (empty list returns no data)
             start: Start date filter (required)
             end: End date filter (optional, empty string means no upper limit)
 
         Returns:
             List of tuples containing message records
         """
+        # If no active groups, return empty list
+        if not groups:
+            return []
+
         try:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
@@ -510,16 +510,12 @@ class DatabaseManager:
                     date_condition = "datetime >= ?"
                     date_params = [start]
 
-                if group:
-                    query = f"""SELECT datetime, groupid, callsign, message
-                               FROM messages_Data
-                               WHERE groupid = ? AND {date_condition}"""
-                    params = [group] + date_params
-                else:
-                    query = f"""SELECT datetime, groupid, callsign, message
-                               FROM messages_Data
-                               WHERE {date_condition}"""
-                    params = date_params
+                # Build group filter for multiple groups
+                placeholders = ",".join("?" * len(groups))
+                query = f"""SELECT datetime, groupid, callsign, message
+                           FROM messages_Data
+                           WHERE groupid IN ({placeholders}) AND {date_condition}"""
+                params = list(groups) + date_params
 
                 cursor.execute(query, params)
                 return cursor.fetchall()
@@ -527,28 +523,28 @@ class DatabaseManager:
             print(f"Database error: {error}")
             return []
 
-    def get_latest_marquee(self, group: Optional[str]) -> Optional[Tuple]:
+    def get_latest_marquee(self, groups: List[str]) -> Optional[Tuple]:
         """
-        Fetch the latest marquee message for a group.
+        Fetch the latest marquee message for active groups.
 
         Args:
-            group: Selected group name, or None for all groups
+            groups: List of active group names (empty list returns None)
 
         Returns:
             Tuple containing marquee data or None
         """
+        # If no active groups, return None
+        if not groups:
+            return None
+
         try:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
-                if group:
-                    cursor.execute(
-                        "SELECT idnum, callsign, groupname, date, color, message FROM marquees_data WHERE groupname = ? ORDER BY date DESC LIMIT 1",
-                        [group]
-                    )
-                else:
-                    cursor.execute(
-                        "SELECT idnum, callsign, groupname, date, color, message FROM marquees_data ORDER BY date DESC LIMIT 1"
-                    )
+                placeholders = ",".join("?" * len(groups))
+                cursor.execute(
+                    f"SELECT idnum, callsign, groupname, date, color, message FROM marquees_data WHERE groupname IN ({placeholders}) ORDER BY date DESC LIMIT 1",
+                    groups
+                )
                 return cursor.fetchone()
         except sqlite3.Error as error:
             print(f"Database error: {error}")
@@ -563,23 +559,50 @@ class DatabaseManager:
                     CREATE TABLE IF NOT EXISTS Groups (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT UNIQUE NOT NULL,
+                        comment TEXT,
+                        url1 TEXT,
+                        url2 TEXT,
+                        date_added TEXT,
                         is_active INTEGER DEFAULT 0
                     )
                 """)
                 connection.commit()
 
+                # Migrate existing table if needed (add new columns)
+                self._migrate_groups_table(cursor, connection)
+
                 # Check if table is empty
                 cursor.execute("SELECT COUNT(*) FROM Groups")
                 if cursor.fetchone()[0] == 0:
                     # Seed default groups, first one is active
+                    today = datetime.now().strftime("%Y-%m-%d")
                     for i, group_name in enumerate(DEFAULT_GROUPS):
                         cursor.execute(
-                            "INSERT INTO Groups (name, is_active) VALUES (?, ?)",
-                            (group_name.upper(), 1 if i == 0 else 0)
+                            "INSERT INTO Groups (name, date_added, is_active) VALUES (?, ?, ?)",
+                            (group_name.upper(), today, 1 if i == 0 else 0)
                         )
                     connection.commit()
         except sqlite3.Error as error:
             print(f"Database error initializing Groups table: {error}")
+
+    def _migrate_groups_table(self, cursor, connection) -> None:
+        """Add new columns to Groups table if they don't exist."""
+        cursor.execute("PRAGMA table_info(Groups)")
+        columns = [col[1] for col in cursor.fetchall()]
+
+        new_columns = [
+            ("comment", "TEXT"),
+            ("url1", "TEXT"),
+            ("url2", "TEXT"),
+            ("date_added", "TEXT"),
+        ]
+
+        for col_name, col_type in new_columns:
+            if col_name not in columns:
+                cursor.execute(f"ALTER TABLE Groups ADD COLUMN {col_name} {col_type}")
+                print(f"Added column {col_name} to Groups table")
+
+        connection.commit()
 
     def get_all_groups(self) -> List[str]:
         """Get all group names."""
@@ -592,20 +615,50 @@ class DatabaseManager:
             print(f"Database error: {error}")
             return []
 
-    def get_active_group(self) -> str:
-        """Get the currently active group name."""
+    def get_all_groups_with_status(self) -> List[Tuple[str, bool]]:
+        """Get all groups with their active status."""
         try:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
-                cursor.execute("SELECT name FROM Groups WHERE is_active = 1")
-                result = cursor.fetchone()
-                return result[0] if result else ""
+                cursor.execute("SELECT name, is_active FROM Groups ORDER BY name")
+                return [(row[0], bool(row[1])) for row in cursor.fetchall()]
         except sqlite3.Error as error:
             print(f"Database error: {error}")
-            return ""
+            return []
+
+    def get_active_groups(self) -> List[str]:
+        """Get list of all active group names."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute("SELECT name FROM Groups WHERE is_active = 1 ORDER BY name")
+                return [row[0] for row in cursor.fetchall()]
+        except sqlite3.Error as error:
+            print(f"Database error: {error}")
+            return []
+
+    def get_active_group(self) -> str:
+        """Get the first active group name (for backwards compatibility)."""
+        groups = self.get_active_groups()
+        return groups[0] if groups else ""
+
+    def set_group_active(self, group_name: str, active: bool) -> bool:
+        """Set a group's active status (doesn't affect other groups)."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute(
+                    "UPDATE Groups SET is_active = ? WHERE name = ?",
+                    (1 if active else 0, group_name.upper())
+                )
+                connection.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as error:
+            print(f"Database error: {error}")
+            return False
 
     def set_active_group(self, group_name: str) -> bool:
-        """Set a group as the active group."""
+        """Set a group as the only active group (deactivates others)."""
         try:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
@@ -622,17 +675,18 @@ class DatabaseManager:
             print(f"Database error: {error}")
             return False
 
-    def add_group(self, group_name: str) -> bool:
-        """Add a new group. Returns True if successful."""
+    def add_group(self, group_name: str, comment: str = "", url1: str = "", url2: str = "") -> bool:
+        """Add a new group with optional fields. Returns True if successful."""
         name = group_name.strip().upper()[:MAX_GROUP_NAME_LENGTH]
         if not name:
             return False
         try:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
+                today = datetime.now().strftime("%Y-%m-%d")
                 cursor.execute(
-                    "INSERT INTO Groups (name, is_active) VALUES (?, 0)",
-                    (name,)
+                    "INSERT INTO Groups (name, comment, url1, url2, date_added, is_active) VALUES (?, ?, ?, ?, ?, 0)",
+                    (name, comment.strip(), url1.strip(), url2.strip(), today)
                 )
                 connection.commit()
                 return True
@@ -643,32 +697,55 @@ class DatabaseManager:
             print(f"Database error: {error}")
             return False
 
-    def remove_group(self, group_name: str) -> bool:
-        """Remove a group. Returns False if it's the last group."""
+    def update_group(self, group_name: str, comment: str = "", url1: str = "", url2: str = "") -> bool:
+        """Update an existing group's fields. Returns True if successful."""
         try:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
-                # Check if this is the last group
-                cursor.execute("SELECT COUNT(*) FROM Groups")
-                if cursor.fetchone()[0] <= 1:
-                    return False
-                # Check if this group is active
                 cursor.execute(
-                    "SELECT is_active FROM Groups WHERE name = ?",
+                    "UPDATE Groups SET comment = ?, url1 = ?, url2 = ? WHERE name = ?",
+                    (comment.strip(), url1.strip(), url2.strip(), group_name.upper())
+                )
+                connection.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as error:
+            print(f"Database error: {error}")
+            return False
+
+    def get_group_details(self, group_name: str) -> Optional[Dict]:
+        """Get full details of a group."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute(
+                    "SELECT name, comment, url1, url2, date_added, is_active FROM Groups WHERE name = ?",
                     (group_name.upper(),)
                 )
-                result = cursor.fetchone()
-                was_active = result and result[0] == 1
-                # Delete the group
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "name": row[0],
+                        "comment": row[1] or "",
+                        "url1": row[2] or "",
+                        "url2": row[3] or "",
+                        "date_added": row[4] or "",
+                        "is_active": bool(row[5])
+                    }
+                return None
+        except sqlite3.Error as error:
+            print(f"Database error: {error}")
+            return None
+
+    def remove_group(self, group_name: str) -> bool:
+        """Remove a group. Returns True if successful."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                # Delete the group (no longer require at least one group)
                 cursor.execute(
                     "DELETE FROM Groups WHERE name = ?",
                     (group_name.upper(),)
                 )
-                # If deleted group was active, activate another one
-                if was_active and cursor.rowcount > 0:
-                    cursor.execute(
-                        "UPDATE Groups SET is_active = 1 WHERE id = (SELECT MIN(id) FROM Groups)"
-                    )
                 connection.commit()
                 return cursor.rowcount > 0
         except sqlite3.Error as error:
@@ -923,6 +1000,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._setup_message_table()
         self._setup_timers()
 
+        # Populate the Groups menu with checkable items
+        self._populate_groups_menu()
+
         # Load initial data
         self._load_statrep_data()
         self._load_marquee()
@@ -1002,7 +1082,6 @@ class MainWindow(QtWidgets.QMainWindow):
             ("net_check_in", "NET CHECK IN", self._on_net_check_in),
             ("member_list", "MEMBER LIST", self._on_member_list),
             None,  # Separator
-            ("groups", "MANAGE GROUPS", self._on_groups),
             ("js8_connectors", "JS8 CONNECTORS", self._on_js8_connectors),
             ("settings", "SETTINGS", self._on_settings),
             ("colors", "COLORS", self._on_colors),
@@ -1020,6 +1099,21 @@ class MainWindow(QtWidgets.QMainWindow):
                 action.triggered.connect(handler)
                 self.menu.addAction(action)
                 self.actions[name] = action
+
+        # Create the Groups menu (with checkable group items)
+        self.groups_menu = QtWidgets.QMenu("Groups", self.menubar)
+        self.menubar.addMenu(self.groups_menu)
+
+        # Add Manage Groups option at top
+        manage_groups_action = QtWidgets.QAction("Manage Groups", self)
+        manage_groups_action.triggered.connect(self._on_manage_groups)
+        self.groups_menu.addAction(manage_groups_action)
+        self.actions["manage_groups"] = manage_groups_action
+
+        self.groups_menu.addSeparator()
+
+        # Populate group checkboxes (will be called after menu setup)
+        # Deferred to after db initialization in __init__
 
         # Create the Filter menu
         self.filter_menu = QtWidgets.QMenu("Filter", self.menubar)
@@ -1063,14 +1157,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.hide_heartbeat_action.triggered.connect(self._on_toggle_heartbeat)
         self.filter_menu.addAction(self.hide_heartbeat_action)
         self.actions["hide_heartbeat"] = self.hide_heartbeat_action
-
-        # Add checkable toggle for showing all groups
-        self.show_all_groups_action = QtWidgets.QAction("SHOW ALL GROUPS", self)
-        self.show_all_groups_action.setCheckable(True)
-        self.show_all_groups_action.setChecked(self.config.get_show_all_groups())
-        self.show_all_groups_action.triggered.connect(self._on_toggle_show_all_groups)
-        self.filter_menu.addAction(self.show_all_groups_action)
-        self.actions["show_all_groups"] = self.show_all_groups_action
 
         # Add checkable toggle for hiding map
         self.hide_map_action = QtWidgets.QAction("HIDE MAP", self)
@@ -1119,7 +1205,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setStatusBar(self.statusbar)
 
     def _setup_header(self) -> None:
-        """Create the header row with Active Group, Marquee, and Time."""
+        """Create the header row with Marquee and Time."""
         # Header container widget with horizontal layout
         self.header_widget = QtWidgets.QWidget(self.central_widget)
         self.header_widget.setFixedHeight(38)
@@ -1127,14 +1213,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.header_layout.setContentsMargins(0, 0, 0, 0)
 
         fg_color = self.config.get_color('program_foreground')
-
-        # Active Group label
-        self.label_active_group = QtWidgets.QLabel(self.header_widget)
-        self.label_active_group.setStyleSheet(f"color: {fg_color};")
-        self.label_active_group.setText(f"Active Group: {self.db.get_active_group()}")
         font = QtGui.QFont("Arial", 12, QtGui.QFont.Bold)
-        self.label_active_group.setFont(font)
-        self.header_layout.addWidget(self.label_active_group)
 
         # Spacer to push marquee to center
         self.header_layout.addStretch()
@@ -1768,9 +1847,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_message_data(self) -> None:
         """Load message data from database into the table."""
         filters = self.config.filter_settings
-        group = None if self.config.get_show_all_groups() else self.db.get_active_group()
+        active_groups = self.db.get_active_groups()
         data = self.db.get_message_data(
-            group=group,
+            groups=active_groups,
             start=filters.get('start', DEFAULT_FILTER_START),
             end=filters.get('end', '')
         )
@@ -1789,7 +1868,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_map(self) -> None:
         """Generate and display the folium map with StatRep pins."""
         filters = self.config.filter_settings
-        group = self.db.get_active_group()
+        active_groups = self.db.get_active_groups()
 
         # Use saved map position or default to US center
         if not hasattr(self, 'map_center'):
@@ -1810,7 +1889,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Get StatRep data for pins
         try:
             data = self.db.get_statrep_data(
-                group=group,
+                groups=active_groups,
                 start=filters.get('start', DEFAULT_FILTER_START),
                 end=filters.get('end', '')
             )
@@ -1928,11 +2007,11 @@ class MainWindow(QtWidgets.QMainWindow):
         """Load StatRep data from database into the table."""
         # Get filter settings
         filters = self.config.filter_settings
-        group = None if self.config.get_show_all_groups() else self.db.get_active_group()
+        active_groups = self.db.get_active_groups()
 
         # Fetch data from database
         data = self.db.get_statrep_data(
-            group=group,
+            groups=active_groups,
             start=filters.get('start', DEFAULT_FILTER_START),
             end=filters.get('end', '')
         )
@@ -2035,8 +2114,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _load_marquee(self) -> None:
         """Load the latest marquee message from database and start animation."""
-        group = self.db.get_active_group()
-        result = self.db.get_latest_marquee(group)
+        active_groups = self.db.get_active_groups()
+        result = self.db.get_latest_marquee(active_groups)
 
         if result:
             # Extract marquee data (idnum, callsign, groupname, date, color, message)
@@ -2169,13 +2248,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.set_hide_heartbeat(checked)
         self._load_live_feed()
 
-    def _on_toggle_show_all_groups(self, checked: bool) -> None:
-        """Toggle showing data from all groups."""
-        self.config.set_show_all_groups(checked)
-        self._load_statrep_data()
-        self._load_message_data()
-        self._load_marquee()
-
     def _on_toggle_hide_map(self, checked: bool) -> None:
         """Toggle between map and image slideshow."""
         self.config.set_hide_map(checked)
@@ -2189,13 +2261,38 @@ class MainWindow(QtWidgets.QMainWindow):
             self.map_disabled_label.hide()
             self.map_widget.show()
 
-    def _on_groups(self) -> None:
+    def _on_manage_groups(self) -> None:
         """Open Manage Groups window."""
         dialog = GroupsDialog(self.db, self)
         dialog.exec_()
-        # Refresh header to show new active group
-        self._update_active_group_label()
-        # Refresh data for new group
+        # Refresh the groups menu after dialog closes
+        self._populate_groups_menu()
+        # Refresh all data
+        self._load_statrep_data()
+        self._load_message_data()
+        self._load_marquee()
+        self._save_map_position(callback=self._load_map)
+
+    def _populate_groups_menu(self) -> None:
+        """Populate the Groups menu with checkable group items."""
+        # Remove existing group actions (keep Manage Groups and separator)
+        actions = self.groups_menu.actions()
+        for action in actions[2:]:  # Skip Manage Groups and separator
+            self.groups_menu.removeAction(action)
+
+        # Add groups alphabetically with checkmarks for active ones
+        groups = self.db.get_all_groups_with_status()
+        for name, is_active in groups:  # Already sorted by name from DB
+            action = QtWidgets.QAction(name, self)
+            action.setCheckable(True)
+            action.setChecked(is_active)
+            action.triggered.connect(lambda checked, n=name: self._toggle_group(n, checked))
+            self.groups_menu.addAction(action)
+
+    def _toggle_group(self, group_name: str, active: bool) -> None:
+        """Toggle a group's active status."""
+        self.db.set_group_active(group_name, active)
+        # Refresh all data to show/hide based on new active groups
         self._load_statrep_data()
         self._load_message_data()
         self._load_marquee()
@@ -2673,10 +2770,6 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f"\033[91m[{rig_name}] Error processing message: {e}\033[0m")
 
         return ""
-
-    def _update_active_group_label(self) -> None:
-        """Update the Active Group label in the header."""
-        self.label_active_group.setText(f"Active Group: {self.db.get_active_group()}")
 
     def _on_settings(self) -> None:
         """Open Settings window."""
