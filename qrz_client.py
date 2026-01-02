@@ -10,6 +10,7 @@ to minimize API calls.
 
 import configparser
 import sqlite3
+import sys
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -23,23 +24,9 @@ QRZ_API_URL = "https://xmldata.qrz.com/xml/current/"
 CACHE_DAYS = 30  # How long to cache callsign data
 DB_PATH = Path(__file__).parent / "traffic.db3"
 CONFIG_PATH = Path(__file__).parent / "config.ini"
-DEBUG_PATH = Path(__file__).parent / "debug.ini"
 
-
-def is_debug_enabled() -> bool:
-    """Check if debug mode is enabled via debug.ini."""
-    try:
-        if not DEBUG_PATH.exists():
-            return False
-        config = configparser.ConfigParser()
-        config.read(DEBUG_PATH)
-        return config.getboolean("DEBUG", "debug", fallback=False)
-    except Exception:
-        return False
-
-
-# Cache debug state
-_DEBUG = is_debug_enabled()
+# Debug mode via --debug command line flag
+_DEBUG = "--debug" in sys.argv
 
 
 def debug_print(msg: str) -> None:
