@@ -736,6 +736,29 @@ class DatabaseManager:
             print(f"Database error: {error}")
             return None
 
+    def get_all_groups_details(self) -> List[Dict]:
+        """Get full details of all groups, sorted by name."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute(
+                    "SELECT name, comment, url1, url2, date_added FROM Groups ORDER BY name"
+                )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "name": row[0],
+                        "comment": row[1] or "",
+                        "url1": row[2] or "",
+                        "url2": row[3] or "",
+                        "date_added": row[4] or ""
+                    }
+                    for row in rows
+                ]
+        except sqlite3.Error as error:
+            print(f"Database error: {error}")
+            return []
+
     def remove_group(self, group_name: str) -> bool:
         """Remove a group. Returns True if successful."""
         try:
@@ -1110,6 +1133,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.groups_menu.addAction(manage_groups_action)
         self.actions["manage_groups"] = manage_groups_action
 
+        # Add Show Groups option
+        show_groups_action = QtWidgets.QAction("Show Groups", self)
+        show_groups_action.triggered.connect(self._on_show_groups)
+        self.groups_menu.addAction(show_groups_action)
+        self.actions["show_groups"] = show_groups_action
+
         self.groups_menu.addSeparator()
 
         # Populate group checkboxes (will be called after menu setup)
@@ -1194,12 +1223,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tools_menu.addAction(world_map_action)
         self.actions["world_map"] = world_map_action
 
-        # Debug menu item (only visible in debug mode)
+        # Debug menu (only visible in debug mode)
         if self.debug_mode:
-            debug_action = QtWidgets.QAction("Debug", self)
-            debug_action.triggered.connect(self._on_debug)
-            self.menubar.addAction(debug_action)
-            self.actions["debug"] = debug_action
+            self.debug_menu = QtWidgets.QMenu("Debug", self.menubar)
+            self.menubar.addMenu(self.debug_menu)
+
+            # Get Call Activity option
+            get_call_activity_action = QtWidgets.QAction("Get Call Activity", self)
+            get_call_activity_action.triggered.connect(self._on_get_call_activity)
+            self.debug_menu.addAction(get_call_activity_action)
+            self.actions["get_call_activity"] = get_call_activity_action
 
         exit_action = QtWidgets.QAction("Exit", self)
         exit_action.triggered.connect(qApp.quit)
@@ -2279,11 +2312,86 @@ class MainWindow(QtWidgets.QMainWindow):
         self._load_marquee()
         self._save_map_position(callback=self._load_map)
 
+    def _on_show_groups(self) -> None:
+        """Show Groups dialog displaying all groups in a table."""
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Groups")
+        dialog.setMinimumSize(700, 400)
+        dialog.setWindowFlags(
+            Qt.Window |
+            Qt.CustomizeWindowHint |
+            Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint
+        )
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # Create table widget
+        table = QtWidgets.QTableWidget()
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["Group Name", "Comment", "URL #1", "URL #2", "Date Added"])
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        table.setAlternatingRowColors(True)
+        table.horizontalHeader().setStretchLastSection(True)
+
+        # Get all groups
+        groups = self.db.get_all_groups_details()
+        table.setRowCount(len(groups))
+
+        for row, group in enumerate(groups):
+            # Group Name
+            name_item = QtWidgets.QTableWidgetItem(group["name"])
+            table.setItem(row, 0, name_item)
+
+            # Comment
+            comment_item = QtWidgets.QTableWidgetItem(group["comment"])
+            table.setItem(row, 1, comment_item)
+
+            # URL #1 - show shortened text, full URL in tooltip
+            url1 = group["url1"]
+            if url1:
+                url1_display = "Link" if len(url1) > 30 else url1
+                url1_item = QtWidgets.QTableWidgetItem(url1_display)
+                url1_item.setToolTip(url1)
+                url1_item.setForeground(QtGui.QColor("#0066CC"))
+            else:
+                url1_item = QtWidgets.QTableWidgetItem("")
+            table.setItem(row, 2, url1_item)
+
+            # URL #2 - show shortened text, full URL in tooltip
+            url2 = group["url2"]
+            if url2:
+                url2_display = "Link" if len(url2) > 30 else url2
+                url2_item = QtWidgets.QTableWidgetItem(url2_display)
+                url2_item.setToolTip(url2)
+                url2_item.setForeground(QtGui.QColor("#0066CC"))
+            else:
+                url2_item = QtWidgets.QTableWidgetItem("")
+            table.setItem(row, 3, url2_item)
+
+            # Date Added
+            date_item = QtWidgets.QTableWidgetItem(group["date_added"])
+            table.setItem(row, 4, date_item)
+
+        # Resize columns to content
+        table.resizeColumnsToContents()
+
+        layout.addWidget(table)
+
+        # Close button
+        close_btn = QtWidgets.QPushButton("Close")
+        close_btn.clicked.connect(dialog.close)
+        layout.addWidget(close_btn, alignment=Qt.AlignCenter)
+
+        dialog.exec_()
+
     def _populate_groups_menu(self) -> None:
         """Populate the Groups menu with checkable group items."""
-        # Remove existing group actions (keep Manage Groups and separator)
+        # Remove existing group actions (keep Manage Groups, Show Groups, and separator)
         actions = self.groups_menu.actions()
-        for action in actions[2:]:  # Skip Manage Groups and separator
+        for action in actions[3:]:  # Skip Manage Groups, Show Groups, and separator
             self.groups_menu.removeAction(action)
 
         # Add groups alphabetically with checkmarks for active ones
@@ -2444,6 +2552,66 @@ class MainWindow(QtWidgets.QMainWindow):
                 dial_freq_mhz = (freq - offset) / 1000000 if freq else 0
                 feed_line = f"{utc_str}\t{dial_freq_mhz:.3f}\t{offset}\t{snr:+03d}\t{from_call}: {value}"
                 self._add_to_feed(feed_line, rig_name)
+
+        # Handle RX.CALL_ACTIVITY response (debug feature)
+        elif msg_type == "RX.CALL_ACTIVITY":
+            self._write_call_activity_dump(rig_name, message)
+
+    def _write_call_activity_dump(self, rig_name: str, message: dict) -> None:
+        """
+        Write call activity data to a dump file.
+
+        Args:
+            rig_name: Name of the rig.
+            message: Full message containing call activity data.
+        """
+        import json
+        from pathlib import Path
+
+        # Remove from pending set if tracking
+        if hasattr(self, '_pending_call_activity'):
+            self._pending_call_activity.discard(rig_name)
+
+        # Create filename
+        filename = f"{rig_name}-data-dump.txt"
+        filepath = Path(__file__).parent / filename
+
+        try:
+            with open(filepath, 'w') as f:
+                f.write(f"Call Activity Dump for {rig_name}\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 60 + "\n\n")
+
+                # Get the value which contains the call activity list
+                value = message.get("value", [])
+
+                if isinstance(value, list):
+                    f.write(f"Total stations: {len(value)}\n\n")
+                    for entry in value:
+                        if isinstance(entry, dict):
+                            callsign = entry.get("CALL", "Unknown")
+                            grid = entry.get("GRID", "")
+                            snr = entry.get("SNR", "")
+                            utc = entry.get("UTC", 0)
+                            f.write(f"Callsign: {callsign}\n")
+                            if grid:
+                                f.write(f"  Grid: {grid}\n")
+                            if snr:
+                                f.write(f"  SNR: {snr}\n")
+                            if utc:
+                                utc_str = datetime.utcfromtimestamp(utc / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                                f.write(f"  Last heard: {utc_str}\n")
+                            f.write("\n")
+                        else:
+                            f.write(f"{entry}\n")
+                else:
+                    # Write raw JSON if not a list
+                    f.write(json.dumps(message, indent=2))
+
+            print(f"[{rig_name}] Call activity written to {filename}")
+
+        except Exception as e:
+            print(f"[{rig_name}] Error writing call activity dump: {e}")
 
     def _add_to_feed(self, line: str, rig_name: str) -> None:
         """
@@ -3012,9 +3180,30 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.ui.setupUi(dialog)
         dialog.exec_()
 
-    def _on_debug(self) -> None:
-        """Debug menu handler - placeholder for future functionality."""
-        pass
+    def _on_get_call_activity(self) -> None:
+        """Request call activity from all connected JS8Call instances."""
+        if not hasattr(self, '_pending_call_activity'):
+            self._pending_call_activity = set()
+
+        connected_count = 0
+        for rig_name, client in self.tcp_pool.clients.items():
+            if client.is_connected():
+                print(f"[{rig_name}] Requesting call activity...")
+                client.send_message("RX.GET_CALL_ACTIVITY")
+                self._pending_call_activity.add(rig_name)
+                connected_count += 1
+
+        if connected_count == 0:
+            QtWidgets.QMessageBox.information(
+                self, "No Connections",
+                "No JS8Call instances are connected."
+            )
+        else:
+            QtWidgets.QMessageBox.information(
+                self, "Request Sent",
+                f"Requested call activity from {connected_count} rig(s).\n"
+                "Data will be written to {rig}-data-dump.txt files."
+            )
 
 
 # =============================================================================
