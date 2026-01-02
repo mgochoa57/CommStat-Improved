@@ -1447,8 +1447,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 content = content.strip()
                 lines = [line.strip() for line in content.split('\n') if line.strip()]
 
-                print(f"Playlist lines: {lines[:3]}")  # Debug output
-
                 if not lines:
                     return
 
@@ -1458,10 +1456,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 if date_match:
                     expiry_date = datetime.strptime(date_match.group(1), '%Y-%m-%d').date()
                     today = datetime.now().date()
-                    print(f"Playlist date: {expiry_date}, Today: {today}")  # Debug
                     if expiry_date < today:
                         # Date has passed - skip all playlist rules including Force
-                        print("Playlist expired, skipping Force check")
+                        print(f"Action Date = {expiry_date}. No actions to perform")
                         return
                     # Remove date line
                     lines = lines[1:]
@@ -1526,7 +1523,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     today = datetime.now().date()
                     if expiry_date < today:
                         # Date has passed - skip all playlist rules
-                        print(f"Playlist expired on {expiry_date}, skipping rules")
+                        print(f"Action Date = {expiry_date}. No actions to perform")
                         return []
                     # Remove date line
                     lines = lines[1:]
