@@ -1019,30 +1019,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.menu.addAction(action)
                 self.actions[name] = action
 
-        # Add checkable toggle for hiding heartbeat messages
-        self.hide_heartbeat_action = QtWidgets.QAction("HIDE CQ & HEARTBEAT", self)
-        self.hide_heartbeat_action.setCheckable(True)
-        self.hide_heartbeat_action.setChecked(self.config.get_hide_heartbeat())
-        self.hide_heartbeat_action.triggered.connect(self._on_toggle_heartbeat)
-        self.menu.addAction(self.hide_heartbeat_action)
-        self.actions["hide_heartbeat"] = self.hide_heartbeat_action
-
-        # Add checkable toggle for showing all groups
-        self.show_all_groups_action = QtWidgets.QAction("SHOW ALL GROUPS", self)
-        self.show_all_groups_action.setCheckable(True)
-        self.show_all_groups_action.setChecked(self.config.get_show_all_groups())
-        self.show_all_groups_action.triggered.connect(self._on_toggle_show_all_groups)
-        self.menu.addAction(self.show_all_groups_action)
-        self.actions["show_all_groups"] = self.show_all_groups_action
-
-        # Add checkable toggle for hiding map and showing videos
-        self.hide_map_action = QtWidgets.QAction("HIDE MAP", self)
-        self.hide_map_action.setCheckable(True)
-        self.hide_map_action.setChecked(self.config.get_hide_map())
-        self.hide_map_action.triggered.connect(self._on_toggle_hide_map)
-        self.menu.addAction(self.hide_map_action)
-        self.actions["hide_map"] = self.hide_map_action
-
         # Create the Filter menu
         self.filter_menu = QtWidgets.QMenu("Filter", self.menubar)
         self.menubar.addMenu(self.filter_menu)
@@ -1071,6 +1047,36 @@ class MainWindow(QtWidgets.QMainWindow):
         reset_1year = QtWidgets.QAction("Reset to 1 year ago", self)
         reset_1year.triggered.connect(lambda: self._reset_filter_date(365))
         self.filter_menu.addAction(reset_1year)
+
+        # Add Data Filter section
+        self.filter_menu.addSeparator()
+        data_filter_label = QtWidgets.QAction("Data Filter", self)
+        data_filter_label.setEnabled(False)  # Disabled as a section title
+        self.filter_menu.addAction(data_filter_label)
+
+        # Add checkable toggle for hiding heartbeat messages
+        self.hide_heartbeat_action = QtWidgets.QAction("HIDE CQ & HEARTBEAT", self)
+        self.hide_heartbeat_action.setCheckable(True)
+        self.hide_heartbeat_action.setChecked(self.config.get_hide_heartbeat())
+        self.hide_heartbeat_action.triggered.connect(self._on_toggle_heartbeat)
+        self.filter_menu.addAction(self.hide_heartbeat_action)
+        self.actions["hide_heartbeat"] = self.hide_heartbeat_action
+
+        # Add checkable toggle for showing all groups
+        self.show_all_groups_action = QtWidgets.QAction("SHOW ALL GROUPS", self)
+        self.show_all_groups_action.setCheckable(True)
+        self.show_all_groups_action.setChecked(self.config.get_show_all_groups())
+        self.show_all_groups_action.triggered.connect(self._on_toggle_show_all_groups)
+        self.filter_menu.addAction(self.show_all_groups_action)
+        self.actions["show_all_groups"] = self.show_all_groups_action
+
+        # Add checkable toggle for hiding map
+        self.hide_map_action = QtWidgets.QAction("HIDE MAP", self)
+        self.hide_map_action.setCheckable(True)
+        self.hide_map_action.setChecked(self.config.get_hide_map())
+        self.hide_map_action.triggered.connect(self._on_toggle_hide_map)
+        self.filter_menu.addAction(self.hide_map_action)
+        self.actions["hide_map"] = self.hide_map_action
 
         # Add About, Help, Exit directly to menu bar
         about_action = QtWidgets.QAction("About", self)
