@@ -255,6 +255,10 @@ class JS8CallTCPClient(QObject):
             # Spot message - emit for processing
             self.message_received.emit(self.rig_name, message)
 
+        elif msg_type == "RX.CALL_ACTIVITY":
+            # Call activity response (debug feature) - emit for processing
+            self.message_received.emit(self.rig_name, message)
+
         # Ignore PING and other status messages silently
 
     def _on_error(self, error: QAbstractSocket.SocketError) -> None:

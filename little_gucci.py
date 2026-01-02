@@ -42,6 +42,7 @@ from settings import SettingsDialog
 from colors import ColorsDialog
 from filter import FilterDialog
 from groups import GroupsDialog
+from debug_features import DebugFeatures
 from js8mail import JS8MailDialog
 from js8sms import JS8SMSDialog
 from marquee import Ui_FormMarquee
@@ -1225,14 +1226,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Debug menu (only visible in debug mode)
         if self.debug_mode:
-            self.debug_menu = QtWidgets.QMenu("Debug", self.menubar)
-            self.menubar.addMenu(self.debug_menu)
-
-            # Get Call Activity option
-            get_call_activity_action = QtWidgets.QAction("Get Call Activity", self)
-            get_call_activity_action.triggered.connect(self._on_get_call_activity)
-            self.debug_menu.addAction(get_call_activity_action)
-            self.actions["get_call_activity"] = get_call_activity_action
+            self.debug_features = DebugFeatures(self)
+            self.debug_features.setup_debug_menu()
 
         exit_action = QtWidgets.QAction("Exit", self)
         exit_action.triggered.connect(qApp.quit)
@@ -2555,63 +2550,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Handle RX.CALL_ACTIVITY response (debug feature)
         elif msg_type == "RX.CALL_ACTIVITY":
-            self._write_call_activity_dump(rig_name, message)
-
-    def _write_call_activity_dump(self, rig_name: str, message: dict) -> None:
-        """
-        Write call activity data to a dump file.
-
-        Args:
-            rig_name: Name of the rig.
-            message: Full message containing call activity data.
-        """
-        import json
-        from pathlib import Path
-
-        # Remove from pending set if tracking
-        if hasattr(self, '_pending_call_activity'):
-            self._pending_call_activity.discard(rig_name)
-
-        # Create filename
-        filename = f"{rig_name}-data-dump.txt"
-        filepath = Path(__file__).parent / filename
-
-        try:
-            with open(filepath, 'w') as f:
-                f.write(f"Call Activity Dump for {rig_name}\n")
-                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("=" * 60 + "\n\n")
-
-                # Get the value which contains the call activity list
-                value = message.get("value", [])
-
-                if isinstance(value, list):
-                    f.write(f"Total stations: {len(value)}\n\n")
-                    for entry in value:
-                        if isinstance(entry, dict):
-                            callsign = entry.get("CALL", "Unknown")
-                            grid = entry.get("GRID", "")
-                            snr = entry.get("SNR", "")
-                            utc = entry.get("UTC", 0)
-                            f.write(f"Callsign: {callsign}\n")
-                            if grid:
-                                f.write(f"  Grid: {grid}\n")
-                            if snr:
-                                f.write(f"  SNR: {snr}\n")
-                            if utc:
-                                utc_str = datetime.utcfromtimestamp(utc / 1000).strftime('%Y-%m-%d %H:%M:%S')
-                                f.write(f"  Last heard: {utc_str}\n")
-                            f.write("\n")
-                        else:
-                            f.write(f"{entry}\n")
-                else:
-                    # Write raw JSON if not a list
-                    f.write(json.dumps(message, indent=2))
-
-            print(f"[{rig_name}] Call activity written to {filename}")
-
-        except Exception as e:
-            print(f"[{rig_name}] Error writing call activity dump: {e}")
+            if hasattr(self, 'debug_features'):
+                self.debug_features.handle_call_activity_response(rig_name, message)
 
     def _add_to_feed(self, line: str, rig_name: str) -> None:
         """
@@ -3179,31 +3119,6 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.ui = Ui_FormAbout()
         dialog.ui.setupUi(dialog)
         dialog.exec_()
-
-    def _on_get_call_activity(self) -> None:
-        """Request call activity from all connected JS8Call instances."""
-        if not hasattr(self, '_pending_call_activity'):
-            self._pending_call_activity = set()
-
-        connected_count = 0
-        for rig_name, client in self.tcp_pool.clients.items():
-            if client.is_connected():
-                print(f"[{rig_name}] Requesting call activity...")
-                client.send_message("RX.GET_CALL_ACTIVITY")
-                self._pending_call_activity.add(rig_name)
-                connected_count += 1
-
-        if connected_count == 0:
-            QtWidgets.QMessageBox.information(
-                self, "No Connections",
-                "No JS8Call instances are connected."
-            )
-        else:
-            QtWidgets.QMessageBox.information(
-                self, "Request Sent",
-                f"Requested call activity from {connected_count} rig(s).\n"
-                "Data will be written to {rig}-data-dump.txt files."
-            )
 
 
 # =============================================================================
