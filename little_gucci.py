@@ -24,6 +24,7 @@ import urllib.request
 import ssl
 import tempfile
 import webbrowser
+from datetime import datetime, timezone, timedelta
 from configparser import ConfigParser
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
@@ -1096,7 +1097,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Define menu actions: (name, text, handler)
         menu_items = [
             ("statrep", "STATREP", self._on_statrep),
-            ("send_message", "SEND MESSAGE", self._on_send_message),
+            ("send_message", "GROUP MESSAGE", self._on_send_message),
             ("new_marquee", "NEW MARQUEE", self._on_new_marquee),
             ("js8email", "JS8 EMAIL", self._on_js8email),
             ("js8sms", "JS8 SMS", self._on_js8sms),
@@ -1195,6 +1196,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.hide_map_action.triggered.connect(self._on_toggle_hide_map)
         self.filter_menu.addAction(self.hide_map_action)
         self.actions["hide_map"] = self.hide_map_action
+
+        # Add checkable toggle for showing all groups
+        self.show_all_groups_action = QtWidgets.QAction("SHOW ALL GROUPS", self)
+        self.show_all_groups_action.setCheckable(True)
+        self.show_all_groups_action.setChecked(self.config.get_show_all_groups())
+        self.show_all_groups_action.triggered.connect(self._on_toggle_show_all_groups)
+        self.filter_menu.addAction(self.show_all_groups_action)
+        self.actions["show_all_groups"] = self.show_all_groups_action
 
         # Add About, Help, Exit directly to menu bar
         about_action = QtWidgets.QAction("About", self)
@@ -1881,9 +1890,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_message_data(self) -> None:
         """Load message data from database into the table."""
         filters = self.config.filter_settings
-        active_groups = self.db.get_active_groups()
+        if self.config.get_show_all_groups():
+            groups = self.db.get_all_groups()
+        else:
+            groups = self.db.get_active_groups()
         data = self.db.get_message_data(
-            groups=active_groups,
+            groups=groups,
             start=filters.get('start', DEFAULT_FILTER_START),
             end=filters.get('end', '')
         )
@@ -1902,7 +1914,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_map(self) -> None:
         """Generate and display the folium map with StatRep pins."""
         filters = self.config.filter_settings
-        active_groups = self.db.get_active_groups()
+        if self.config.get_show_all_groups():
+            groups = self.db.get_all_groups()
+        else:
+            groups = self.db.get_active_groups()
 
         # Use saved map position or default to US center
         if not hasattr(self, 'map_center'):
@@ -1923,7 +1938,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Get StatRep data for pins
         try:
             data = self.db.get_statrep_data(
-                groups=active_groups,
+                groups=groups,
                 start=filters.get('start', DEFAULT_FILTER_START),
                 end=filters.get('end', '')
             )
@@ -2041,11 +2056,14 @@ class MainWindow(QtWidgets.QMainWindow):
         """Load StatRep data from database into the table."""
         # Get filter settings
         filters = self.config.filter_settings
-        active_groups = self.db.get_active_groups()
+        if self.config.get_show_all_groups():
+            groups = self.db.get_all_groups()
+        else:
+            groups = self.db.get_active_groups()
 
         # Fetch data from database
         data = self.db.get_statrep_data(
-            groups=active_groups,
+            groups=groups,
             start=filters.get('start', DEFAULT_FILTER_START),
             end=filters.get('end', '')
         )
@@ -2148,8 +2166,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _load_marquee(self) -> None:
         """Load the latest marquee message from database and start animation."""
-        active_groups = self.db.get_active_groups()
-        result = self.db.get_latest_marquee(active_groups)
+        if self.config.get_show_all_groups():
+            groups = self.db.get_all_groups()
+        else:
+            groups = self.db.get_active_groups()
+        result = self.db.get_latest_marquee(groups)
 
         if result:
             # Extract marquee data (idnum, callsign, groupname, date, color, message)
@@ -2294,6 +2315,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ping_message = None  # Clear any message
             self.map_disabled_label.hide()
             self.map_widget.show()
+
+    def _on_toggle_show_all_groups(self, checked: bool) -> None:
+        """Toggle showing all groups data regardless of active groups."""
+        self.config.set_show_all_groups(checked)
+        # Refresh all data views
+        self._load_statrep_data()
+        self._load_message_data()
+        self._load_marquee()
+        self._save_map_position(callback=self._load_map)
 
     def _on_manage_groups(self) -> None:
         """Open Manage Groups window."""
