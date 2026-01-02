@@ -686,6 +686,72 @@ class DatabaseManager:
             print(f"Database error: {error}")
             return 0
 
+    def init_db_version_table(self) -> None:
+        """Create db_version table if it doesn't exist and seed initial version."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS db_version (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        version INTEGER NOT NULL DEFAULT 1,
+                        updated_at TEXT
+                    )
+                """)
+                connection.commit()
+
+                # Check if table is empty
+                cursor.execute("SELECT COUNT(*) FROM db_version")
+                if cursor.fetchone()[0] == 0:
+                    # Seed initial version
+                    from datetime import datetime
+                    cursor.execute(
+                        "INSERT INTO db_version (id, version, updated_at) VALUES (1, 1, ?)",
+                        (datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),)
+                    )
+                    connection.commit()
+        except sqlite3.Error as error:
+            print(f"Database error initializing db_version table: {error}")
+
+    def get_db_version(self) -> int:
+        """Get the current database version."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute("SELECT version FROM db_version WHERE id = 1")
+                result = cursor.fetchone()
+                return result[0] if result else 1
+        except sqlite3.Error as error:
+            print(f"Database error: {error}")
+            return 1
+
+    def set_db_version(self, version: int) -> bool:
+        """Update the database version."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                from datetime import datetime
+                cursor.execute(
+                    "UPDATE db_version SET version = ?, updated_at = ? WHERE id = 1",
+                    (version, datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
+                )
+                connection.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as error:
+            print(f"Database error: {error}")
+            return False
+
+    def execute_migration(self, sql: str) -> bool:
+        """Execute a SQL migration statement."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.executescript(sql)
+                connection.commit()
+                return True
+        except sqlite3.Error as error:
+            print(f"Migration error: {error}")
+            return False
 
 
 # =============================================================================
@@ -2322,9 +2388,12 @@ class MainWindow(QtWidgets.QMainWindow):
             cursor = conn.cursor()
 
             # Determine message type and process
+            # Old CommStat format has marker at END: ,DATA,FIELDS,{MARKER}
+            # Extract content BEFORE the marker, strip leading comma
+
             if MSG_BULLETIN in value:
-                # Parse message: {^%} ID,MESSAGE
-                match = re.search(r'\{\^\%\}\s*(.+)', value)
+                # Parse message: ,ID,MESSAGE,{^%}
+                match = re.search(r',(.+?)\{\^\%\}', value)
                 if match:
                     fields = match.group(1).split(",")
                     if len(fields) >= 2:
@@ -2343,8 +2412,8 @@ class MainWindow(QtWidgets.QMainWindow):
                         return "message"
 
             elif MSG_FORWARDED_STATREP in value:
-                # Parse forwarded statrep: {F%} GRID,PREC,SRID,SRCODE,COMMENTS,ORIG_CALL
-                match = re.search(r'\{F\%\}\s*(.+)', value)
+                # Parse forwarded statrep: ,GRID,PREC,SRID,SRCODE,COMMENTS,ORIG_CALL,{F%}
+                match = re.search(r',(.+?)\{F\%\}', value)
                 if match:
                     fields = match.group(1).split(",")
                     if len(fields) >= 6:
@@ -2380,8 +2449,8 @@ class MainWindow(QtWidgets.QMainWindow):
                             return "statrep"
 
             elif MSG_STATREP in value:
-                # Parse statrep: {&%} GRID,PREC,SRID,SRCODE,COMMENTS
-                match = re.search(r'\{&\%\}\s*(.+)', value)
+                # Parse statrep: ,GRID,PREC,SRID,SRCODE,COMMENTS,{&%}
+                match = re.search(r',(.+?)\{&\%\}', value)
                 if match:
                     fields = match.group(1).split(",")
                     if len(fields) >= 4:
@@ -2416,8 +2485,8 @@ class MainWindow(QtWidgets.QMainWindow):
                             return "statrep"
 
             elif MSG_MARQUEE in value:
-                # Parse marquee: {*%} ID,COLOR,MESSAGE
-                match = re.search(r'\{\*\%\}\s*(.+)', value)
+                # Parse marquee: ,ID,COLOR,MESSAGE,{*%}
+                match = re.search(r',(.+?)\{\*\%\}', value)
                 if match:
                     fields = match.group(1).split(",")
                     if len(fields) >= 3:
@@ -2437,8 +2506,8 @@ class MainWindow(QtWidgets.QMainWindow):
                         return "marquee"
 
             elif MSG_CHECKIN in value:
-                # Parse checkin: {~%} TRAFFIC,STATE,GRID
-                match = re.search(r'\{~\%\}\s*(.+)', value)
+                # Parse checkin: ,TRAFFIC,STATE,GRID,{~%}
+                match = re.search(r',(.+?)\{~\%\}', value)
                 if match:
                     fields = match.group(1).split(",")
                     if len(fields) >= 3:
@@ -2488,10 +2557,58 @@ class MainWindow(QtWidgets.QMainWindow):
                         conn.close()
                         return "checkin"
 
+            # =================================================================
+            # Pattern-based detection (no markers required)
+            # =================================================================
+
+            # StatRep pattern: GRID,PREC,SRID,SRCODE[,COMMENTS]
+            # - GRID: 4-6 char maidenhead (AA00 or AA00aa)
+            # - PREC: 1-5 (precedence)
+            # - SRID: numeric ID
+            # - SRCODE: + or 12 digits [1-4]
+            # - COMMENTS: optional
+            # Only process if sent to a group (@GROUP)
+            if to_call.startswith("@"):
+                statrep_pattern = re.match(
+                    r'^([A-Z]{2}\d{2}[a-z]{0,2}),([1-5]),(\d+),(\+|[1-4]{12})(?:,(.*))?$',
+                    value.strip(),
+                    re.IGNORECASE
+                )
+                if statrep_pattern:
+                    curgrid = statrep_pattern.group(1).upper()
+                    prec1 = statrep_pattern.group(2)
+                    srid = statrep_pattern.group(3)
+                    srcode = statrep_pattern.group(4)
+                    comments = statrep_pattern.group(5).strip() if statrep_pattern.group(5) else ""
+
+                    # Expand compressed "+" to all green (111111111111)
+                    if srcode == "+":
+                        srcode = "111111111111"
+
+                    prec = PRECEDENCE_MAP.get(prec1, "Unknown")
+
+                    if len(srcode) >= 12:
+                        sr_fields = list(srcode)
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO Statrep_Data "
+                            "(datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, "
+                            "med, ota, trav, net, fuel, food, crime, civil, political, comments, source, frequency) "
+                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (utc, callsign, group, curgrid, srid, prec,
+                             sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
+                             sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
+                             sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
+                             comments, "1", freq)
+                        )
+                        conn.commit()
+                        print(f"\033[92m[{rig_name}] Added StatRep (pattern) from: {callsign} ID: {srid}\033[0m")
+                        conn.close()
+                        return "statrep"
+
             # Check for standard JS8Call MSG format (no special marker)
-            # Format: "MSG message_text" in value
+            # Format: " MSG " with spaces on both sides
             # Save if: to group OR to one of user's callsigns
-            if " MSG " in value or value.startswith("MSG "):
+            if " MSG " in value:
                 # Check if this message should be saved
                 is_to_group = to_call.startswith("@")
                 is_to_user = to_call in self.rig_callsigns.values()
@@ -2723,6 +2840,9 @@ def main() -> None:
 
     # Initialize Groups table (creates if needed, seeds defaults)
     db.init_groups_table()
+
+    # Initialize db_version table (creates if needed, seeds version 1)
+    db.init_db_version_table()
 
     # Create and show main window
     window = MainWindow(config, db)
