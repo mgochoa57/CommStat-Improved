@@ -231,9 +231,10 @@ class StatRepDialog(QDialog):
             client.grid_received.connect(self._on_grid_received)
 
             # Request callsign and grid from JS8Call
+            # Small delay between requests to avoid race condition
             print(f"[StatRep] Requesting callsign and grid from {rig_name}")
             client.get_callsign()
-            client.get_grid()
+            QtCore.QTimer.singleShot(100, client.get_grid)  # 100ms delay for grid request
         else:
             print(f"[StatRep] Client not available or not connected for {rig_name}")
 
@@ -253,6 +254,14 @@ class StatRepDialog(QDialog):
             self.grid = grid
             if hasattr(self, 'grid_field'):
                 self.grid_field.setText(grid)
+
+    def _on_from_field_changed(self, text: str) -> None:
+        """Handle user editing the From (callsign) field."""
+        self.callsign = text.upper()
+
+    def _on_grid_field_changed(self, text: str) -> None:
+        """Handle user editing the Grid field."""
+        self.grid = text.upper()
 
     def _generate_statrep_id(self) -> None:
         """Generate a unique StatRep ID that doesn't exist in the database."""
@@ -307,10 +316,9 @@ class StatRepDialog(QDialog):
         from_label = QtWidgets.QLabel("From:")
         from_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.from_field = QtWidgets.QLineEdit(self.callsign)
-        self.from_field.setReadOnly(True)
         self.from_field.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.from_field.setStyleSheet("background-color: #e9ecef;")
         self.from_field.setMinimumHeight(28)
+        self.from_field.textChanged.connect(self._on_from_field_changed)
         from_layout.addWidget(from_label)
         from_layout.addWidget(self.from_field)
         header_layout.addLayout(from_layout)
@@ -340,10 +348,9 @@ class StatRepDialog(QDialog):
         grid_label = QtWidgets.QLabel("Grid:")
         grid_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.grid_field = QtWidgets.QLineEdit(self.grid)
-        self.grid_field.setReadOnly(True)
         self.grid_field.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.grid_field.setStyleSheet("background-color: #e9ecef;")
         self.grid_field.setMinimumHeight(28)
+        self.grid_field.textChanged.connect(self._on_grid_field_changed)
         grid_layout.addWidget(grid_label)
         grid_layout.addWidget(self.grid_field)
         header_layout.addLayout(grid_layout)
@@ -580,9 +587,11 @@ class StatRepDialog(QDialog):
             values["political"],
         ])
 
-        # Compress: if all green (111111111111), send as "+"
-        if status_str == "111111111111":
-            status_str = "+"
+        # TODO: REVERT LATER - Compression disabled for legacy compatibility with CommStatOne
+        # When enabled, this compresses all-green status (111111111111) to "+" to save bandwidth
+        # Uncomment these lines when Dan's users have upgraded to CommStat-Improved:
+        # if status_str == "111111111111":
+        #     status_str = "+"
 
         # Format: @GROUP ,GRID,SCOPE,ID,STATUSES,REMARKS,{&%}
         group = f"@{self.to_combo.currentText()}"
@@ -641,6 +650,17 @@ class StatRepDialog(QDialog):
             print(f"Database error saving StatRep: {e}")
             raise
 
+    def _refresh_parent_data(self) -> None:
+        """Refresh the parent window's StatRep table, map, and messages."""
+        parent = self.parent()
+        if parent:
+            if hasattr(parent, '_load_statrep_data'):
+                parent._load_statrep_data()
+            if hasattr(parent, '_load_map'):
+                parent._load_map()
+            if hasattr(parent, '_load_message_data'):
+                parent._load_message_data()
+
     def _clear_copy_file(self) -> None:
         """Clear the copy file to trigger refresh."""
         try:
@@ -673,6 +693,7 @@ class StatRepDialog(QDialog):
 
             self._show_info(f"StatRep saved:\n{message}")
             self._clear_copy_file()
+            self._refresh_parent_data()
             self.accept()
         except Exception as e:
             self._show_error(f"Failed to save StatRep: {e}")
@@ -740,6 +761,7 @@ class StatRepDialog(QDialog):
             print(f"{'='*60}\n")
 
             self._clear_copy_file()
+            self._refresh_parent_data()
             self.accept()
         except Exception as e:
             self._show_error(f"Failed to transmit StatRep: {e}")
