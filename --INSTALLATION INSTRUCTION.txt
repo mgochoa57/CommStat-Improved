@@ -13,10 +13,7 @@ WINDOWS
 3. Run the installer:
    python install.py
 
-4. Copy the database template:
-   copy traffic.db3.template traffic.db3
-
-5. Run CommStat:
+4. Run CommStat:
    python startup.py
 
 
@@ -31,10 +28,7 @@ LINUX
 2. Run the Python installer:
    python3 install.py
 
-3. Copy the database template:
-   cp traffic.db3.template traffic.db3
-
-4. Run CommStat:
+3. Run CommStat:
    python3 startup.py
 
 

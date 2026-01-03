@@ -9,8 +9,6 @@ import os
 import platform
 import shutil
 
-CONFIG_FILE = "config.ini"
-CONFIG_TEMPLATE = "config.ini.template"
 DATABASE_FILE = "traffic.db3"
 DATABASE_TEMPLATE = "traffic.db3.template"
 
@@ -54,8 +52,7 @@ def create_from_template(target: str, template: str) -> None:
 
 
 def setup_files():
-    """Create config and database from templates if missing."""
-    create_from_template(CONFIG_FILE, CONFIG_TEMPLATE)
+    """Create database from template if missing."""
     create_from_template(DATABASE_FILE, DATABASE_TEMPLATE)
 
 
