@@ -1277,35 +1277,41 @@ class MainWindow(QtWidgets.QMainWindow):
         reset_1year.triggered.connect(lambda: self._reset_filter_date(365))
         self.filter_menu.addAction(reset_1year)
 
-        # Add Data Filter section
+        # Add Data Filters section
         self.filter_menu.addSeparator()
-        data_filter_label = QtWidgets.QAction("Data Filter", self)
+        data_filter_label = QtWidgets.QAction("DATA FILTERS", self)
         data_filter_label.setEnabled(False)  # Disabled as a section title
         self.filter_menu.addAction(data_filter_label)
 
-        # Add checkable toggle for hiding heartbeat messages
-        self.hide_heartbeat_action = QtWidgets.QAction("HIDE CQ & HEARTBEAT", self)
-        self.hide_heartbeat_action.setCheckable(True)
-        self.hide_heartbeat_action.setChecked(self.config.get_hide_heartbeat())
-        self.hide_heartbeat_action.triggered.connect(self._on_toggle_heartbeat)
-        self.filter_menu.addAction(self.hide_heartbeat_action)
-        self.actions["hide_heartbeat"] = self.hide_heartbeat_action
+        # Add checkable toggle for hiding heartbeat messages (menu stays open)
+        self.hide_heartbeat_checkbox = QtWidgets.QCheckBox("HIDE CQ & HEARTBEAT")
+        self.hide_heartbeat_checkbox.setChecked(self.config.get_hide_heartbeat())
+        self.hide_heartbeat_checkbox.setStyleSheet("QCheckBox { padding: 4px 8px; }")
+        self.hide_heartbeat_checkbox.stateChanged.connect(
+            lambda state: self._on_toggle_heartbeat(state == Qt.Checked))
+        hide_heartbeat_action = QtWidgets.QWidgetAction(self)
+        hide_heartbeat_action.setDefaultWidget(self.hide_heartbeat_checkbox)
+        self.filter_menu.addAction(hide_heartbeat_action)
 
-        # Add checkable toggle for hiding map
-        self.hide_map_action = QtWidgets.QAction("HIDE MAP", self)
-        self.hide_map_action.setCheckable(True)
-        self.hide_map_action.setChecked(self.config.get_hide_map())
-        self.hide_map_action.triggered.connect(self._on_toggle_hide_map)
-        self.filter_menu.addAction(self.hide_map_action)
-        self.actions["hide_map"] = self.hide_map_action
+        # Add checkable toggle for hiding map (menu stays open)
+        self.hide_map_checkbox = QtWidgets.QCheckBox("HIDE MAP")
+        self.hide_map_checkbox.setChecked(self.config.get_hide_map())
+        self.hide_map_checkbox.setStyleSheet("QCheckBox { padding: 4px 8px; }")
+        self.hide_map_checkbox.stateChanged.connect(
+            lambda state: self._on_toggle_hide_map(state == Qt.Checked))
+        hide_map_action = QtWidgets.QWidgetAction(self)
+        hide_map_action.setDefaultWidget(self.hide_map_checkbox)
+        self.filter_menu.addAction(hide_map_action)
 
-        # Add checkable toggle for showing all groups
-        self.show_all_groups_action = QtWidgets.QAction("SHOW ALL GROUPS", self)
-        self.show_all_groups_action.setCheckable(True)
-        self.show_all_groups_action.setChecked(self.config.get_show_all_groups())
-        self.show_all_groups_action.triggered.connect(self._on_toggle_show_all_groups)
-        self.filter_menu.addAction(self.show_all_groups_action)
-        self.actions["show_all_groups"] = self.show_all_groups_action
+        # Add checkable toggle for showing all groups (menu stays open)
+        self.show_all_groups_checkbox = QtWidgets.QCheckBox("SHOW ALL GROUPS")
+        self.show_all_groups_checkbox.setChecked(self.config.get_show_all_groups())
+        self.show_all_groups_checkbox.setStyleSheet("QCheckBox { padding: 4px 8px; }")
+        self.show_all_groups_checkbox.stateChanged.connect(
+            lambda state: self._on_toggle_show_all_groups(state == Qt.Checked))
+        show_all_groups_action = QtWidgets.QWidgetAction(self)
+        show_all_groups_action.setDefaultWidget(self.show_all_groups_checkbox)
+        self.filter_menu.addAction(show_all_groups_action)
 
         # Add About, Help, Exit directly to menu bar
         about_action = QtWidgets.QAction("About", self)
@@ -1582,7 +1588,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Apply force hide map from background thread signal (runs on main thread)."""
         if not self.config.get_hide_map():
             self.config.set_hide_map(True)
-            self.hide_map_action.setChecked(True)
+            self.hide_map_checkbox.setChecked(True)
             self.map_widget.hide()
             self.map_disabled_label.show()
             self._start_slideshow()
