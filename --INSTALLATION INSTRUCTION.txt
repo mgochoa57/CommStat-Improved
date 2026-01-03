@@ -16,10 +16,7 @@ WINDOWS
 4. Copy the database template:
    copy traffic.db3.template traffic.db3
 
-5. Copy the config template:
-   copy config.ini.template config.ini
-
-6. Run CommStat:
+5. Run CommStat:
    python startup.py
 
 
@@ -37,10 +34,7 @@ LINUX
 3. Copy the database template:
    cp traffic.db3.template traffic.db3
 
-4. Copy the config template:
-   cp config.ini.template config.ini
-
-5. Run CommStat:
+4. Run CommStat:
    python3 startup.py
 
 
