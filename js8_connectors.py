@@ -192,17 +192,24 @@ class JS8ConnectorsDialog(QDialog):
             rig_name = conn["rig_name"]
             tcp_port = conn["tcp_port"]
             is_default = conn["is_default"]
+            is_enabled = conn.get("enabled", 1) == 1
             comment = conn.get("comment", "")
 
             # Get connection status
             is_connected = connection_status.get(rig_name, False)
-            status_str = "Connected" if is_connected else "Disconnected"
-            status_color = "#108010" if is_connected else "#BB0000"
+            if not is_enabled:
+                status_str = "Disabled"
+            elif is_connected:
+                status_str = "Connected"
+            else:
+                status_str = "Disconnected"
 
             # Build display text
             text = f"{rig_name} (Port {tcp_port})"
             if is_default:
                 text += " [DEFAULT]"
+            if not is_enabled:
+                text += " [DISABLED]"
 
             item = QListWidgetItem(text)
             item.setData(Qt.UserRole, conn)  # Store full connector data
@@ -212,6 +219,10 @@ class JS8ConnectorsDialog(QDialog):
                 font = item.font()
                 font.setBold(True)
                 item.setFont(font)
+
+            # Gray out disabled connectors
+            if not is_enabled:
+                item.setForeground(QtGui.QColor("#888888"))
 
             # Add tooltip with more info
             tooltip = f"Status: {status_str}\nPort: {tcp_port}"
@@ -262,7 +273,7 @@ class JS8ConnectorsDialog(QDialog):
 
                 self.set_default_btn.setEnabled(not is_default)
                 self.remove_btn.setEnabled(not is_default and count > 1)
-                self.reconnect_btn.setEnabled(True)
+                self.reconnect_btn.setEnabled(True)  # Always available - will enable if disabled
                 return
 
         # No valid selection
@@ -360,7 +371,7 @@ class JS8ConnectorsDialog(QDialog):
             )
 
     def _reconnect(self) -> None:
-        """Reconnect the selected connector (resets attempt counter)."""
+        """Reconnect the selected connector (enables if disabled, resets attempt counter)."""
         if self._selected_id is None:
             return
 
@@ -369,17 +380,25 @@ class JS8ConnectorsDialog(QDialog):
             return
 
         rig_name = conn["rig_name"]
+        is_enabled = conn.get("enabled", 1) == 1
+
+        # Enable the connector if it was disabled
+        if not is_enabled:
+            self.connector_manager.set_enabled(self._selected_id, True)
+            # Refresh connections to create the client
+            self.tcp_pool.refresh_connections()
+
         client = self.tcp_pool.get_client(rig_name)
 
         if client:
             # Use manual_reconnect to reset attempt counter and re-enable auto-reconnect
             client.manual_reconnect()
-            QMessageBox.information(
-                self, "Reconnecting",
-                f"Attempting to reconnect to '{rig_name}'...\n\n"
-                f"Auto-reconnect has been re-enabled."
-            )
+            msg = f"Attempting to reconnect to '{rig_name}'...\n\nAuto-reconnect has been re-enabled."
+            if not is_enabled:
+                msg = f"Connector '{rig_name}' has been enabled.\n\n" + msg
+            QMessageBox.information(self, "Reconnecting", msg)
 
         # Reload to show updated status
         # (Note: Status may not update immediately due to async connection)
         QtCore.QTimer.singleShot(1000, self._load_connectors)
+

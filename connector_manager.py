@@ -42,12 +42,31 @@ class ConnectorManager:
                         tcp_port INTEGER NOT NULL DEFAULT 2442,
                         comment TEXT,
                         date_added TEXT NOT NULL,
-                        is_default INTEGER DEFAULT 0
+                        is_default INTEGER DEFAULT 0,
+                        enabled INTEGER DEFAULT 1
                     )
                 """)
                 conn.commit()
+                # Add enabled column if missing (for existing databases)
+                self._add_enabled_column()
         except sqlite3.Error as e:
             print(f"Error initializing js8_connectors table: {e}")
+
+    def _add_enabled_column(self) -> None:
+        """Add enabled column to existing js8_connectors table if missing."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA table_info(js8_connectors)")
+                columns = [col[1] for col in cursor.fetchall()]
+                if "enabled" not in columns:
+                    cursor.execute(
+                        "ALTER TABLE js8_connectors ADD COLUMN enabled INTEGER DEFAULT 1"
+                    )
+                    conn.commit()
+                    print("Added enabled column to js8_connectors")
+        except sqlite3.Error as e:
+            print(f"Error adding enabled column: {e}")
 
     def add_frequency_columns(self) -> None:
         """Add frequency column to StatRep_Data, messages_Data, and marquees_Data."""
@@ -67,23 +86,34 @@ class ConnectorManager:
         except sqlite3.Error as e:
             print(f"Error adding frequency columns: {e}")
 
-    def get_all_connectors(self) -> List[Dict]:
+    def get_all_connectors(self, enabled_only: bool = False) -> List[Dict]:
         """
         Get all configured connectors.
 
+        Args:
+            enabled_only: If True, only return enabled connectors.
+
         Returns:
             List of connector dictionaries with keys:
-            id, rig_name, tcp_port, comment, date_added, is_default
+            id, rig_name, tcp_port, comment, date_added, is_default, enabled
         """
         try:
             with sqlite3.connect(self.db_path, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, rig_name, tcp_port, comment, date_added, is_default
-                    FROM js8_connectors
-                    ORDER BY is_default DESC, rig_name ASC
-                """)
+                if enabled_only:
+                    cursor.execute("""
+                        SELECT id, rig_name, tcp_port, comment, date_added, is_default, enabled
+                        FROM js8_connectors
+                        WHERE enabled = 1
+                        ORDER BY is_default DESC, rig_name ASC
+                    """)
+                else:
+                    cursor.execute("""
+                        SELECT id, rig_name, tcp_port, comment, date_added, is_default, enabled
+                        FROM js8_connectors
+                        ORDER BY is_default DESC, rig_name ASC
+                    """)
                 rows = cursor.fetchall()
                 return [dict(row) for row in rows]
         except sqlite3.Error as e:
@@ -105,7 +135,7 @@ class ConnectorManager:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, rig_name, tcp_port, comment, date_added, is_default
+                    SELECT id, rig_name, tcp_port, comment, date_added, is_default, enabled
                     FROM js8_connectors
                     WHERE id = ?
                 """, (connector_id,))
@@ -130,7 +160,7 @@ class ConnectorManager:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, rig_name, tcp_port, comment, date_added, is_default
+                    SELECT id, rig_name, tcp_port, comment, date_added, is_default, enabled
                     FROM js8_connectors
                     WHERE rig_name = ?
                 """, (rig_name,))
@@ -152,7 +182,7 @@ class ConnectorManager:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, rig_name, tcp_port, comment, date_added, is_default
+                    SELECT id, rig_name, tcp_port, comment, date_added, is_default, enabled
                     FROM js8_connectors
                     WHERE is_default = 1
                 """)
@@ -382,3 +412,50 @@ class ConnectorManager:
             True if at least one connector exists.
         """
         return self.get_connector_count() > 0
+
+    def set_enabled(self, connector_id: int, enabled: bool) -> bool:
+        """
+        Enable or disable a connector.
+
+        Args:
+            connector_id: The connector's database ID.
+            enabled: True to enable, False to disable.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE js8_connectors SET enabled = ? WHERE id = ?",
+                    (1 if enabled else 0, connector_id)
+                )
+                conn.commit()
+
+                if cursor.rowcount > 0:
+                    status = "enabled" if enabled else "disabled"
+                    print(f"Connector ID {connector_id} {status}")
+                    return True
+                else:
+                    print(f"Connector ID {connector_id} not found")
+                    return False
+
+        except sqlite3.Error as e:
+            print(f"Error setting connector enabled state: {e}")
+            return False
+
+    def is_enabled(self, connector_id: int) -> bool:
+        """
+        Check if a connector is enabled.
+
+        Args:
+            connector_id: The connector's database ID.
+
+        Returns:
+            True if enabled, False if disabled or not found.
+        """
+        connector = self.get_connector_by_id(connector_id)
+        if connector:
+            return connector.get("enabled", 1) == 1
+        return False

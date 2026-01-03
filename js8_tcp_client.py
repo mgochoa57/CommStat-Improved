@@ -40,6 +40,7 @@ class JS8CallTCPClient(QObject):
     frequency_received = pyqtSignal(str, int)     # rig_name, frequency
     speed_received = pyqtSignal(str, int)         # rig_name, speed (submode)
     status_message = pyqtSignal(str, str)         # rig_name, message (for live feed)
+    gave_up = pyqtSignal(str)                     # rig_name - emitted when max reconnect attempts reached
 
     # Speed mode names
     SPEED_NAMES = {0: "NORMAL", 1: "FAST", 2: "TURBO", 4: "SLOW", 8: "ULTRA"}
@@ -293,6 +294,7 @@ class JS8CallTCPClient(QObject):
                     self.rig_name,
                     f"[{self.rig_name}] Reconnect failed. Use Menu > JS8 CONNECTORS to reconnect."
                 )
+                self.gave_up.emit(self.rig_name)
 
     def _try_reconnect(self) -> None:
         """Attempt to reconnect to JS8Call."""
@@ -309,6 +311,7 @@ class JS8CallTCPClient(QObject):
                 self.rig_name,
                 f"[{self.rig_name}] Reconnect failed. Use Menu > JS8 CONNECTORS to reconnect."
             )
+            self.gave_up.emit(self.rig_name)
             return
 
         remaining = MAX_RECONNECT_ATTEMPTS - self._reconnect_attempts
@@ -351,10 +354,16 @@ class TCPConnectionPool(QObject):
         self.clients: Dict[str, JS8CallTCPClient] = {}
 
     def connect_all(self) -> None:
-        """Create and connect TCP clients for all configured connectors."""
-        connectors = self.connector_manager.get_all_connectors()
+        """Create and connect TCP clients for all enabled connectors."""
+        # Get all connectors to report disabled ones
+        all_connectors = self.connector_manager.get_all_connectors(enabled_only=False)
+        for conn in all_connectors:
+            if conn.get("enabled", 1) != 1:
+                print(f"[{conn['rig_name']}] Disabled. Will not attempt to connect.")
 
-        for conn in connectors:
+        # Connect only enabled connectors
+        enabled_connectors = [c for c in all_connectors if c.get("enabled", 1) == 1]
+        for conn in enabled_connectors:
             rig_name = conn["rig_name"]
             tcp_port = conn["tcp_port"]
 
@@ -371,18 +380,19 @@ class TCPConnectionPool(QObject):
         """
         Refresh connections to match current database configuration.
 
-        Adds new clients, removes deleted ones, updates changed ports.
+        Adds new clients, removes deleted/disabled ones, updates changed ports.
         """
-        connectors = self.connector_manager.get_all_connectors()
-        connector_names = {c["rig_name"] for c in connectors}
+        # Get only enabled connectors
+        enabled_connectors = self.connector_manager.get_all_connectors(enabled_only=True)
+        enabled_names = {c["rig_name"] for c in enabled_connectors}
         current_names = set(self.clients.keys())
 
-        # Remove clients for deleted connectors
-        for name in current_names - connector_names:
+        # Remove clients for deleted or disabled connectors
+        for name in current_names - enabled_names:
             self._remove_client(name)
 
-        # Add or update clients
-        for conn in connectors:
+        # Add or update clients for enabled connectors
+        for conn in enabled_connectors:
             rig_name = conn["rig_name"]
             tcp_port = conn["tcp_port"]
 
@@ -406,9 +416,17 @@ class TCPConnectionPool(QObject):
         client.connection_changed.connect(self.any_connection_changed)
         client.status_message.connect(self.any_status_message)
         client.callsign_received.connect(self.any_callsign_received)
+        client.gave_up.connect(self._on_client_gave_up)
 
         self.clients[rig_name] = client
         client.connect_to_host()
+
+    def _on_client_gave_up(self, rig_name: str) -> None:
+        """Handle client giving up after max reconnect attempts - disable the connector."""
+        conn = self.connector_manager.get_connector_by_name(rig_name)
+        if conn:
+            self.connector_manager.set_enabled(conn["id"], False)
+            print(f"[{rig_name}] Connector disabled. Use Menu > JS8 CONNECTORS to reconnect.")
 
     def _remove_client(self, rig_name: str) -> None:
         """Disconnect and remove a client."""
