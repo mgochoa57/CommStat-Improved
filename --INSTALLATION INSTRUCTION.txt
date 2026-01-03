@@ -1,0 +1,56 @@
+COMMSTAT-IMPROVED INSTALLATION INSTRUCTIONS
+============================================
+
+WINDOWS
+-------
+1. Install Python 3.10 or later from https://python.org
+   - Check "Add Python to PATH" during installation
+   - If you don't know how to do this, ask Claude (https://claude.ai),
+     ChatGPT, Grok, Gemini, or your grandson.
+
+2. Open Command Prompt and navigate to the CommStat-Improved folder
+
+3. Run the installer:
+   python install.py
+
+4. Copy the database template:
+   copy traffic.db3.template traffic.db3
+
+5. Copy the config template:
+   copy config.ini.template config.ini
+
+6. Run CommStat:
+   python startup.py
+
+
+LINUX
+-----
+1. Run the Linux installer first (installs system dependencies):
+   chmod +x linuxinstall.sh
+   ./linuxinstall.sh
+   - If you don't know how to do this, ask Claude (https://claude.ai),
+     ChatGPT, Grok, Gemini, or your grandson.
+
+2. Run the Python installer:
+   python3 install.py
+
+3. Copy the database template:
+   cp traffic.db3.template traffic.db3
+
+4. Copy the config template:
+   cp config.ini.template config.ini
+
+5. Run CommStat:
+   python3 startup.py
+
+
+MAC
+---
+Coming soon.
+
+
+NOTES
+-----
+- JS8Call must be installed and running for full functionality
+- Configure your JS8Call connections via Menu > JS8 CONNECTORS
+- QRZ lookups require a QRZ XML subscription (Menu > QRZ ENABLE)
