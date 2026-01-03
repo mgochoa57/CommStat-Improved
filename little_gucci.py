@@ -1163,6 +1163,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _setup_menu(self) -> None:
         """Create the menu bar with all actions."""
         self.menubar = QtWidgets.QMenuBar(self)
+        self.menubar.setNativeMenuBar(False)  # Use Qt menu bar, not native (fixes Linux)
         self.menubar.setFixedHeight(24)
         menu_bg = self.config.get_color('menu_background')
         menu_fg = self.config.get_color('menu_foreground')
