@@ -273,7 +273,7 @@ class ConfigManager:
 
         # Load toggle settings from config if it exists
         if not self.config_path.exists():
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'hide_map': False}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False}
             return
 
         config = ConfigParser()
@@ -283,10 +283,11 @@ class ConfigManager:
             self.directed_config = {
                 'hide_heartbeat': config.getboolean("DIRECTEDCONFIG", "hide_heartbeat", fallback=False),
                 'show_all_groups': config.getboolean("DIRECTEDCONFIG", "show_all_groups", fallback=False),
+                'show_every_group': config.getboolean("DIRECTEDCONFIG", "show_every_group", fallback=False),
                 'hide_map': config.getboolean("DIRECTEDCONFIG", "hide_map", fallback=False),
             }
         else:
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'hide_map': False}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False}
 
     def get_color(self, key: str) -> str:
         """Get a color value by key."""
@@ -340,6 +341,22 @@ class ConfigManager:
         with open(self.config_path, 'w') as f:
             config.write(f)
 
+    def get_show_every_group(self) -> bool:
+        """Get the show every group setting."""
+        return self.directed_config.get('show_every_group', False)
+
+    def set_show_every_group(self, value: bool) -> None:
+        """Set and save the show every group setting."""
+        self.directed_config['show_every_group'] = value
+        # Save to config file
+        config = ConfigParser()
+        config.read(self.config_path)
+        if not config.has_section("DIRECTEDCONFIG"):
+            config.add_section("DIRECTEDCONFIG")
+        config.set("DIRECTEDCONFIG", "show_every_group", str(value))
+        with open(self.config_path, 'w') as f:
+            config.write(f)
+
 
 # =============================================================================
 # DatabaseManager - Handles all database operations
@@ -361,21 +378,23 @@ class DatabaseManager:
         self,
         groups: List[str],
         start: str,
-        end: str = ''
+        end: str = '',
+        show_all: bool = False
     ) -> List[Tuple]:
         """
         Fetch StatRep data from database.
 
         Args:
-            groups: List of active group names (empty list returns no data)
+            groups: List of active group names (empty list returns no data unless show_all)
             start: Start date filter (required)
             end: End date filter (optional, empty string means no upper limit)
+            show_all: If True, return all statreps regardless of group
 
         Returns:
             List of tuples containing StatRep records
         """
-        # If no active groups, return empty list
-        if not groups:
+        # If no active groups and not showing all, return empty list
+        if not groups and not show_all:
             return []
 
         try:
@@ -390,16 +409,27 @@ class DatabaseManager:
                     date_condition = "datetime >= ?"
                     date_params = [start]
 
-                # Build group filter for multiple groups
-                placeholders = ",".join("?" * len(groups))
-                query = f"""
-                    SELECT datetime, groupname, callsign, grid, prec, status,
-                           commpwr, pubwtr, med, ota, trav, net,
-                           fuel, food, crime, civil, political, comments
-                    FROM StatRep_Data
-                    WHERE groupname IN ({placeholders}) AND {date_condition}
-                """
-                params = list(groups) + date_params
+                # Build query based on whether we're showing all or filtering by groups
+                if show_all:
+                    query = f"""
+                        SELECT datetime, groupname, callsign, grid, prec, status,
+                               commpwr, pubwtr, med, ota, trav, net,
+                               fuel, food, crime, civil, political, comments
+                        FROM StatRep_Data
+                        WHERE {date_condition}
+                    """
+                    params = date_params
+                else:
+                    # Build group filter for multiple groups
+                    placeholders = ",".join("?" * len(groups))
+                    query = f"""
+                        SELECT datetime, groupname, callsign, grid, prec, status,
+                               commpwr, pubwtr, med, ota, trav, net,
+                               fuel, food, crime, civil, political, comments
+                        FROM StatRep_Data
+                        WHERE groupname IN ({placeholders}) AND {date_condition}
+                    """
+                    params = list(groups) + date_params
 
                 cursor.execute(query, params)
                 return cursor.fetchall()
@@ -411,23 +441,21 @@ class DatabaseManager:
         self,
         groups: List[str],
         start: str,
-        end: str = ''
+        end: str = '',
+        show_all: bool = False
     ) -> List[Tuple]:
         """
         Fetch message data from database.
 
         Args:
-            groups: List of active group names (empty list returns no data)
+            groups: List of active group names
             start: Start date filter (required)
             end: End date filter (optional, empty string means no upper limit)
+            show_all: If True, return all messages regardless of group
 
         Returns:
             List of tuples containing message records
         """
-        # If no active groups, return empty list
-        if not groups:
-            return []
-
         try:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
@@ -440,12 +468,22 @@ class DatabaseManager:
                     date_condition = "datetime >= ?"
                     date_params = [start]
 
-                # Build group filter for multiple groups
-                placeholders = ",".join("?" * len(groups))
-                query = f"""SELECT datetime, groupid, callsign, message
-                           FROM messages_Data
-                           WHERE groupid IN ({placeholders}) AND {date_condition}"""
-                params = list(groups) + date_params
+                if show_all:
+                    # Show all messages regardless of group
+                    query = f"""SELECT datetime, groupid, callsign, message
+                               FROM messages_Data
+                               WHERE {date_condition}"""
+                    params = date_params
+                elif groups:
+                    # Filter by active groups
+                    placeholders = ",".join("?" * len(groups))
+                    query = f"""SELECT datetime, groupid, callsign, message
+                               FROM messages_Data
+                               WHERE groupid IN ({placeholders}) AND {date_condition}"""
+                    params = list(groups) + date_params
+                else:
+                    # No groups and not show_all - return empty
+                    return []
 
                 cursor.execute(query, params)
                 return cursor.fetchall()
@@ -1229,8 +1267,8 @@ class MainWindow(QtWidgets.QMainWindow):
         hide_map_action.setDefaultWidget(self.hide_map_checkbox)
         self.filter_menu.addAction(hide_map_action)
 
-        # Add checkable toggle for showing all groups (menu stays open)
-        self.show_all_groups_checkbox = QtWidgets.QCheckBox("SHOW ALL GROUPS")
+        # Add checkable toggle for showing all registered groups (menu stays open)
+        self.show_all_groups_checkbox = QtWidgets.QCheckBox("SHOW ALL MY GROUPS")
         self.show_all_groups_checkbox.setChecked(self.config.get_show_all_groups())
         self.show_all_groups_checkbox.setStyleSheet("QCheckBox { padding: 4px 8px; }")
         self.show_all_groups_checkbox.stateChanged.connect(
@@ -1238,6 +1276,16 @@ class MainWindow(QtWidgets.QMainWindow):
         show_all_groups_action = QtWidgets.QWidgetAction(self)
         show_all_groups_action.setDefaultWidget(self.show_all_groups_checkbox)
         self.filter_menu.addAction(show_all_groups_action)
+
+        # Add checkable toggle for showing every group (no filtering) (menu stays open)
+        self.show_every_group_checkbox = QtWidgets.QCheckBox("SHOW EVERY GROUP")
+        self.show_every_group_checkbox.setChecked(self.config.get_show_every_group())
+        self.show_every_group_checkbox.setStyleSheet("QCheckBox { padding: 4px 8px; }")
+        self.show_every_group_checkbox.stateChanged.connect(
+            lambda state: self._on_toggle_show_every_group(state == Qt.Checked))
+        show_every_group_action = QtWidgets.QWidgetAction(self)
+        show_every_group_action.setDefaultWidget(self.show_every_group_checkbox)
+        self.filter_menu.addAction(show_every_group_action)
 
         # Create Tools dropdown menu
         self.tools_menu = QtWidgets.QMenu("Tools", self.menubar)
@@ -1922,14 +1970,22 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_message_data(self) -> None:
         """Load message data from database into the table."""
         filters = self.config.filter_settings
-        if self.config.get_show_all_groups():
+        # Determine group filtering mode
+        show_every = self.config.get_show_every_group()
+        if show_every:
+            groups = []
+            show_all = True
+        elif self.config.get_show_all_groups():
             groups = self.db.get_all_groups()
+            show_all = False
         else:
             groups = self.db.get_active_groups()
+            show_all = False
         data = self.db.get_message_data(
             groups=groups,
             start=filters.get('start', DEFAULT_FILTER_START),
-            end=filters.get('end', '')
+            end=filters.get('end', ''),
+            show_all=show_all
         )
 
         # Clear and populate table
@@ -1946,10 +2002,17 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_map(self) -> None:
         """Generate and display the folium map with StatRep pins."""
         filters = self.config.filter_settings
-        if self.config.get_show_all_groups():
+        # Determine group filtering mode
+        show_every = self.config.get_show_every_group()
+        if show_every:
+            groups = []
+            show_all = True
+        elif self.config.get_show_all_groups():
             groups = self.db.get_all_groups()
+            show_all = False
         else:
             groups = self.db.get_active_groups()
+            show_all = False
 
         # Use saved map position or default to US center
         if not hasattr(self, 'map_center'):
@@ -1972,7 +2035,8 @@ class MainWindow(QtWidgets.QMainWindow):
             data = self.db.get_statrep_data(
                 groups=groups,
                 start=filters.get('start', DEFAULT_FILTER_START),
-                end=filters.get('end', '')
+                end=filters.get('end', ''),
+                show_all=show_all
             )
 
             gridlist = []
@@ -2088,16 +2152,24 @@ class MainWindow(QtWidgets.QMainWindow):
         """Load StatRep data from database into the table."""
         # Get filter settings
         filters = self.config.filter_settings
-        if self.config.get_show_all_groups():
+        # Determine group filtering mode
+        show_every = self.config.get_show_every_group()
+        if show_every:
+            groups = []
+            show_all = True
+        elif self.config.get_show_all_groups():
             groups = self.db.get_all_groups()
+            show_all = False
         else:
             groups = self.db.get_active_groups()
+            show_all = False
 
         # Fetch data from database
         data = self.db.get_statrep_data(
             groups=groups,
             start=filters.get('start', DEFAULT_FILTER_START),
-            end=filters.get('end', '')
+            end=filters.get('end', ''),
+            show_all=show_all
         )
 
         # Clear and populate table
@@ -2355,6 +2427,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._load_statrep_data()
         self._load_message_data()
         self._load_marquee()
+        self._save_map_position(callback=self._load_map)
+
+    def _on_toggle_show_every_group(self, checked: bool) -> None:
+        """Toggle showing every group's data (no filtering at all)."""
+        self.config.set_show_every_group(checked)
+        # Refresh data views (not marquee - per user request)
+        self._load_statrep_data()
+        self._load_message_data()
         self._save_map_position(callback=self._load_map)
 
     def _on_manage_groups(self) -> None:
