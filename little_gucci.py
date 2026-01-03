@@ -2518,14 +2518,16 @@ class MainWindow(QtWidgets.QMainWindow):
         for action in actions[3:]:  # Skip Manage Groups, Show Groups, and separator
             self.groups_menu.removeAction(action)
 
-        # Add groups alphabetically with checkmarks for active ones
+        # Add groups alphabetically with checkboxes (menu stays open when clicked)
         groups = self.db.get_all_groups_with_status()
         for name, is_active in groups:  # Already sorted by name from DB
-            action = QtWidgets.QAction(name, self)
-            action.setCheckable(True)
-            action.setChecked(is_active)
-            action.triggered.connect(lambda checked, n=name: self._toggle_group(n, checked))
-            self.groups_menu.addAction(action)
+            checkbox = QtWidgets.QCheckBox(name)
+            checkbox.setChecked(is_active)
+            checkbox.setStyleSheet("QCheckBox { padding: 4px 8px; }")
+            checkbox.stateChanged.connect(lambda state, n=name: self._toggle_group(n, state == Qt.Checked))
+            widget_action = QtWidgets.QWidgetAction(self)
+            widget_action.setDefaultWidget(checkbox)
+            self.groups_menu.addAction(widget_action)
 
     def _toggle_group(self, group_name: str, active: bool) -> None:
         """Toggle a group's active status."""
