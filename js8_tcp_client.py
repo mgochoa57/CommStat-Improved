@@ -61,6 +61,7 @@ class JS8CallTCPClient(QObject):
         self.buffer = b""
         self._auto_reconnect = True
         self._reconnect_attempts = 0
+        self.callsign = ""  # Cached callsign from JS8Call
 
         # Create socket
         self.socket = QTcpSocket(self)
@@ -182,7 +183,7 @@ class JS8CallTCPClient(QObject):
             self.rig_name,
             f"[{self.rig_name}] Connected on TCP port {self.port}"
         )
-        self.get_speed()  # Request speed mode (will show in separate message)
+        self.get_callsign()  # Request callsign first, then speed mode
 
     def _on_disconnected(self) -> None:
         """Handle disconnection."""
@@ -226,7 +227,10 @@ class JS8CallTCPClient(QObject):
 
         # Handle specific response types
         if msg_type == "STATION.CALLSIGN":
+            self.callsign = value  # Cache callsign
             self.callsign_received.emit(self.rig_name, value)
+            # Now request speed mode (callsign will be included in that message)
+            self.get_speed()
 
         elif msg_type == "STATION.GRID":
             self.grid_received.emit(self.rig_name, value)
@@ -239,9 +243,10 @@ class JS8CallTCPClient(QObject):
             speed = params.get("SPEED", 0)
             self.speed_received.emit(self.rig_name, speed)
             speed_name = self.SPEED_NAMES.get(speed, f"MODE {speed}")
+            callsign_str = f" - {self.callsign}" if self.callsign else ""
             self.status_message.emit(
                 self.rig_name,
-                f"[{self.rig_name}] Running in {speed_name} mode"
+                f"[{self.rig_name}] Running in {speed_name} mode{callsign_str}"
             )
 
         elif msg_type == "RX.DIRECTED":
