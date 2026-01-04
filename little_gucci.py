@@ -98,7 +98,7 @@ _GUCCI = [
     "aHR0cHM6Ly9qczhjYWxsLWltcHJvdmVkLmNvbQ==",
 ]
 _BACKBONE = base64.b64decode(_GUCCI[-1]).decode()
-_PING = _BACKBONE + "/playlist.php"
+_PING = _BACKBONE + "/heartbeat.php"
 
 # Internet connectivity check interval (30 minutes in ms)
 INTERNET_CHECK_INTERVAL = 30 * 60 * 1000
@@ -1030,8 +1030,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.clock_timer.stop()
         if hasattr(self, 'slideshow_timer'):
             self.slideshow_timer.stop()
-        if hasattr(self, 'ping_timer'):
-            self.ping_timer.stop()
         if hasattr(self, 'internet_timer'):
             self.internet_timer.stop()
 
@@ -1121,10 +1119,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._load_live_feed()
         self._load_message_data()
 
-        # Check ping on startup for Force/Skip commands (only if internet available)
-        if self._internet_available:
-            self._check_ping_on_startup()
-
     def _check_internet_on_startup(self) -> None:
         """Check internet connectivity at startup."""
         self._internet_available = check_internet()
@@ -1142,9 +1136,6 @@ class MainWindow(QtWidgets.QMainWindow):
             # Internet just became available
             print("Internet connectivity: Now available")
             self.internet_timer.stop()
-            # Start ping timer and do initial ping check
-            self.ping_timer.start(60000)
-            self._check_ping_on_startup()
         elif not self._internet_available:
             print("Internet connectivity: Still not available (will retry in 30 minutes)")
 
@@ -1540,65 +1531,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.slideshow_timer.timeout.connect(self._show_next_image)
         self.slideshow_timer.setInterval(SLIDESHOW_INTERVAL * 60000)  # Convert minutes to ms
 
-    def _check_ping_on_startup(self) -> None:
-        """Check playlist on startup for Force command (runs in background thread)."""
-        thread = threading.Thread(target=self._check_ping_for_force_async, daemon=True)
-        thread.start()
-
-    def _check_ping_for_force_async(self) -> None:
-        """Background thread version of Force check - emits signal to update UI."""
-        import re
-        from datetime import datetime
-        try:
-            with urllib.request.urlopen(_PING, timeout=10) as response:
-                content = response.read().decode('utf-8')
-
-                # Extract content between <pre> tags if present
-                pre_match = re.search(r'<pre>(.*?)</pre>', content, re.DOTALL)
-                if pre_match:
-                    content = pre_match.group(1)
-
-                content = content.strip()
-                lines = [line.strip() for line in content.split('\n') if line.strip()]
-
-                if not lines:
-                    return
-
-                # Line 1: Check for expiration date (case-insensitive)
-                first_line = lines[0]
-                date_match = re.match(r'date:\s*(\d{4}-\d{2}-\d{2})', first_line, re.IGNORECASE)
-                if date_match:
-                    expiry_date = datetime.strptime(date_match.group(1), '%Y-%m-%d').date()
-                    today = datetime.now().date()
-                    if expiry_date < today:
-                        # Date has passed - skip all playlist rules including Force
-                        print(f"Action Date = {expiry_date}. No actions to perform")
-                        return
-                    # Remove date line
-                    lines = lines[1:]
-
-                # Line 2: Check for Force command
-                if lines and lines[0].startswith("Force"):
-                    print("Force command detected, hiding map")  # Debug
-                    # Schedule UI update on main thread
-                    QtCore.QMetaObject.invokeMethod(
-                        self, "_apply_force_hide_map",
-                        QtCore.Qt.QueuedConnection
-                    )
-
-        except Exception as e:
-            print(f"Failed to check playlist: {e}")
-
-    @QtCore.pyqtSlot()
-    def _apply_force_hide_map(self) -> None:
-        """Apply force hide map from background thread signal (runs on main thread)."""
-        if not self.config.get_hide_map():
-            self.config.set_hide_map(True)
-            self.hide_map_checkbox.setChecked(True)
-            self.map_widget.hide()
-            self.map_disabled_label.show()
-            self._start_slideshow()
-
     def _parse_backbone_sections(self, content: str) -> dict:
         """Parse backbone reply content into hierarchical sections.
 
@@ -1759,7 +1691,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 if temp_path:
                     items.append((temp_path, click_url))
             except Exception as e:
-                print(f"Failed to download {image_url}: {e}")
+                if self.debug_mode:
+                    print(f"[Backbone] Failed to download {image_url}: {e}")
 
         return items
 
@@ -1785,32 +1718,39 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Check date validity
         if not self._is_backbone_date_valid(section_text):
-            print(f"[Backbone] {section_type.upper()} section: date expired, skipping")
+            if self.debug_mode:
+                print(f"[Backbone] {section_type.upper()} section: date expired, skipping")
             return None
 
         # For group/callsign sections, check targeting
         if section_type == 'group':
             if not self._matches_user_groups(section_text):
-                print(f"[Backbone] GROUP section: no matching groups, skipping")
+                if self.debug_mode:
+                    print(f"[Backbone] GROUP section: no matching groups, skipping")
                 return None
-            print(f"[Backbone] GROUP section: user group matched")
+            if self.debug_mode:
+                print(f"[Backbone] GROUP section: user group matched")
 
         elif section_type == 'callsign':
             if not self._matches_user_callsign(section_text):
-                print(f"[Backbone] CALLSIGN section: no matching callsign, skipping")
+                if self.debug_mode:
+                    print(f"[Backbone] CALLSIGN section: no matching callsign, skipping")
                 return None
-            print(f"[Backbone] CALLSIGN section: user callsign matched")
+            if self.debug_mode:
+                print(f"[Backbone] CALLSIGN section: user callsign matched")
 
         # Look for message block
         message = self._extract_section_message(section_text)
         if message:
-            print(f"[Backbone] {section_type.upper()} section: showing message")
+            if self.debug_mode:
+                print(f"[Backbone] {section_type.upper()} section: showing message")
             return ('message', message)
 
         # Look for image URLs
         urls = self._extract_section_urls(section_text)
         if urls:
-            print(f"[Backbone] {section_type.upper()} section: loaded {len(urls)} images")
+            if self.debug_mode:
+                print(f"[Backbone] {section_type.upper()} section: loaded {len(urls)} images")
             return ('playlist', urls)
 
         return None
@@ -1870,7 +1810,8 @@ class MainWindow(QtWidgets.QMainWindow):
                             return data  # List of (image_path, click_url) tuples
 
                 # No sections matched
-                print("[Backbone] No sections matched user criteria")
+                if self.debug_mode:
+                    print("[Backbone] No sections matched user criteria")
                 return []
 
             else:
@@ -1885,7 +1826,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 if date_match:
                     expiry_date = datetime.strptime(date_match.group(1), '%Y-%m-%d').date()
                     if expiry_date < datetime.now().date():
-                        print(f"[Backbone] Legacy format: date {expiry_date} expired")
+                        if self.debug_mode:
+                            print(f"[Backbone] Legacy format: date {expiry_date} expired")
                         return []
                     lines = lines[1:]
 
@@ -1914,12 +1856,14 @@ class MainWindow(QtWidgets.QMainWindow):
                             if temp_path:
                                 items.append((temp_path, click_url))
                         except Exception as e:
-                            print(f"Failed to download {image_url}: {e}")
+                            if self.debug_mode:
+                                print(f"[Backbone] Failed to download {image_url}: {e}")
 
                 return items
 
         except Exception as e:
-            print(f"Failed to fetch backbone reply: {e}")
+            if self.debug_mode:
+                print(f"[Backbone] Failed to fetch backbone reply: {e}")
 
         return []
 
@@ -1935,7 +1879,8 @@ class MainWindow(QtWidgets.QMainWindow):
             temp_file.close()
             return temp_file.name
         except Exception as e:
-            print(f"Failed to download image {url}: {e}")
+            if self.debug_mode:
+                print(f"[Backbone] Failed to download image {url}: {e}")
             return None
 
     def _load_slideshow_images(self) -> None:
@@ -2515,12 +2460,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.clock_timer.start(1000)
         self._update_time()  # Initial display
 
-        # Ping timer - runs every 60 seconds (only when internet available)
-        self.ping_timer = QTimer(self)
-        self.ping_timer.timeout.connect(self._check_ping)
-        if self._internet_available:
-            self.ping_timer.start(60000)
-
         # Internet check timer - retries every 30 minutes if offline
         self.internet_timer = QTimer(self)
         self.internet_timer.timeout.connect(self._retry_internet_check)
@@ -2545,13 +2484,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Save map position before refresh, then reload map
         self._save_map_position(callback=self._load_map)
-
-    def _check_ping(self) -> None:
-        """Check playlist for Force command in background."""
-        if not self._internet_available:
-            return
-        thread = threading.Thread(target=self._check_ping_for_force_async, daemon=True)
-        thread.start()
 
     def _update_time(self) -> None:
         """Update the time display with current UTC time."""
