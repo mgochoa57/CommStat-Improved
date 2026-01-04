@@ -1587,11 +1587,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # Look for Date: line (should be first line)
         # Supports: YYYY-MM-DD, YYYY-MM-DD HH:MM, YYYY-MM-DD HH:MM:SS
         date_line = lines[0].strip()
+        if self.debug_mode:
+            print(f"[Backbone] First line of section: '{date_line}'")
         match = re.match(
             r'Date:\s*(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2})(?::(\d{2}))?)?',
             date_line, re.IGNORECASE
         )
         if not match:
+            if self.debug_mode:
+                print(f"[Backbone] Date regex did not match")
             return False
 
         date_str = match.group(1)
@@ -1603,8 +1607,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"{date_str} {time_str}:{seconds_str}",
                 "%Y-%m-%d %H:%M:%S"
             )
-            return expiry > datetime.now()
-        except ValueError:
+            now = datetime.now()
+            is_valid = expiry > now
+            if self.debug_mode:
+                print(f"[Backbone] Date check: {expiry} > {now} = {is_valid}")
+            return is_valid
+        except ValueError as e:
+            if self.debug_mode:
+                print(f"[Backbone] Date parse error: {e}")
             return False
 
     def _matches_user_groups(self, section_text: str) -> bool:
