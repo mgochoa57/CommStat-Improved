@@ -1606,20 +1606,20 @@ class MainWindow(QtWidgets.QMainWindow):
             content: Raw backbone reply (already extracted from <pre> tags).
 
         Returns:
-            Dict with keys: 'global', 'groups', 'callsign'
+            Dict with keys: 'global', 'group', 'callsign'
             Each value is the raw text for that section (or None)
         """
         import re
-        sections = {'global': None, 'groups': None, 'callsign': None}
+        sections = {'global': None, 'group': None, 'callsign': None}
 
         # Check if content has section markers
-        if '::GLOBAL::' not in content and '::GROUPS::' not in content and '::CALLSIGN::' not in content:
+        if '::GLOBAL::' not in content and '::GROUP::' not in content and '::CALLSIGN::' not in content:
             # Legacy format - no sections, return None for all
             return sections
 
         # Split by section markers and extract content
         # Pattern captures section name and everything until next section or end
-        pattern = r'::(GLOBAL|GROUPS|CALLSIGN)::\s*(.*?)(?=::(?:GLOBAL|GROUPS|CALLSIGN)::|$)'
+        pattern = r'::(GLOBAL|GROUP|CALLSIGN)::\s*(.*?)(?=::(?:GLOBAL|GROUP|CALLSIGN)::|$)'
         matches = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
 
         for section_name, section_content in matches:
@@ -1772,7 +1772,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         Args:
             section_text: Raw text of the section.
-            section_type: 'global', 'groups', or 'callsign'.
+            section_type: 'global', 'group', or 'callsign'.
 
         Returns:
             Tuple of (action, data) where:
@@ -1788,12 +1788,12 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f"[Backbone] {section_type.upper()} section: date expired, skipping")
             return None
 
-        # For groups/callsign sections, check targeting
-        if section_type == 'groups':
+        # For group/callsign sections, check targeting
+        if section_type == 'group':
             if not self._matches_user_groups(section_text):
-                print(f"[Backbone] GROUPS section: no matching groups, skipping")
+                print(f"[Backbone] GROUP section: no matching groups, skipping")
                 return None
-            print(f"[Backbone] GROUPS section: user group matched")
+            print(f"[Backbone] GROUP section: user group matched")
 
         elif section_type == 'callsign':
             if not self._matches_user_callsign(section_text):
@@ -1820,7 +1820,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         Backbone reply format supports three sections processed in order:
         - ::GLOBAL:: - Applies to all users
-        - ::GROUPS:: - Applies to users with matching active groups
+        - ::GROUP:: - Applies to users with matching active groups
         - ::CALLSIGN:: - Applies to users with matching callsign
 
         Each section has:
@@ -1854,8 +1854,8 @@ class MainWindow(QtWidgets.QMainWindow):
             has_sections = any(sections.values())
 
             if has_sections:
-                # Process in priority order: GLOBAL → GROUPS → CALLSIGN
-                for section_type in ['global', 'groups', 'callsign']:
+                # Process in priority order: GLOBAL → GROUP → CALLSIGN
+                for section_type in ['global', 'group', 'callsign']:
                     section_text = sections.get(section_type)
                     if not section_text:
                         continue
@@ -2077,7 +2077,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
             if has_sections:
                 # Process hierarchical format
-                for section_type in ['global', 'groups', 'callsign']:
+                for section_type in ['global', 'group', 'callsign']:
                     section_text = sections.get(section_type)
                     if not section_text:
                         continue
@@ -2086,8 +2086,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     if not self._is_backbone_date_valid(section_text):
                         continue
 
-                    # Check targeting for groups/callsign sections
-                    if section_type == 'groups' and not self._matches_user_groups(section_text):
+                    # Check targeting for group/callsign sections
+                    if section_type == 'group' and not self._matches_user_groups(section_text):
                         continue
                     if section_type == 'callsign' and not self._matches_user_callsign(section_text):
                         continue
