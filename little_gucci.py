@@ -3219,10 +3219,11 @@ class MainWindow(QtWidgets.QMainWindow):
             # - SRID: numeric ID
             # - SRCODE: + or 12 digits [1-4]
             # - COMMENTS: optional
-            # Only process if sent to a group (@GROUP)
-            if to_call.startswith("@"):
-                statrep_pattern = re.match(
-                    r'^([A-Z]{2}\d{2}[a-z]{0,2}),([1-5]),(\d+),(\+|[1-4]{12})(?:,(.*))?$',
+            # Only process if sent to a group (@GROUP) or message contains @GROUP
+            if to_call.startswith("@") or "@" in value:
+                # Use re.search to find pattern anywhere in message (handles various formats)
+                statrep_pattern = re.search(
+                    r'([A-Z]{2}\d{2}[a-z]{0,2}),([1-5]),(\d+),(\+|[1-4]{12})(?:,(.*))?',
                     value.strip(),
                     re.IGNORECASE
                 )
@@ -3239,6 +3240,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
                     prec = PRECEDENCE_MAP.get(prec1, "Unknown")
 
+                    # Extract group from value if not already set (handles embedded @GROUP)
+                    pattern_group = group
+                    if not pattern_group:
+                        group_match = re.search(r'@([A-Z0-9]+)', value, re.IGNORECASE)
+                        if group_match:
+                            pattern_group = group_match.group(1).upper()
+
                     if len(srcode) >= 12:
                         sr_fields = list(srcode)
                         cursor.execute(
@@ -3246,7 +3254,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             "(datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, "
                             "med, ota, trav, net, fuel, food, crime, civil, political, comments, source, frequency) "
                             "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            (utc, callsign, group, curgrid, srid, prec,
+                            (utc, callsign, pattern_group, curgrid, srid, prec,
                              sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
                              sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
                              sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
