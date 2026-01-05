@@ -2474,6 +2474,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self._update_time)
         self.clock_timer.start(1000)
+        self._current_date = datetime.now().strftime("%Y-%m-%d")  # Track date for midnight rollover
         self._update_time()  # Initial display
 
         # Internet check timer - retries every 30 minutes if offline
@@ -2517,9 +2518,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self._save_map_position(callback=self._load_map)
 
     def _update_time(self) -> None:
-        """Update the time display with current UTC time."""
+        """Update the time display with current UTC time and check for midnight rollover."""
         current_time = QDateTime.currentDateTimeUtc()
         self.time_label.setText(current_time.toString("yyyy-MM-dd hh:mm:ss") + " UTC")
+
+        # Check for midnight rollover - reset start date filter to today
+        today = datetime.now().strftime("%Y-%m-%d")
+        if today != self._current_date:
+            self._current_date = today
+            self.config.filter_settings['start'] = today
+            print(f"[Midnight] Date changed to {today}, resetting start filter")
+            # Refresh data displays with new filter
+            self._load_statrep_data()
+            self._load_message_data()
+            self._load_map()
 
     def _update_marquee_text(self, frame: int) -> None:
         """Update marquee display for current animation frame."""
