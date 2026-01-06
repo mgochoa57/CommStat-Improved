@@ -13,6 +13,7 @@ import os
 import sys
 import zipfile
 import subprocess
+import shutil
 from pathlib import Path
 
 # Constants
@@ -20,6 +21,8 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 UPDATE_FOLDER = SCRIPT_DIR / "updates"
 UPDATE_ZIP = UPDATE_FOLDER / "update.zip"
 MAIN_APP = SCRIPT_DIR / "little_gucci.py"
+DATABASE_FILE = SCRIPT_DIR / "traffic.db3"
+DATABASE_TEMPLATE = SCRIPT_DIR / "traffic.db3.template"
 
 
 def apply_update() -> bool:
@@ -63,6 +66,25 @@ def apply_update() -> bool:
         return False
 
 
+def setup_database() -> bool:
+    """
+    Ensure the database file exists, copying from template if needed.
+
+    Returns:
+        True if database was created from template, False if it already existed.
+    """
+    if DATABASE_FILE.exists():
+        return False
+
+    if DATABASE_TEMPLATE.exists():
+        shutil.copy(DATABASE_TEMPLATE, DATABASE_FILE)
+        print(f"Created {DATABASE_FILE.name} from template")
+        return True
+    else:
+        print(f"Warning: {DATABASE_TEMPLATE.name} not found, cannot create {DATABASE_FILE.name}")
+        return False
+
+
 def launch_main_app() -> None:
     """Launch the main CommStat application."""
     if not MAIN_APP.exists():
@@ -85,6 +107,7 @@ def main() -> None:
         UPDATE_FOLDER.mkdir(parents=True, exist_ok=True)
 
     apply_update()
+    setup_database()
     launch_main_app()
 
 

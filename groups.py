@@ -28,7 +28,7 @@ class GroupsDialog(QDialog):
         super().__init__(parent)
         self.db = db_manager
         self.setWindowTitle("Manage Groups")
-        self.setFixedSize(450, 500)
+        self.setFixedSize(450, 530)
         self.setWindowFlags(
             Qt.Window |
             Qt.CustomizeWindowHint |
@@ -67,6 +67,12 @@ class GroupsDialog(QDialog):
         self.name_input.setPlaceholderText("Group name (max 15 chars)")
         self.name_input.textChanged.connect(self._on_input_changed)
         form_layout.addRow("Group Name:", self.name_input)
+
+        # Help note about @ symbol (JS8Call requires it, CommStat does not)
+        name_hint = QLabel("Note: The @ symbol is not required (e.g., enter MAGNET, not @MAGNET)")
+        name_hint.setStyleSheet("color: #CC0000; font-size: 10px; font-weight: bold;")
+        name_hint.setWordWrap(True)
+        form_layout.addRow("", name_hint)
 
         self.comment_input = QLineEdit()
         self.comment_input.setPlaceholderText("Optional description")
@@ -182,6 +188,11 @@ class GroupsDialog(QDialog):
     def _add_group(self) -> None:
         """Add a new group."""
         name = self.name_input.text().strip().upper()
+
+        # Strip @ symbol if user included it (JS8Call uses @GROUP, CommStat doesn't)
+        if name.startswith("@"):
+            name = name[1:]
+
         if not name:
             return
 

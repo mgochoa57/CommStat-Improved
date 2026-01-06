@@ -68,13 +68,15 @@ DEFAULT_FILTER_START = "2023-01-01"
 
 # Group settings
 MAX_GROUP_NAME_LENGTH = 15
-DEFAULT_GROUPS = ["MAGNET", "AMRRON", "PREPPERNET"]
 
 # Map and layout dimensions
 MAP_WIDTH = 604
 MAP_HEIGHT = 340
 FILTER_HEIGHT = 24
 SLIDESHOW_INTERVAL = 1  # Minutes between image changes
+
+# Backbone server for remote announcements and slideshow images
+# This allows the developer to push messages/images to all CommStat users
 _BACKBONE = base64.b64decode("aHR0cHM6Ly9qczhjYWxsLWltcHJvdmVkLmNvbQ==").decode()
 _PING = _BACKBONE + "/heartbeat.php"
 
@@ -99,11 +101,6 @@ def check_internet() -> bool:
     return False
 
 
-# Map and layout dimensions defaults
-# MAP_WIDTH = 604
-# MAP_HEIGHT = 350
-# FILTER_HEIGHT = 20
-
 # StatRep table column headers
 STATREP_HEADERS = [
     "Date Time UTC", "Group", "Callsign", "Grid", "Scope", "Map Pin",
@@ -111,24 +108,31 @@ STATREP_HEADERS = [
     "Crime", "Civil", "Pol", "Remarks"
 ]
 
-# Default color scheme
+# Default color scheme for UI elements
+# These colors can be customized via config.ini in the future
 DEFAULT_COLORS: Dict[str, str] = {
-    'program_background': '#A52A2A',
+    # Main window colors
+    'program_background': '#A52A2A',   # Brown/maroon
     'program_foreground': '#FFFFFF',
-    'menu_background': '#3050CC',
+    'menu_background': '#3050CC',       # Blue
     'menu_foreground': '#FFFFFF',
-    'title_bar_background': '#F07800',
+    'title_bar_background': '#F07800',  # Orange
     'title_bar_foreground': '#FFFFFF',
-    'newsfeed_background': '#242424',
-    'newsfeed_foreground': '#00FF00',
-    'time_background': '#282864',
-    'time_foreground': '#88CCFF',
-    'condition_green': '#108010',
-    'condition_yellow': '#FFFF77',
-    'condition_red': '#BB0000',
-    'condition_gray': '#808080',
+    # News feed marquee colors
+    'newsfeed_background': '#242424',   # Dark gray
+    'newsfeed_foreground': '#00FF00',   # Green text
+    # Clock display colors
+    'time_background': '#282864',       # Navy blue
+    'time_foreground': '#88CCFF',       # Light blue
+    # StatRep condition indicator colors (traffic light system)
+    'condition_green': '#108010',       # Good/normal status
+    'condition_yellow': '#FFFF77',      # Caution/degraded status
+    'condition_red': '#BB0000',         # Critical/emergency status
+    'condition_gray': '#808080',        # Unknown/no data
+    # Data table colors
     'data_background': '#EEEEEE',
     'data_foreground': '#000000',
+    # Live feed display colors
     'feed_background': '#000000',
     'feed_foreground': '#FFFFFF',
 }
@@ -618,7 +622,7 @@ class DatabaseManager:
             return []
 
     def init_groups_table(self) -> None:
-        """Create Groups table if it doesn't exist and seed default groups."""
+        """Create Groups table if it doesn't exist and migrate schema if needed."""
         try:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
@@ -637,18 +641,6 @@ class DatabaseManager:
 
                 # Migrate existing table if needed (add new columns)
                 self._migrate_groups_table(cursor, connection)
-
-                # Check if table is empty
-                cursor.execute("SELECT COUNT(*) FROM Groups")
-                if cursor.fetchone()[0] == 0:
-                    # Seed default groups, first one is active
-                    today = datetime.now().strftime("%Y-%m-%d")
-                    for i, group_name in enumerate(DEFAULT_GROUPS):
-                        cursor.execute(
-                            "INSERT INTO Groups (name, date_added, is_active) VALUES (?, ?, ?)",
-                            (group_name.upper(), today, 1 if i == 0 else 0)
-                        )
-                    connection.commit()
         except sqlite3.Error as error:
             print(f"Database error initializing Groups table: {error}")
 
@@ -3181,6 +3173,13 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         Process a directed message received via TCP.
 
+        This method parses incoming JS8Call messages and stores them in the database.
+        Messages can be StatReps, bulletins, check-ins, or standard messages.
+
+        Two detection methods are used:
+        1. Marker-based: Messages with special markers like {&%}, {^%}, {~%}, {F%}
+        2. Pattern-based: Messages matching expected formats without markers
+
         Args:
             rig_name: Name of the rig that received the message.
             value: The message text content.
@@ -3197,13 +3196,14 @@ class MainWindow(QtWidgets.QMainWindow):
         import re
         import maidenhead as mh
 
-        # Message type markers (same as datareader)
-        MSG_BULLETIN = "{^%}"
-        MSG_STATREP = "{&%}"
-        MSG_FORWARDED_STATREP = "{F%}"
-        MSG_CHECKIN = "{~%}"
+        # CommStat message type markers (legacy format compatibility)
+        # These markers appear at the END of the message data
+        MSG_BULLETIN = "{^%}"          # Group bulletin/message
+        MSG_STATREP = "{&%}"           # Status report
+        MSG_FORWARDED_STATREP = "{F%}" # Forwarded status report (relayed)
+        MSG_CHECKIN = "{~%}"           # Net check-in
 
-        # Precedence mapping
+        # Precedence levels indicate the geographic scope of a status report
         PRECEDENCE_MAP = {
             "1": "My Location",
             "2": "My Community",
@@ -3287,6 +3287,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
             elif MSG_STATREP in value:
                 # Parse statrep: ,GRID,PREC,SRID,SRCODE,COMMENTS,{&%}
+                # GRID: 4-6 char Maidenhead locator (e.g., EM15 or EM15ab)
+                # PREC: Precedence 1-5 (scope of report)
+                # SRID: Unique StatRep ID number
+                # SRCODE: 12-digit status code or "+" shorthand for all green
                 match = re.search(r',(.+?)\{&\%\}', value)
                 if match:
                     fields = match.group(1).split(",")
@@ -3297,12 +3301,17 @@ class MainWindow(QtWidgets.QMainWindow):
                         srcode = fields[3].strip()
                         comments = fields[4].strip() if len(fields) > 4 else ""
 
-                        # Expand compressed "+" to all green (111111111111)
+                        # Expand compressed "+" shorthand to all green status
+                        # "+" means all 12 indicators are at level 1 (green/good)
                         if srcode == "+":
                             srcode = "111111111111"
 
                         prec = PRECEDENCE_MAP.get(prec1, "Unknown")
 
+                        # StatRep code is 12 digits, each representing a condition:
+                        # [0]=status, [1]=commpwr, [2]=pubwtr, [3]=med, [4]=ota, [5]=trav
+                        # [6]=net, [7]=fuel, [8]=food, [9]=crime, [10]=civil, [11]=political
+                        # Values: 1=Green, 2=Yellow, 3=Red, 4=Gray/Unknown
                         if len(srcode) >= 12:
                             sr_fields = list(srcode)
                             cursor.execute(
@@ -3545,10 +3554,29 @@ class MainWindow(QtWidgets.QMainWindow):
                     "Failed to save QRZ settings."
                 )
 
-    def _on_band_conditions(self) -> None:
-        """Show Band Conditions dialog with N0NBH solar-terrestrial data."""
+    def _show_image_dialog(
+        self,
+        title: str,
+        image_url: str,
+        link_html: str,
+        loading_text: str,
+        error_prefix: str
+    ) -> None:
+        """
+        Display a dialog that fetches and shows an image from a URL.
+
+        This helper method reduces code duplication for dialogs that display
+        remote images (band conditions, solar flux, world map, etc.).
+
+        Args:
+            title: Window title for the dialog.
+            image_url: URL of the image to fetch.
+            link_html: HTML string for the attribution/link label.
+            loading_text: Text to show while loading.
+            error_prefix: Prefix for error message (e.g., "Failed to load band conditions").
+        """
         dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Band Conditions")
+        dialog.setWindowTitle(title)
         dialog.setMinimumSize(480, 200)
         dialog.setWindowFlags(
             Qt.Window |
@@ -3560,15 +3588,13 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(dialog)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        # Image label
-        image_label = QtWidgets.QLabel("Loading band conditions...")
+        # Image label (shows loading text, then image or error)
+        image_label = QtWidgets.QLabel(loading_text)
         image_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(image_label)
 
-        # Link label
-        link_label = QtWidgets.QLabel(
-            '<a href="https://www.hamqsl.com/solar.html">Solar-Terrestrial Data provided by N0NBH</a>'
-        )
+        # Attribution/link label
+        link_label = QtWidgets.QLabel(link_html)
         link_label.setOpenExternalLinks(True)
         link_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(link_label)
@@ -3578,14 +3604,18 @@ class MainWindow(QtWidgets.QMainWindow):
         close_btn.clicked.connect(dialog.close)
         layout.addWidget(close_btn, alignment=Qt.AlignCenter)
 
-        # Storage for fetched data
+        # Storage for fetched data (shared between threads)
         fetch_result = {'data': None, 'error': None}
 
         def fetch_image():
+            """Background thread: fetch image from URL."""
             try:
-                url = "https://www.hamqsl.com/solar101pic.php"
-                request = urllib.request.Request(url, headers={'User-Agent': 'CommStat-Improved/2.5'})
+                request = urllib.request.Request(
+                    image_url,
+                    headers={'User-Agent': 'CommStat-Improved/2.5'}
+                )
                 # Create SSL context that bypasses certificate verification
+                # (some ham radio sites have certificate issues)
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
@@ -3595,15 +3625,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 fetch_result['error'] = str(e)
 
         def update_ui():
+            """Poll for fetch completion and update dialog."""
             if fetch_result['data']:
                 pixmap = QtGui.QPixmap()
                 pixmap.loadFromData(fetch_result['data'])
                 image_label.setPixmap(pixmap)
                 dialog.adjustSize()
             elif fetch_result['error']:
-                image_label.setText(f"Failed to load band conditions: {fetch_result['error']}")
+                image_label.setText(f"{error_prefix}: {fetch_result['error']}")
             else:
-                # Still loading, check again
+                # Still loading, check again in 100ms
                 QTimer.singleShot(100, update_ui)
 
         # Start fetch in background thread
@@ -3614,146 +3645,36 @@ class MainWindow(QtWidgets.QMainWindow):
         QTimer.singleShot(100, update_ui)
 
         dialog.exec_()
+
+    def _on_band_conditions(self) -> None:
+        """Show Band Conditions dialog with N0NBH solar-terrestrial data."""
+        self._show_image_dialog(
+            title="Band Conditions",
+            image_url="https://www.hamqsl.com/solar101pic.php",
+            link_html='<a href="https://www.hamqsl.com/solar.html">Solar-Terrestrial Data provided by N0NBH</a>',
+            loading_text="Loading band conditions...",
+            error_prefix="Failed to load band conditions"
+        )
 
     def _on_solar_flux(self) -> None:
         """Show Solar Flux dialog with N0NBH solar flux chart."""
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Solar Flux")
-        dialog.setMinimumSize(480, 200)
-        dialog.setWindowFlags(
-            Qt.Window |
-            Qt.CustomizeWindowHint |
-            Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint
+        self._show_image_dialog(
+            title="Solar Flux",
+            image_url="https://www.hamqsl.com/marston.php",
+            link_html='<a href="https://www.hamqsl.com/solar.html">Solar-Terrestrial Data provided by N0NBH</a>',
+            loading_text="Loading solar flux data...",
+            error_prefix="Failed to load solar flux data"
         )
-
-        layout = QtWidgets.QVBoxLayout(dialog)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        # Image label
-        image_label = QtWidgets.QLabel("Loading solar flux data...")
-        image_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(image_label)
-
-        # Link label
-        link_label = QtWidgets.QLabel(
-            '<a href="https://www.hamqsl.com/solar.html">Solar-Terrestrial Data provided by N0NBH</a>'
-        )
-        link_label.setOpenExternalLinks(True)
-        link_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(link_label)
-
-        # Close button
-        close_btn = QtWidgets.QPushButton("Close")
-        close_btn.clicked.connect(dialog.close)
-        layout.addWidget(close_btn, alignment=Qt.AlignCenter)
-
-        # Storage for fetched data
-        fetch_result = {'data': None, 'error': None}
-
-        def fetch_image():
-            try:
-                url = "https://www.hamqsl.com/marston.php"
-                request = urllib.request.Request(url, headers={'User-Agent': 'CommStat-Improved/2.5'})
-                # Create SSL context that bypasses certificate verification
-                ssl_context = ssl.create_default_context()
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-                with urllib.request.urlopen(request, timeout=15, context=ssl_context) as response:
-                    fetch_result['data'] = response.read()
-            except Exception as e:
-                fetch_result['error'] = str(e)
-
-        def update_ui():
-            if fetch_result['data']:
-                pixmap = QtGui.QPixmap()
-                pixmap.loadFromData(fetch_result['data'])
-                image_label.setPixmap(pixmap)
-                dialog.adjustSize()
-            elif fetch_result['error']:
-                image_label.setText(f"Failed to load solar flux data: {fetch_result['error']}")
-            else:
-                # Still loading, check again
-                QTimer.singleShot(100, update_ui)
-
-        # Start fetch in background thread
-        thread = threading.Thread(target=fetch_image, daemon=True)
-        thread.start()
-
-        # Start polling for result
-        QTimer.singleShot(100, update_ui)
-
-        dialog.exec_()
 
     def _on_world_map(self) -> None:
-        """Show World Map dialog."""
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("World Map")
-        dialog.setMinimumSize(480, 200)
-        dialog.setWindowFlags(
-            Qt.Window |
-            Qt.CustomizeWindowHint |
-            Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint
+        """Show World Map dialog with current solar conditions."""
+        self._show_image_dialog(
+            title="World Map",
+            image_url="https://www.hamqsl.com/solarmuf.php",
+            link_html='<a href="https://www.hamqsl.com/solar.html">View more at hamqsl.com</a>',
+            loading_text="Loading solar conditions...",
+            error_prefix="Failed to load solar data"
         )
-
-        layout = QtWidgets.QVBoxLayout(dialog)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        # Image label
-        image_label = QtWidgets.QLabel("Loading solar conditions...")
-        image_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(image_label)
-
-        # Link label
-        link_label = QtWidgets.QLabel(
-            '<a href="https://www.hamqsl.com/solar.html">View more at hamqsl.com</a>'
-        )
-        link_label.setOpenExternalLinks(True)
-        link_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(link_label)
-
-        # Close button
-        close_btn = QtWidgets.QPushButton("Close")
-        close_btn.clicked.connect(dialog.close)
-        layout.addWidget(close_btn, alignment=Qt.AlignCenter)
-
-        # Storage for fetched data
-        fetch_result = {'data': None, 'error': None}
-
-        def fetch_image():
-            try:
-                url = "https://www.hamqsl.com/solarmuf.php"
-                request = urllib.request.Request(url, headers={'User-Agent': 'CommStat-Improved/2.5'})
-                # Create SSL context that bypasses certificate verification
-                ssl_context = ssl.create_default_context()
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-                with urllib.request.urlopen(request, timeout=15, context=ssl_context) as response:
-                    fetch_result['data'] = response.read()
-            except Exception as e:
-                fetch_result['error'] = str(e)
-
-        def update_ui():
-            if fetch_result['data']:
-                pixmap = QtGui.QPixmap()
-                pixmap.loadFromData(fetch_result['data'])
-                image_label.setPixmap(pixmap)
-                dialog.adjustSize()
-            elif fetch_result['error']:
-                image_label.setText(f"Failed to load solar data: {fetch_result['error']}")
-            else:
-                # Still loading, check again
-                QTimer.singleShot(100, update_ui)
-
-        # Start fetch in background thread
-        thread = threading.Thread(target=fetch_image, daemon=True)
-        thread.start()
-
-        # Start polling for result
-        QTimer.singleShot(100, update_ui)
-
-        dialog.exec_()
 
     def _on_about(self) -> None:
         """Open About window."""
@@ -3812,7 +3733,7 @@ def main() -> None:
 
     db = DatabaseManager()
 
-    # Initialize Groups table (creates if needed, seeds defaults)
+    # Initialize Groups table (creates if needed, migrates schema)
     db.init_groups_table()
 
     # Initialize db_version table (creates if needed, seeds version 1)
