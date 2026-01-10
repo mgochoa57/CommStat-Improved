@@ -1,10 +1,10 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
 
 """
-StatRep Dialog for CommStat-Improved
+StatRep Dialog for CommStat
 Allows creating and transmitting AMRRON Status Reports via JS8Call.
 """
 
@@ -138,7 +138,7 @@ STATUS_COLORS = {
 
 # Styling
 FONT_FAMILY = "Arial"
-FONT_SIZE = 10
+FONT_SIZE = 12
 WINDOW_WIDTH = 700
 WINDOW_HEIGHT = 580
 
@@ -160,7 +160,7 @@ class StatRepDialog(QDialog):
         self.tcp_pool = tcp_pool
         self.connector_manager = connector_manager
 
-        self.setWindowTitle("CommStat-Improved STATREP")
+        self.setWindowTitle("CommStat STATREP")
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setWindowFlags(
             Qt.Window |
@@ -214,11 +214,9 @@ class StatRepDialog(QDialog):
         return ""
 
     def _get_default_remarks(self) -> str:
-        """Get default remarks with state prefix derived from grid."""
+        """Get default remarks with state derived from grid."""
         state = get_state_from_grid(self.grid)
-        if state:
-            return f"{state} - NTR"
-        return "NTR"
+        return state if state else ""
 
     def _get_all_groups_from_db(self) -> list:
         """Get all groups from the database."""
@@ -274,6 +272,8 @@ class StatRepDialog(QDialog):
             if hasattr(self, 'from_field'):
                 self.from_field.setText("")
                 self.grid_field.setText("")
+            if hasattr(self, 'rig_info_label'):
+                self.rig_info_label.setText("")
             return
 
         if not self.tcp_pool:
@@ -299,6 +299,19 @@ class StatRepDialog(QDialog):
             client.callsign_received.connect(self._on_callsign_received)
             client.grid_received.connect(self._on_grid_received)
 
+            # Display mode and frequency from cached values
+            if hasattr(self, 'rig_info_label'):
+                speed_name = client.speed_name or ""
+                frequency = client.frequency
+                if speed_name and frequency:
+                    self.rig_info_label.setText(f"{speed_name} on {frequency:.3f} MHz")
+                elif speed_name:
+                    self.rig_info_label.setText(speed_name)
+                elif frequency:
+                    self.rig_info_label.setText(f"{frequency:.3f} MHz")
+                else:
+                    self.rig_info_label.setText("")
+
             # Request callsign and grid from JS8Call
             # Small delay between requests to avoid race condition
             print(f"[StatRep] Requesting callsign and grid from {rig_name}")
@@ -306,6 +319,8 @@ class StatRepDialog(QDialog):
             QtCore.QTimer.singleShot(100, client.get_grid)  # 100ms delay for grid request
         else:
             print(f"[StatRep] Client not available or not connected for {rig_name}")
+            if hasattr(self, 'rig_info_label'):
+                self.rig_info_label.setText("")
 
     def _on_callsign_received(self, rig_name: str, callsign: str) -> None:
         """Handle callsign received from JS8Call."""
@@ -376,6 +391,11 @@ class StatRepDialog(QDialog):
         self.rig_combo.currentTextChanged.connect(self._on_rig_changed)
         rig_layout.addWidget(rig_label)
         rig_layout.addWidget(self.rig_combo)
+        # Mode and frequency display (populated when rig is selected)
+        self.rig_info_label = QtWidgets.QLabel("")
+        self.rig_info_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        self.rig_info_label.setStyleSheet("color: #666;")
+        rig_layout.addWidget(self.rig_info_label)
         rig_layout.addStretch()
         layout.addLayout(rig_layout)
 
@@ -452,6 +472,7 @@ class StatRepDialog(QDialog):
             "<b>Red</b> = Collapsed/None"
         )
         legend.setAlignment(Qt.AlignCenter)
+        legend.setFont(QtGui.QFont(FONT_FAMILY, 10))
         legend.setStyleSheet(
             "background-color: #f8f9fa; padding: 8px; border-radius: 4px; margin: 5px 0;"
         )
@@ -467,7 +488,7 @@ class StatRepDialog(QDialog):
 
             cell_layout = QtWidgets.QVBoxLayout()
             cell_label = QtWidgets.QLabel(label)
-            cell_label.setFont(QtGui.QFont(FONT_FAMILY, 9))
+            cell_label.setFont(QtGui.QFont(FONT_FAMILY, 12))
             cell_label.setAlignment(Qt.AlignCenter)
 
             combo = self._create_status_combo()
@@ -565,7 +586,7 @@ class StatRepDialog(QDialog):
                 padding: 8px 12px;
                 border-radius: 4px;
                 font-weight: bold;
-                font-size: 10px;
+                font-size: 12px;
             }}
             QPushButton:hover {{
                 opacity: 0.9;
@@ -578,7 +599,7 @@ class StatRepDialog(QDialog):
     def _show_error(self, message: str) -> None:
         """Display an error message box."""
         msg = QMessageBox(self)
-        msg.setWindowTitle("CommStat-Improved Error")
+        msg.setWindowTitle("CommStat Error")
         msg.setText(message)
         msg.setIcon(QMessageBox.Critical)
         msg.setWindowFlag(Qt.WindowStaysOnTopHint)
@@ -587,7 +608,7 @@ class StatRepDialog(QDialog):
     def _show_info(self, message: str) -> None:
         """Display an info message box."""
         msg = QMessageBox(self)
-        msg.setWindowTitle("CommStat-Improved")
+        msg.setWindowTitle("CommStat")
         msg.setText(message)
         msg.setIcon(QMessageBox.Information)
         msg.setWindowFlag(Qt.WindowStaysOnTopHint)
@@ -675,7 +696,7 @@ class StatRepDialog(QDialog):
 
         # TODO: REVERT LATER - Compression disabled for legacy compatibility with CommStatOne
         # When enabled, this compresses all-green status (111111111111) to "+" to save bandwidth
-        # Uncomment these lines when Dan's users have upgraded to CommStat-Improved:
+        # Uncomment these lines when Dan's users have upgraded to CommStat:
         # if status_str == "111111111111":
         #     status_str = "+"
 
@@ -786,7 +807,7 @@ class StatRepDialog(QDialog):
             self._show_error(f"Failed to save StatRep: {e}")
 
     def _on_transmit(self) -> None:
-        """Validate, get frequency, transmit, and save."""
+        """Validate, check for selected call, get frequency, transmit, and save."""
         if not self._validate():
             return
 
@@ -800,16 +821,46 @@ class StatRepDialog(QDialog):
             self._show_error("Cannot transmit: not connected to rig")
             return
 
-        # Connect frequency signal and request frequency
+        # Store the message to transmit
+        self._pending_message = self._build_message()
+
+        # First check if a call is selected in JS8Call
         try:
-            client.frequency_received.disconnect(self._on_frequency_for_transmit)
+            client.call_selected_received.disconnect(self._on_call_selected_for_transmit)
         except TypeError:
             pass
-        client.frequency_received.connect(self._on_frequency_for_transmit)
+        client.call_selected_received.connect(self._on_call_selected_for_transmit)
+        client.get_call_selected()
 
-        # Store the message to transmit after we get frequency
-        self._pending_message = self._build_message()
-        client.get_frequency()
+    def _on_call_selected_for_transmit(self, rig_name: str, selected_call: str) -> None:
+        """Handle call selected response - check if clear to transmit."""
+        if self.rig_combo.currentText() != rig_name:
+            return
+
+        client = self.tcp_pool.get_client(rig_name)
+        if client:
+            try:
+                client.call_selected_received.disconnect(self._on_call_selected_for_transmit)
+            except TypeError:
+                pass
+
+        # If a call is selected, show error and abort
+        if selected_call:
+            QtWidgets.QMessageBox.critical(
+                self, "ERROR",
+                f"JS8Call has {selected_call} selected.\n\n"
+                "Go to JS8Call and click the \"Deselect\" button."
+            )
+            return
+
+        # No call selected - proceed with getting frequency and transmitting
+        if client:
+            try:
+                client.frequency_received.disconnect(self._on_frequency_for_transmit)
+            except TypeError:
+                pass
+            client.frequency_received.connect(self._on_frequency_for_transmit)
+            client.get_frequency()
 
     def _on_frequency_for_transmit(self, rig_name: str, frequency: int) -> None:
         """Handle frequency received - now transmit and save."""

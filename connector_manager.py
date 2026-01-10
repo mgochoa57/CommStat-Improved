@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 """
 connector_manager.py - JS8Call TCP Connector Database Manager

@@ -1,8 +1,8 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 """
-js8_tcp_client.py - JS8Call TCP Client for CommStat-Improved
+js8_tcp_client.py - JS8Call TCP Client for CommStat
 
 Provides persistent TCP connections to JS8Call instances using Qt networking.
 Supports multiple simultaneous connections via TCPConnectionPool.
@@ -39,6 +39,7 @@ class JS8CallTCPClient(QObject):
     grid_received = pyqtSignal(str, str)          # rig_name, grid
     frequency_received = pyqtSignal(str, int)     # rig_name, frequency
     speed_received = pyqtSignal(str, int)         # rig_name, speed (submode)
+    call_selected_received = pyqtSignal(str, str) # rig_name, selected_call (empty if none)
     status_message = pyqtSignal(str, str)         # rig_name, message (for live feed)
     gave_up = pyqtSignal(str)                     # rig_name - emitted when max reconnect attempts reached
 
@@ -62,6 +63,8 @@ class JS8CallTCPClient(QObject):
         self._auto_reconnect = True
         self._reconnect_attempts = 0
         self.callsign = ""  # Cached callsign from JS8Call
+        self.speed_name = ""  # Cached speed mode name (NORMAL, FAST, TURBO, etc.)
+        self.frequency = 0.0  # Cached frequency in MHz
 
         # Create socket
         self.socket = QTcpSocket(self)
@@ -159,6 +162,10 @@ class JS8CallTCPClient(QObject):
         """Request speed mode from JS8Call. Result emitted via speed_received signal."""
         self.send_message("MODE.GET_SPEED")
 
+    def get_call_selected(self) -> None:
+        """Request selected call from JS8Call. Result emitted via call_selected_received signal."""
+        self.send_message("RX.GET_CALL_SELECTED")
+
     def send_tx_message(self, text: str) -> int:
         """
         Send a message to be transmitted by JS8Call.
@@ -236,18 +243,18 @@ class JS8CallTCPClient(QObject):
             self.grid_received.emit(self.rig_name, value)
 
         elif msg_type == "RIG.FREQ":
-            freq = params.get("FREQ", 0)
-            self.frequency_received.emit(self.rig_name, freq)
+            dial_freq = params.get("DIAL", 0)
+            self.frequency = dial_freq / 1000000  # Store dial frequency in MHz
+            self.frequency_received.emit(self.rig_name, dial_freq)
+            # Chain to grid request (combined status printed after grid received)
+            self.get_grid()
 
         elif msg_type == "MODE.SPEED":
             speed = params.get("SPEED", 0)
+            self.speed_name = self.SPEED_NAMES.get(speed, f"MODE {speed}")
             self.speed_received.emit(self.rig_name, speed)
-            speed_name = self.SPEED_NAMES.get(speed, f"MODE {speed}")
-            callsign_str = f" - {self.callsign}" if self.callsign else ""
-            self.status_message.emit(
-                self.rig_name,
-                f"[{self.rig_name}] Running in {speed_name} mode{callsign_str}"
-            )
+            # Chain to frequency request (combined status printed after grid received)
+            self.get_frequency()
 
         elif msg_type == "RX.DIRECTED":
             # Directed message received - emit for processing
@@ -263,6 +270,11 @@ class JS8CallTCPClient(QObject):
 
         elif msg_type == "RX.CALL_ACTIVITY":
             # Call activity response (debug feature) - emit for processing
+            self.message_received.emit(self.rig_name, message)
+
+        elif msg_type == "RX.CALL_SELECTED":
+            # Call selected response - emit both signals
+            self.call_selected_received.emit(self.rig_name, value)
             self.message_received.emit(self.rig_name, message)
 
         # Ignore PING and other status messages silently
@@ -345,6 +357,7 @@ class TCPConnectionPool(QObject):
     any_connection_changed = pyqtSignal(str, bool)  # rig_name, is_connected
     any_status_message = pyqtSignal(str, str)       # rig_name, message (for live feed)
     any_callsign_received = pyqtSignal(str, str)    # rig_name, callsign
+    any_grid_received = pyqtSignal(str, str)        # rig_name, grid
 
     def __init__(self, connector_manager: ConnectorManager, parent: QObject = None):
         """
@@ -421,6 +434,7 @@ class TCPConnectionPool(QObject):
         client.connection_changed.connect(self.any_connection_changed)
         client.status_message.connect(self.any_status_message)
         client.callsign_received.connect(self.any_callsign_received)
+        client.grid_received.connect(self.any_grid_received)
         client.gave_up.connect(self._on_client_gave_up)
 
         self.clients[rig_name] = client

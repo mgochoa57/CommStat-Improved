@@ -1,11 +1,11 @@
 #!/bin/bash
-# CommStat-Improved Linux Installation Script
+# CommStat Linux Installation Script
 # For Debian/Ubuntu-based systems (including Linux Mint, Raspberry Pi OS)
 
 set -e  # Exit on error
 
 echo "=============================================="
-echo "CommStat-Improved Linux Installer"
+echo "CommStat Linux Installer"
 echo "=============================================="
 
 # Check if running on Linux

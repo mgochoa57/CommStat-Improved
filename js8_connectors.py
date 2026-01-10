@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 """
 js8_connectors.py - JS8Call Connector Management Dialog
@@ -54,7 +54,7 @@ class JS8ConnectorsDialog(QDialog):
 
     def _setup_window(self) -> None:
         """Configure window properties."""
-        self.setWindowTitle("CommStat-Improved - JS8 Connectors")
+        self.setWindowTitle("CommStat - JS8 Connectors")
         self.setFixedSize(500, 550)
         self.setWindowFlags(
             Qt.Window |

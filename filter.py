@@ -1,10 +1,10 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
 
 """
-Display Filter Dialog for CommStat-Improved
+Display Filter Dialog for CommStat
 Filter StatRep and map data by date range.
 """
 
@@ -24,7 +24,7 @@ class FilterDialog(QDialog):
         self.current_filters = current_filters or {}
         self.result_filters = {}
 
-        self.setWindowTitle("CommStat-Improved Display Filter")
+        self.setWindowTitle("CommStat Display Filter")
         self.setFixedSize(400, 150)
         self.setWindowFlags(
             Qt.Window |

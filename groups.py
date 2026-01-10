@@ -1,10 +1,10 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
 
 """
-Manage Groups Dialog for CommStat-Improved
+Manage Groups Dialog for CommStat
 Add, edit, and remove groups with extended fields.
 """
 

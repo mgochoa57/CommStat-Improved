@@ -1,10 +1,10 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
 
 """
-Marquee Dialog for CommStat-Improved
+Marquee Dialog for CommStat
 Allows creating and transmitting marquee messages via JS8Call.
 """
 
@@ -194,7 +194,7 @@ class Ui_FormMarquee:
     def retranslateUi(self, FormMarquee: QtWidgets.QWidget) -> None:
         """Set UI text labels."""
         _translate = QtCore.QCoreApplication.translate
-        FormMarquee.setWindowTitle(_translate("FormMarquee", "CommStat-Improved Marquee"))
+        FormMarquee.setWindowTitle(_translate("FormMarquee", "CommStat Marquee"))
         self.label.setText(_translate("FormMarquee", "Select Marquee Color : "))
         self.label_2.setText(_translate("FormMarquee", "Marquee Message : "))
         self.label_3.setText(_translate("FormMarquee", "From Callsign :"))
@@ -318,7 +318,7 @@ class Ui_FormMarquee:
     def _show_error(self, message: str) -> None:
         """Display an error message box."""
         msg = QMessageBox()
-        msg.setWindowTitle("CommStat-Improved Error")
+        msg.setWindowTitle("CommStat Error")
         msg.setText(message)
         msg.setIcon(QMessageBox.Critical)
         msg.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint)
@@ -327,7 +327,7 @@ class Ui_FormMarquee:
     def _show_info(self, message: str) -> None:
         """Display an info message box."""
         msg = QMessageBox()
-        msg.setWindowTitle("CommStat-Improved TX")
+        msg.setWindowTitle("CommStat TX")
         msg.setText(message)
         msg.setIcon(QMessageBox.Information)
         msg.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint)
@@ -493,7 +493,7 @@ class Ui_FormMarquee:
             # Transmit via TCP
             client.send_tx_message(self._pending_message)
 
-            self._show_info(f"CommStat-Improved will transmit:\n{self._pending_message}")
+            self._show_info(f"CommStat will transmit:\n{self._pending_message}")
 
             # Save to database with frequency
             message = self.lineEdit_2.text()

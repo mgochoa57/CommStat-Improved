@@ -1,10 +1,10 @@
 #!/bin/bash
-# CommStat-Improved macOS Installation Script
+# CommStat macOS Installation Script
 
 set -e  # Exit on error
 
 echo "=============================================="
-echo "CommStat-Improved macOS Installer"
+echo "CommStat macOS Installer"
 echo "=============================================="
 
 # Check if running on macOS

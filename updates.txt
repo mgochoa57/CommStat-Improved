@@ -1,4 +1,4 @@
-CommStat-Improved - Summary of Changes and Improvements
+CommStat - Summary of Changes and Improvements
 ========================================================
 
 Project rebuild and modernization effort - December 2025

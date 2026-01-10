@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
 #
@@ -56,14 +56,14 @@ class Ui_FormAbout(object):
 
     def retranslateUi(self, FormAbout):
         _translate = QtCore.QCoreApplication.translate
-        FormAbout.setWindowTitle(_translate("FormAbout", "CommStat-Improved About"))
+        FormAbout.setWindowTitle(_translate("FormAbout", "CommStat About"))
         self.label.setText(_translate("FormAbout", "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0//EN\" \"http://www.w3.org/TR/REC-html40/strict.dtd\">\n"
 "<html><head><meta name=\"qrichtext\" content=\"1\" /><meta charset=\"utf-8\" /><style type=\"text/css\">\n"
 "p, li { white-space: pre-wrap; }\n"
 "</style></head><body style=\" font-family:\'Arial\'; font-size:10pt; font-weight:400; font-style:normal;\">\n"
-"<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:\'Segoe UI\';\">CommStat-Improved is a cross platform add on tool for JS8Call. </span></p>\n"
-"<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:\'Segoe UI\';\">CommStat-Improved is based on CommStatX, originally built by Dan Hurd W5DMH and designed by AmRRON, MPURN and PREPPERNET. </span></p>\n"
-"<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:\'Segoe UI\';\">CommStat-Improved developed by Manuel Ochoa with AI assistance from Claude (Anthropic) and ChatGPT (OpenAI). </span></p>\n"
+"<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:\'Segoe UI\';\">CommStat is a cross platform add on tool for JS8Call. </span></p>\n"
+"<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:\'Segoe UI\';\">CommStat is based on CommStatX, originally built by Dan Hurd W5DMH and designed by AmRRON, MPURN and PREPPERNET. </span></p>\n"
+"<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:\'Segoe UI\';\">CommStat developed by Manuel Ochoa with AI assistance from Claude (Anthropic) and ChatGPT (OpenAI). </span></p>\n"
 "<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:\'Segoe UI\';\">For questions, comments or suggestions, email: </span><a href=\"mailto:mochoa@protonmail.com\"><span style=\" font-family:\'Segoe UI\'; text-decoration: underline; color:#0000ff;\">mochoa@protonmail.com</span></a></p>\n"
 "</body></html>"))
         self.pushButton_2.setText(_translate("FormAbout", "Close"))

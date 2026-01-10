@@ -1,10 +1,10 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
 
 """
-Message Dialog for CommStat-Improved
+Message Dialog for CommStat
 Allows creating and transmitting messages via JS8Call.
 """
 
@@ -58,12 +58,12 @@ class Ui_FormMessage:
         """Initialize the UI components."""
         self.MainWindow = FormMessage
         FormMessage.setObjectName("FormMessage")
-        FormMessage.resize(835, 235)
+        FormMessage.resize(835, 300)
 
         # Set font
         font = QtGui.QFont()
         font.setFamily("Arial")
-        font.setPointSize(10)
+        font.setPointSize(12)
         FormMessage.setFont(font)
 
         # Set icon
@@ -71,38 +71,54 @@ class Ui_FormMessage:
         icon.addPixmap(QtGui.QPixmap("radiation-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         FormMessage.setWindowIcon(icon)
 
+        # Title
+        self.title_label = QtWidgets.QLabel(FormMessage)
+        self.title_label.setGeometry(QtCore.QRect(58, 10, 400, 30))
+        title_font = QtGui.QFont("Arial", 16, QtGui.QFont.Bold)
+        self.title_label.setFont(title_font)
+        self.title_label.setText("CommStat Group Message")
+        self.title_label.setStyleSheet("color: #333;")
+        self.title_label.setObjectName("title_label")
+
         # Rig dropdown
         self.rig_label = QtWidgets.QLabel(FormMessage)
-        self.rig_label.setGeometry(QtCore.QRect(58, 10, 60, 20))
+        self.rig_label.setGeometry(QtCore.QRect(58, 50, 120, 20))
         self.rig_label.setFont(font)
         self.rig_label.setText("Rig:")
         self.rig_label.setObjectName("rig_label")
 
         self.rig_combo = QtWidgets.QComboBox(FormMessage)
-        self.rig_combo.setGeometry(QtCore.QRect(160, 10, 150, 22))
+        self.rig_combo.setGeometry(QtCore.QRect(190, 50, 150, 26))
         self.rig_combo.setFont(font)
         self.rig_combo.setObjectName("rig_combo")
 
+        # Mode and frequency display (populated when rig is selected)
+        self.rig_info_label = QtWidgets.QLabel(FormMessage)
+        self.rig_info_label.setGeometry(QtCore.QRect(350, 50, 300, 26))
+        self.rig_info_label.setFont(font)
+        self.rig_info_label.setStyleSheet("color: #666;")
+        self.rig_info_label.setObjectName("rig_info_label")
+
         # Group dropdown
         self.group_label = QtWidgets.QLabel(FormMessage)
-        self.group_label.setGeometry(QtCore.QRect(58, 40, 60, 20))
+        self.group_label.setGeometry(QtCore.QRect(58, 85, 120, 20))
         self.group_label.setFont(font)
         self.group_label.setText("Group:")
         self.group_label.setObjectName("group_label")
 
         self.group_combo = QtWidgets.QComboBox(FormMessage)
-        self.group_combo.setGeometry(QtCore.QRect(160, 40, 150, 22))
+        self.group_combo.setGeometry(QtCore.QRect(190, 85, 150, 26))
         self.group_combo.setFont(font)
         self.group_combo.setObjectName("group_combo")
 
         # Callsign input (read-only, from JS8Call)
         self.label_3 = QtWidgets.QLabel(FormMessage)
-        self.label_3.setGeometry(QtCore.QRect(58, 75, 100, 20))
+        self.label_3.setGeometry(QtCore.QRect(58, 120, 120, 20))
         self.label_3.setFont(font)
         self.label_3.setObjectName("label_3")
 
         self.lineEdit_3 = QtWidgets.QLineEdit(FormMessage)
-        self.lineEdit_3.setGeometry(QtCore.QRect(160, 75, 81, 22))
+        self.lineEdit_3.setGeometry(QtCore.QRect(190, 120, 100, 26))
         self.lineEdit_3.setFont(font)
         self.lineEdit_3.setMaxLength(MAX_CALLSIGN_LENGTH)
         self.lineEdit_3.setReadOnly(True)
@@ -111,45 +127,46 @@ class Ui_FormMessage:
 
         # Message input
         self.label_2 = QtWidgets.QLabel(FormMessage)
-        self.label_2.setGeometry(QtCore.QRect(30, 110, 148, 20))
+        self.label_2.setGeometry(QtCore.QRect(58, 155, 120, 20))
         self.label_2.setFont(font)
         self.label_2.setObjectName("label_2")
 
         self.lineEdit_2 = QtWidgets.QLineEdit(FormMessage)
-        self.lineEdit_2.setGeometry(QtCore.QRect(160, 110, 481, 22))
+        self.lineEdit_2.setGeometry(QtCore.QRect(190, 155, 530, 26))
         self.lineEdit_2.setFont(font)
         self.lineEdit_2.setMaxLength(MAX_MESSAGE_LENGTH)
         self.lineEdit_2.setObjectName("lineEdit_2")
 
         # Character limit note
         self.note_label = QtWidgets.QLabel(FormMessage)
-        self.note_label.setGeometry(QtCore.QRect(160, 135, 481, 20))
+        self.note_label.setGeometry(QtCore.QRect(190, 185, 481, 20))
         note_font = QtGui.QFont()
         note_font.setFamily("Arial")
-        note_font.setPointSize(9)
+        note_font.setPointSize(10)
+        note_font.setBold(True)
         self.note_label.setFont(note_font)
-        self.note_label.setStyleSheet("color: #666666;")
+        self.note_label.setStyleSheet("color: #AA0000;")
         self.note_label.setText("Messages are limited to 67 characters.")
         self.note_label.setObjectName("note_label")
 
         # Buttons
         self.pushButton_3 = QtWidgets.QPushButton(FormMessage)
-        self.pushButton_3.setGeometry(QtCore.QRect(430, 165, 75, 24))
-        self.pushButton_3.setFont(font)
+        self.pushButton_3.setGeometry(QtCore.QRect(410, 220, 100, 32))
         self.pushButton_3.setObjectName("pushButton_3")
         self.pushButton_3.clicked.connect(self._save_only)
+        self.pushButton_3.setStyleSheet(self._button_style("#17a2b8"))
 
         self.pushButton = QtWidgets.QPushButton(FormMessage)
-        self.pushButton.setGeometry(QtCore.QRect(530, 165, 75, 24))
-        self.pushButton.setFont(font)
+        self.pushButton.setGeometry(QtCore.QRect(520, 220, 100, 32))
         self.pushButton.setObjectName("pushButton")
         self.pushButton.clicked.connect(self._transmit)
+        self.pushButton.setStyleSheet(self._button_style("#007bff"))
 
         self.pushButton_2 = QtWidgets.QPushButton(FormMessage)
-        self.pushButton_2.setGeometry(QtCore.QRect(630, 165, 75, 24))
-        self.pushButton_2.setFont(font)
+        self.pushButton_2.setGeometry(QtCore.QRect(630, 220, 100, 32))
         self.pushButton_2.setObjectName("pushButton_2")
         self.pushButton_2.clicked.connect(self.MainWindow.close)
+        self.pushButton_2.setStyleSheet(self._button_style("#dc3545"))
 
         self.retranslateUi(FormMessage)
         QtCore.QMetaObject.connectSlotsByName(FormMessage)
@@ -175,9 +192,9 @@ class Ui_FormMessage:
     def retranslateUi(self, FormMessage: QtWidgets.QWidget) -> None:
         """Set UI text labels."""
         _translate = QtCore.QCoreApplication.translate
-        FormMessage.setWindowTitle(_translate("FormMessage", "CommStat-Improved Send Message"))
-        self.label_2.setText(_translate("FormMessage", "Message to transmit : "))
-        self.label_3.setText(_translate("FormMessage", "From Callsign : "))
+        FormMessage.setWindowTitle(_translate("FormMessage", "CommStat Send Message"))
+        self.label_2.setText(_translate("FormMessage", "Message:"))
+        self.label_3.setText(_translate("FormMessage", "From Callsign:"))
         self.pushButton.setText(_translate("FormMessage", "Transmit"))
         self.pushButton_2.setText(_translate("FormMessage", "Cancel"))
         self.pushButton_3.setText(_translate("FormMessage", "Save Only"))
@@ -246,10 +263,25 @@ class Ui_FormMessage:
         if not rig_name or "(disconnected)" in rig_name or not self.tcp_pool:
             self.callsign = ""
             self.lineEdit_3.setText("")
+            if hasattr(self, 'rig_info_label'):
+                self.rig_info_label.setText("")
             return
 
         client = self.tcp_pool.get_client(rig_name)
         if client and client.is_connected():
+            # Display mode and frequency from cached values
+            if hasattr(self, 'rig_info_label'):
+                speed_name = client.speed_name or ""
+                frequency = client.frequency
+                if speed_name and frequency:
+                    self.rig_info_label.setText(f"{speed_name} on {frequency:.3f} MHz")
+                elif speed_name:
+                    self.rig_info_label.setText(speed_name)
+                elif frequency:
+                    self.rig_info_label.setText(f"{frequency:.3f} MHz")
+                else:
+                    self.rig_info_label.setText("")
+
             # Connect signal for this client (disconnect any existing first)
             try:
                 client.callsign_received.disconnect(self._on_callsign_received)
@@ -260,6 +292,9 @@ class Ui_FormMessage:
 
             # Request callsign from JS8Call
             client.get_callsign()
+        else:
+            if hasattr(self, 'rig_info_label'):
+                self.rig_info_label.setText("")
 
     def _on_callsign_received(self, rig_name: str, callsign: str) -> None:
         """Handle callsign received from JS8Call."""
@@ -295,16 +330,36 @@ class Ui_FormMessage:
     def _show_error(self, message: str) -> None:
         """Display an error message box."""
         msg = QMessageBox()
-        msg.setWindowTitle("CommStat-Improved Error")
+        msg.setWindowTitle("CommStat Error")
         msg.setText(message)
         msg.setIcon(QMessageBox.Critical)
         msg.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint)
         msg.exec_()
 
+    def _button_style(self, color: str) -> str:
+        """Generate button stylesheet."""
+        return f"""
+            QPushButton {{
+                background-color: {color};
+                color: white;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                opacity: 0.9;
+            }}
+            QPushButton:pressed {{
+                opacity: 0.8;
+            }}
+        """
+
     def _show_info(self, message: str) -> None:
         """Display an info message box."""
         msg = QMessageBox()
-        msg.setWindowTitle("CommStat-Improved TX")
+        msg.setWindowTitle("CommStat TX")
         msg.setText(message)
         msg.setIcon(QMessageBox.Information)
         msg.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint)
@@ -400,13 +455,13 @@ class Ui_FormMessage:
 
         # Build message for display
         tx_message = self._build_message(message)
-        self._show_info(f"CommStat-Improved has saved:\n{tx_message}")
+        self._show_info(f"CommStat has saved:\n{tx_message}")
 
         self._save_to_database(callsign, message)
         self.MainWindow.close()
 
     def _transmit(self) -> None:
-        """Validate, get frequency, transmit, and save message."""
+        """Validate, check for selected call, get frequency, transmit, and save message."""
         result = self._validate_input(validate_callsign=False)
         if result is None:
             return
@@ -431,14 +486,43 @@ class Ui_FormMessage:
         self._pending_message = self._build_message(message)
         self._pending_callsign = callsign
 
-        # Connect frequency signal and request frequency
+        # First check if a call is selected in JS8Call
         try:
-            client.frequency_received.disconnect(self._on_frequency_for_transmit)
+            client.call_selected_received.disconnect(self._on_call_selected_for_transmit)
         except TypeError:
             pass
-        client.frequency_received.connect(self._on_frequency_for_transmit)
+        client.call_selected_received.connect(self._on_call_selected_for_transmit)
+        client.get_call_selected()
 
-        client.get_frequency()
+    def _on_call_selected_for_transmit(self, rig_name: str, selected_call: str) -> None:
+        """Handle call selected response - check if clear to transmit."""
+        if self.rig_combo.currentText() != rig_name:
+            return
+
+        client = self.tcp_pool.get_client(rig_name)
+        if client:
+            try:
+                client.call_selected_received.disconnect(self._on_call_selected_for_transmit)
+            except TypeError:
+                pass
+
+        # If a call is selected, show error and abort
+        if selected_call:
+            QtWidgets.QMessageBox.critical(
+                self, "ERROR",
+                f"JS8Call has {selected_call} selected.\n\n"
+                "Go to JS8Call and click the \"Deselect\" button."
+            )
+            return
+
+        # No call selected - proceed with getting frequency and transmitting
+        if client:
+            try:
+                client.frequency_received.disconnect(self._on_frequency_for_transmit)
+            except TypeError:
+                pass
+            client.frequency_received.connect(self._on_frequency_for_transmit)
+            client.get_frequency()
 
     def _on_frequency_for_transmit(self, rig_name: str, frequency: int) -> None:
         """Handle frequency received - now transmit and save."""

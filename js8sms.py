@@ -1,10 +1,10 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
 
 """
-JS8 SMS Dialog for CommStat-Improved
+JS8 SMS Dialog for CommStat
 Allows sending SMS messages via JS8Call APRS gateway.
 """
 
@@ -53,7 +53,7 @@ class JS8SMSDialog(QDialog):
         self.tcp_pool = tcp_pool
         self.connector_manager = connector_manager
 
-        self.setWindowTitle("CommStat-Improved JS8SMS")
+        self.setWindowTitle("CommStat JS8SMS")
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT + 40)
         self.setWindowFlags(
             Qt.Window |
@@ -224,7 +224,7 @@ class JS8SMSDialog(QDialog):
     def _show_error(self, message: str) -> None:
         """Display an error message box."""
         msg = QMessageBox(self)
-        msg.setWindowTitle("CommStat-Improved Error")
+        msg.setWindowTitle("CommStat Error")
         msg.setText(message)
         msg.setIcon(QMessageBox.Critical)
         msg.setWindowFlag(Qt.WindowStaysOnTopHint)

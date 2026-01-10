@@ -1,4 +1,4 @@
-# CommStat / CommStatOne / CommStat-Improved  
+# CommStat / CommStatOne / CommStat  
 Situational Awareness Companion Software for JS8Call
 
 ---
@@ -24,7 +24,7 @@ The CommStat ecosystem consists of multiple related projects developed independe
 
 - **CommStat** – Original application concept and implementation  
 - **CommStatOne** – Python-based, cross-platform rewrite  
-- **CommStat-Improved** – Community-driven rebuild and modernization effort  
+- **CommStat** – Community-driven rebuild and modernization effort  
 
 Each project builds upon earlier ideas while maintaining compatibility with **JS8Call** and its API.
 
@@ -65,7 +65,7 @@ CommStatOne is a Python version of the CommStat software **designed to run on Wi
 
 ---
 
-# CommStat-Improved Version 2.5.0  
+# CommStat Version 2.5.0  
 **Released:** 12/25/2025
 
 - **Author:** Manuel G. Ochoa ~N0DDK  
@@ -279,7 +279,7 @@ Copyright © 2025 Manuel Ochoa
 
 This project is licensed under the **GNU General Public License v3.0**.
 
-CommStat-Improved is derived from earlier CommStat projects originally created by **Daniel M. Hurd (W5DMH)** and later expanded by **Rich W. Whittington (KD9DSS)**.  
+CommStat is derived from earlier CommStat projects originally created by **Daniel M. Hurd (W5DMH)** and later expanded by **Rich W. Whittington (KD9DSS)**.  
 The original CommStat design incorporated concepts and workflows developed in collaboration with:
 
 - **AmRRON** — https://amrron.com/  

@@ -1,8 +1,8 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 """
-qrz_client.py - QRZ.com XML API Client for CommStat-Improved
+qrz_client.py - QRZ.com XML API Client for CommStat
 
 Provides callsign lookups via QRZ.com with local database caching
 to minimize API calls.
@@ -282,7 +282,7 @@ class QRZClient:
         params = {
             "username": username,
             "password": password,
-            "agent": "CommStat-Improved/2.5"
+            "agent": "CommStat/2.5"
         }
 
         root = self._api_request(params)

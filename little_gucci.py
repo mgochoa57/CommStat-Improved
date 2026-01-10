@@ -1,10 +1,10 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
 
 """
-CommStat-Improved v2.5.0 - Rebuilt with best practices
+CommStat v2.5.0 - Rebuilt with best practices
 
 A PyQt5 application for monitoring JS8Call communications,
 displaying status reports, messages, and live data feeds.
@@ -57,7 +57,7 @@ from js8_connectors import JS8ConnectorsDialog
 # =============================================================================
 
 VERSION = "2.5.0"
-WINDOW_TITLE = f"CommStat-Improved (v{VERSION}) by N0DDK"
+WINDOW_TITLE = f"CommStat (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
 ICON_FILE = "radiation-32.png"
@@ -424,7 +424,7 @@ class RSSFetcher:
 
             request = urllib.request.Request(
                 feed_url,
-                headers={'User-Agent': 'CommStat-Improved/2.5'}
+                headers={'User-Agent': 'CommStat/2.5'}
             )
 
             with urllib.request.urlopen(request, timeout=10, context=ssl_context) as response:
@@ -1018,7 +1018,7 @@ class DatabaseManager:
 # =============================================================================
 
 class MainWindow(QtWidgets.QMainWindow):
-    """Main application window for CommStat-Improved."""
+    """Main application window for CommStat."""
 
     def __init__(self, config: ConfigManager, db: DatabaseManager, debug_mode: bool = False, demo_mode: bool = False, demo_version: int = 1, demo_duration: int = 60):
         """
@@ -1054,9 +1054,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tcp_pool.any_connection_changed.connect(self._handle_connection_changed)
         self.tcp_pool.any_status_message.connect(self._handle_status_message)
         self.tcp_pool.any_callsign_received.connect(self._handle_callsign_received)
+        self.tcp_pool.any_grid_received.connect(self._handle_grid_received)
 
-        # Store callsigns by rig name (persists even if connection is lost)
+        # Store station info by rig name (persists even if connection is lost)
         self.rig_callsigns: Dict[str, str] = {}
+        self.rig_grids: Dict[str, str] = {}
+        self.rig_states: Dict[str, str] = {}
 
         # Active groups (currently single, but list for future multi-group support)
         self.active_groups: List[str] = [self.db.get_active_group()]
@@ -2197,8 +2200,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         import re
         from datetime import datetime
-        if self.debug_mode:
-            print(f"[Backbone] Checking {_PING}")
+        # Backbone check runs silently
         try:
             with urllib.request.urlopen(_PING, timeout=10) as response:
                 content = response.read().decode('utf-8')
@@ -3119,7 +3121,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         if callsign:
             self.rig_callsigns[rig_name] = callsign
-            print(f"[{rig_name}] Callsign: {callsign}")
+            # Callsign is printed later after frequency is received
 
     def get_callsign_for_rig(self, rig_name: str) -> str:
         """
@@ -3132,6 +3134,38 @@ class MainWindow(QtWidgets.QMainWindow):
             Callsign string or empty string if not known.
         """
         return self.rig_callsigns.get(rig_name, "")
+
+    def _handle_grid_received(self, rig_name: str, grid: str) -> None:
+        """
+        Handle grid received from JS8Call.
+
+        Prints combined rig status line with all collected info.
+
+        Args:
+            rig_name: Name of the rig.
+            grid: Maidenhead grid square from JS8Call.
+        """
+        from statrep import get_state_from_grid
+
+        if grid:
+            self.rig_grids[rig_name] = grid
+
+            # Calculate state from grid
+            state = get_state_from_grid(grid)
+            if state:
+                self.rig_states[rig_name] = state
+
+            # Get cached values from the TCP client
+            client = self.tcp_pool.clients.get(rig_name)
+            if client:
+                speed_name = client.speed_name or "UNKNOWN"
+                callsign = client.callsign or "UNKNOWN"
+                frequency = client.frequency
+
+                # Format: [IC-7300] Running in TURBO mode, N0DDK, EM83CV, GA on 7.110
+                status_line = f"[{rig_name}] Running in {speed_name} mode, {callsign}, {grid}, {state or 'XX'} on {frequency:.3f}"
+                print(status_line)
+                self._handle_status_message(rig_name, status_line)
 
     def _handle_status_message(self, rig_name: str, message: str) -> None:
         """
@@ -3228,6 +3262,11 @@ class MainWindow(QtWidgets.QMainWindow):
         elif msg_type == "RX.CALL_ACTIVITY":
             if hasattr(self, 'debug_features'):
                 self.debug_features.handle_call_activity_response(rig_name, message)
+
+        # Handle RX.CALL_SELECTED response (debug feature)
+        elif msg_type == "RX.CALL_SELECTED":
+            if hasattr(self, 'debug_features'):
+                self.debug_features.handle_call_selected_response(rig_name, message)
 
     def _add_to_feed(self, line: str, rig_name: str) -> None:
         """
@@ -3700,7 +3739,7 @@ class MainWindow(QtWidgets.QMainWindow):
             try:
                 request = urllib.request.Request(
                     image_url,
-                    headers={'User-Agent': 'CommStat-Improved/2.5'}
+                    headers={'User-Agent': 'CommStat/2.5'}
                 )
                 # Create SSL context that bypasses certificate verification
                 # (some ham radio sites have certificate issues)

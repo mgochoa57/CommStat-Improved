@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 """
-startup.py - CommStat-Improved Launcher
+startup.py - CommStat Launcher
 
 Checks for pending updates before launching the main application.
 If an update zip file is present, extracts it to overwrite program files.

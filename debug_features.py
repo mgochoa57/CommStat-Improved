@@ -1,8 +1,8 @@
 # Copyright (c) 2025 Manuel Ochoa
-# This file is part of CommStat-Improved.
+# This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 """
-Debug Features for CommStat-Improved
+Debug Features for CommStat
 
 This module contains all debug-related functionality.
 To remove debug features, simply delete this file and remove its import.
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 class DebugFeatures:
     """
-    Manages all debug features for CommStat-Improved.
+    Manages all debug features for CommStat.
 
     This class encapsulates debug functionality so it can be easily
     added or removed from the application.
@@ -45,6 +45,7 @@ class DebugFeatures:
         """
         self.main_window = main_window
         self._pending_call_activity = set()
+        self._pending_call_selected = set()
 
     def setup_debug_menu(self) -> None:
         """
@@ -60,6 +61,11 @@ class DebugFeatures:
         get_call_activity_action = QtWidgets.QAction("Get Call Activity", self.main_window)
         get_call_activity_action.triggered.connect(self.on_get_call_activity)
         self.debug_menu.addAction(get_call_activity_action)
+
+        # Get Selected option
+        get_selected_action = QtWidgets.QAction("Get Selected", self.main_window)
+        get_selected_action.triggered.connect(self.on_get_call_selected)
+        self.debug_menu.addAction(get_selected_action)
 
     def on_get_call_activity(self) -> None:
         """
@@ -142,6 +148,65 @@ class DebugFeatures:
 
         except Exception as e:
             print(f"[{rig_name}] Error writing call activity dump: {e}")
+
+    def on_get_call_selected(self) -> None:
+        """
+        Request selected call from all connected JS8Call instances.
+
+        Sends RX.GET_CALL_SELECTED to each connected rig. The response
+        is handled by handle_call_selected_response().
+        """
+        connected_count = 0
+
+        for rig_name, client in self.main_window.tcp_pool.clients.items():
+            if client.is_connected():
+                print(f"[{rig_name}] Requesting selected call...")
+                client.send_message("RX.GET_CALL_SELECTED")
+                self._pending_call_selected.add(rig_name)
+                connected_count += 1
+
+        if connected_count == 0:
+            QtWidgets.QMessageBox.information(
+                self.main_window, "No Connections",
+                "No JS8Call instances are connected."
+            )
+        else:
+            QtWidgets.QMessageBox.information(
+                self.main_window, "Request Sent",
+                f"Requested selected call from {connected_count} rig(s).\n"
+                "Data will be written to {rig}-selected-dump.txt files."
+            )
+
+    def handle_call_selected_response(self, rig_name: str, message: dict) -> None:
+        """
+        Handle RX.CALL_SELECTED response from JS8Call.
+
+        Writes the selected call data to a text file.
+
+        Args:
+            rig_name: Name of the rig that sent the response.
+            message: Full message containing selected call data.
+        """
+        # Remove from pending set
+        self._pending_call_selected.discard(rig_name)
+
+        # Create filename in the app directory
+        filename = f"{rig_name}-selected-dump.txt"
+        filepath = Path(__file__).parent / filename
+
+        try:
+            with open(filepath, 'w') as f:
+                f.write(f"Selected Call Dump for {rig_name}\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 60 + "\n\n")
+
+                # Write the full message as JSON
+                f.write(json.dumps(message, indent=2))
+
+            print(f"[{rig_name}] Selected call written to {filename}")
+
+        except Exception as e:
+            print(f"[{rig_name}] Error writing selected call dump: {e}")
 
 
 def is_call_activity_message(msg_type: str) -> bool:
