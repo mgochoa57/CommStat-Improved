@@ -139,10 +139,12 @@ DEFAULT_COLORS: Dict[str, str] = {
 
 # Default RSS news feeds
 DEFAULT_RSS_FEEDS: Dict[str, str] = {
+    "Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
+    "AP News": "https://feedx.net/rss/ap.xml",
     "BBC World": "http://feeds.bbci.co.uk/news/world/rss.xml",
-    "NPR News": "https://feeds.npr.org/1001/rss.xml",
     "CNN Top": "http://rss.cnn.com/rss/cnn_topstories.rss",
     "Fox News": "https://moxie.foxnews.com/google-publisher/latest.xml",
+    "NPR News": "https://feeds.npr.org/1001/rss.xml",
 }
 
 
@@ -1338,9 +1340,21 @@ class MainWindow(QtWidgets.QMainWindow):
         reset_midnight.triggered.connect(lambda: self._reset_filter_date(0))
         self.filter_menu.addAction(reset_midnight)
 
+        reset_1day = QtWidgets.QAction("Reset to 1 day ago", self)
+        reset_1day.triggered.connect(lambda: self._reset_filter_date(1))
+        self.filter_menu.addAction(reset_1day)
+
+        reset_1week = QtWidgets.QAction("Reset to 1 week ago", self)
+        reset_1week.triggered.connect(lambda: self._reset_filter_date(7))
+        self.filter_menu.addAction(reset_1week)
+
         reset_1month = QtWidgets.QAction("Reset to 1 month ago", self)
         reset_1month.triggered.connect(lambda: self._reset_filter_date(30))
         self.filter_menu.addAction(reset_1month)
+
+        reset_3months = QtWidgets.QAction("Reset to 3 months ago", self)
+        reset_3months.triggered.connect(lambda: self._reset_filter_date(90))
+        self.filter_menu.addAction(reset_3months)
 
         reset_6months = QtWidgets.QAction("Reset to 6 months ago", self)
         reset_6months.triggered.connect(lambda: self._reset_filter_date(180))
@@ -1528,13 +1542,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # News ticker (scrolling text)
         self.newsfeed_label = QtWidgets.QLabel(self.header_widget)
-        self.newsfeed_label.setFixedSize(500, 32)
+        self.newsfeed_label.setFixedSize(550, 32)
         self.newsfeed_label.setFont(QtGui.QFont("Arial", 12))
         self.newsfeed_label.setStyleSheet(
             f"background-color: {self.config.get_color('newsfeed_background')};"
             f"color: {self.config.get_color('newsfeed_foreground')};"
         )
         self.header_layout.addWidget(self.newsfeed_label)
+
+        # Last 20 button - shows last 20 news headlines
+        self.last20_button = QtWidgets.QPushButton("Last 20", self.header_widget)
+        self.last20_button.setFixedSize(60, 28)
+        self.last20_button.setFont(QtGui.QFont("Arial", 10))
+        self.last20_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {menu_bg};
+                color: {menu_fg};
+                border: 1px solid {menu_fg};
+                padding: 2px 5px;
+            }}
+            QPushButton:hover {{
+                background-color: {menu_fg};
+                color: {menu_bg};
+            }}
+        """)
+        self.last20_button.clicked.connect(self._on_last20_clicked)
+        self.header_layout.addWidget(self.last20_button)
 
         # Spacer to push time to right
         self.header_layout.addStretch()
@@ -2799,6 +2832,37 @@ class MainWindow(QtWidgets.QMainWindow):
             self._start_rss_fetch()
         else:
             self.newsfeed_label.setText("  No internet connection")
+
+    def _on_last20_clicked(self) -> None:
+        """Show dialog with last 20 news headlines."""
+        headlines = self.headlines if self.headlines else ["No headlines available"]
+
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Last 20 News Headlines")
+        dialog.setMinimumSize(600, 400)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+
+        # Feed name label
+        feed_name = self.feed_combo.currentText()
+        feed_label = QtWidgets.QLabel(f"Feed: {feed_name}")
+        feed_label.setFont(QtGui.QFont("Arial", 12, QtGui.QFont.Bold))
+        layout.addWidget(feed_label)
+
+        # Headlines list
+        list_widget = QtWidgets.QListWidget()
+        list_widget.setFont(QtGui.QFont("Arial", 11))
+        list_widget.setAlternatingRowColors(True)
+        for i, headline in enumerate(headlines[:20], 1):
+            list_widget.addItem(f"{i}. {headline}")
+        layout.addWidget(list_widget)
+
+        # Close button
+        close_btn = QtWidgets.QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+
+        dialog.exec_()
 
     # -------------------------------------------------------------------------
     # Menu Action Handlers (placeholders for now)
