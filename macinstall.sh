@@ -46,5 +46,5 @@ python3 install.py
 echo ""
 echo "=============================================="
 echo "Installation complete!"
-echo "Run CommStat with: python3 commstat.py"
+echo "Run CommStat with: python3 startup.py"
 echo "=============================================="
