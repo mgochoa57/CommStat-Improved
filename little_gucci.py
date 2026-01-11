@@ -834,6 +834,58 @@ class DatabaseManager:
             return True
         return self._execute(op, False)
 
+    def run_migrations(self) -> None:
+        """Run any pending database migrations."""
+        current_version = self.get_db_version()
+
+        # Migration 2: Remove UNIQUE constraint from StatRep_Data
+        if current_version < 2:
+            print("Running migration 2: Remove UNIQUE constraint from StatRep_Data...")
+            migration_sql = """
+                -- Create new table without UNIQUE constraint
+                CREATE TABLE IF NOT EXISTS StatRep_Data_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    datetime TEXT,
+                    date TEXT,
+                    source TEXT,
+                    freq DOUBLE,
+                    callsign TEXT,
+                    groupname TEXT,
+                    grid TEXT,
+                    SRid TEXT NOT NULL,
+                    prec TEXT,
+                    status TEXT,
+                    commpwr TEXT,
+                    pubwtr TEXT,
+                    med TEXT,
+                    ota TEXT,
+                    trav TEXT,
+                    net TEXT,
+                    fuel TEXT,
+                    food TEXT,
+                    crime TEXT,
+                    civil TEXT,
+                    political TEXT,
+                    comments TEXT,
+                    frequency INTEGER DEFAULT 0
+                );
+
+                -- Copy data from old table (if it exists)
+                INSERT INTO StatRep_Data_new
+                    SELECT * FROM StatRep_Data WHERE EXISTS (SELECT 1 FROM StatRep_Data LIMIT 1);
+
+                -- Drop old table
+                DROP TABLE IF EXISTS StatRep_Data;
+
+                -- Rename new table
+                ALTER TABLE StatRep_Data_new RENAME TO StatRep_Data;
+            """
+            if self.execute_migration(migration_sql):
+                self.set_db_version(2)
+                print("Migration 2 completed successfully")
+            else:
+                print("Migration 2 failed")
+
     def init_qrz_table(self) -> None:
         """Create QRZ settings table if it doesn't exist (single record only)."""
         try:
@@ -3661,6 +3713,9 @@ def main() -> None:
 
     # Initialize db_version table (creates if needed, seeds version 1)
     db.init_db_version_table()
+
+    # Run any pending database migrations
+    db.run_migrations()
 
     # Initialize QRZ settings table (creates if needed)
     db.init_qrz_table()
