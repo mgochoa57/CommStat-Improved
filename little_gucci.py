@@ -2325,16 +2325,7 @@ class MainWindow(QtWidgets.QMainWindow):
             show_all=show_all
         )
 
-        # Clear and populate table
-        self.message_table.setRowCount(0)
-        for row_num, row_data in enumerate(data):
-            self.message_table.insertRow(row_num)
-            for col_num, value in enumerate(row_data):
-                item = QTableWidgetItem(str(value) if value is not None else "")
-                self.message_table.setItem(row_num, col_num, item)
-
-        # Sort by datetime descending
-        self.message_table.sortItems(0, QtCore.Qt.DescendingOrder)
+        self._populate_table(self.message_table, data)
 
     def _load_map(self) -> None:
         """Generate and display the folium map with StatRep pins."""
@@ -2498,30 +2489,14 @@ class MainWindow(QtWidgets.QMainWindow):
             show_all=show_all
         )
 
-        # Clear and populate table
-        self.statrep_table.setRowCount(0)
-        for row_num, row_data in enumerate(data):
-            self.statrep_table.insertRow(row_num)
-            for col_num, value in enumerate(row_data):
-                item = QTableWidgetItem(str(value) if value is not None else "")
-
-                # Apply color coding for status columns (values 1-4)
-                if value in ["1", "2", "3", "4"]:
-                    if value == "1":
-                        color = QColor(self.config.get_color('condition_green'))
-                    elif value == "2":
-                        color = QColor(self.config.get_color('condition_yellow'))
-                    elif value == "3":
-                        color = QColor(self.config.get_color('condition_red'))
-                    else:  # "4"
-                        color = QColor(self.config.get_color('condition_gray'))
-                    item.setBackground(color)
-                    item.setForeground(color)
-
-                self.statrep_table.setItem(row_num, col_num, item)
-
-        # Sort by datetime descending
-        self.statrep_table.sortItems(0, QtCore.Qt.DescendingOrder)
+        # Status color mapping for values 1-4
+        status_colors = {
+            "1": "condition_green",
+            "2": "condition_yellow",
+            "3": "condition_red",
+            "4": "condition_gray"
+        }
+        self._populate_table(self.statrep_table, data, status_colors)
 
     def _on_statrep_click(self, item: QTableWidgetItem) -> None:
         """Handle click on StatRep table row."""
@@ -2817,6 +2792,29 @@ class MainWindow(QtWidgets.QMainWindow):
             return self.db.get_all_groups(), False
         else:
             return self.db.get_active_groups(), False
+
+    def _populate_table(self, table, data, status_colors: dict = None) -> None:
+        """Populate a table widget with data.
+
+        Args:
+            table: QTableWidget to populate
+            data: List of row tuples
+            status_colors: Optional dict mapping values to config color keys
+        """
+        table.setRowCount(0)
+        for row_num, row_data in enumerate(data):
+            table.insertRow(row_num)
+            for col_num, value in enumerate(row_data):
+                item = QTableWidgetItem(str(value) if value is not None else "")
+
+                if status_colors and value in status_colors:
+                    color = QColor(self.config.get_color(status_colors[value]))
+                    item.setBackground(color)
+                    item.setForeground(color)
+
+                table.setItem(row_num, col_num, item)
+
+        table.sortItems(0, QtCore.Qt.DescendingOrder)
 
     def _refresh_all_data(self) -> None:
         """Refresh all data views (statrep, messages, and map)."""
