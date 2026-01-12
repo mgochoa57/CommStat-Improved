@@ -149,6 +149,22 @@ DEFAULT_RSS_FEEDS: Dict[str, str] = {
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+def create_insecure_ssl_context():
+    """Create SSL context that bypasses certificate verification.
+
+    Some ham radio sites and RSS feeds have certificate issues,
+    so we need to disable verification for those requests.
+    """
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    return ssl_context
+
+
+# =============================================================================
 # Tile Server for Map
 # =============================================================================
 
@@ -378,17 +394,12 @@ class RSSFetcher:
         """Fetch and parse the RSS feed."""
         self._fetching = True
         try:
-            # Create SSL context that doesn't verify certificates (some feeds have issues)
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-
             request = urllib.request.Request(
                 feed_url,
                 headers={'User-Agent': 'CommStat/2.5'}
             )
 
-            with urllib.request.urlopen(request, timeout=10, context=ssl_context) as response:
+            with urllib.request.urlopen(request, timeout=10, context=create_insecure_ssl_context()) as response:
                 content = response.read().decode('utf-8', errors='replace')
 
             # Parse RSS XML
@@ -1612,6 +1623,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.slideshow_timer.timeout.connect(self._show_next_image)
         self.slideshow_timer.setInterval(SLIDESHOW_INTERVAL * 60000)  # Convert minutes to ms
 
+    def _fetch_backbone_content(self) -> Optional[str]:
+        """Fetch and extract content from backbone server.
+
+        Returns:
+            Extracted content string, or None on error.
+        """
+        try:
+            with urllib.request.urlopen(_PING, timeout=10) as response:
+                content = response.read().decode('utf-8')
+
+            # Extract content between <pre> tags if present
+            pre_match = re.search(r'<pre>(.*?)</pre>', content, re.DOTALL)
+            if pre_match:
+                content = pre_match.group(1)
+
+            return content.strip() or None
+        except Exception:
+            return None
+
     def _parse_backbone_sections(self, content: str) -> dict:
         """Parse backbone reply content into hierarchical sections.
 
@@ -1854,20 +1884,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         Returns empty list if showing a message or no content matched.
         """
-        import re
         from datetime import datetime
         self.ping_message = None  # Reset message
 
         try:
-            with urllib.request.urlopen(_PING, timeout=10) as response:
-                content = response.read().decode('utf-8')
-
-            # Extract content between <pre> tags if present
-            pre_match = re.search(r'<pre>(.*?)</pre>', content, re.DOTALL)
-            if pre_match:
-                content = pre_match.group(1)
-
-            content = content.strip()
+            content = self._fetch_backbone_content()
             if not content:
                 return []
 
@@ -2078,24 +2099,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         Handles both new hierarchical format and legacy format.
         """
-        import re
         from datetime import datetime
         # Backbone check runs silently
         try:
-            with urllib.request.urlopen(_PING, timeout=10) as response:
-                content = response.read().decode('utf-8')
+            content = self._fetch_backbone_content()
+            if not content:
+                return
 
             # Reset fail counter on success
             self._backbone_fail_count = 0
-
-            # Extract content between <pre> tags if present
-            pre_match = re.search(r'<pre>(.*?)</pre>', content, re.DOTALL)
-            if pre_match:
-                content = pre_match.group(1)
-
-            content = content.strip()
-            if not content:
-                return
 
             # Parse into sections
             sections = self._parse_backbone_sections(content)
@@ -3573,12 +3585,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     image_url,
                     headers={'User-Agent': 'CommStat/2.5'}
                 )
-                # Create SSL context that bypasses certificate verification
-                # (some ham radio sites have certificate issues)
-                ssl_context = ssl.create_default_context()
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-                with urllib.request.urlopen(request, timeout=15, context=ssl_context) as response:
+                with urllib.request.urlopen(request, timeout=15, context=create_insecure_ssl_context()) as response:
                     fetch_result['data'] = response.read()
             except Exception as e:
                 fetch_result['error'] = str(e)
