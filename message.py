@@ -325,16 +325,22 @@ class Ui_FormMessage:
                 else:
                     self.freq_field.setText("")
 
-            # Connect signal for this client (disconnect any existing first)
+            # Connect signals for this client (disconnect any existing first)
             try:
                 client.callsign_received.disconnect(self._on_callsign_received)
             except TypeError:
                 pass
+            try:
+                client.frequency_received.disconnect(self._on_frequency_received)
+            except TypeError:
+                pass
 
             client.callsign_received.connect(self._on_callsign_received)
+            client.frequency_received.connect(self._on_frequency_received)
 
-            # Request callsign from JS8Call
+            # Request callsign and frequency from JS8Call
             client.get_callsign()
+            QtCore.QTimer.singleShot(100, client.get_frequency)
         else:
             if hasattr(self, 'freq_field'):
                 self.freq_field.setText("")
@@ -345,6 +351,14 @@ class Ui_FormMessage:
         if self.rig_combo.currentText() == rig_name:
             self.callsign = callsign
             self.lineEdit_3.setText(callsign)
+
+    def _on_frequency_received(self, rig_name: str, dial_freq: int) -> None:
+        """Handle frequency received from JS8Call."""
+        # Only update if this is the currently selected rig
+        if self.rig_combo.currentText() == rig_name:
+            frequency_mhz = dial_freq / 1000000
+            if hasattr(self, 'freq_field'):
+                self.freq_field.setText(f"{frequency_mhz:.3f}")
 
     def _on_mode_changed(self, index: int) -> None:
         """Handle mode dropdown change - send MODE.SET_SPEED to JS8Call."""

@@ -285,12 +285,17 @@ class StatRepDialog(QDialog):
                     client.grid_received.disconnect(self._on_grid_received)
                 except TypeError:
                     pass
+                try:
+                    client.frequency_received.disconnect(self._on_frequency_received)
+                except TypeError:
+                    pass
 
         client = self.tcp_pool.get_client(rig_name)
         if client and client.is_connected():
             # Connect signals for this client
             client.callsign_received.connect(self._on_callsign_received)
             client.grid_received.connect(self._on_grid_received)
+            client.frequency_received.connect(self._on_frequency_received)
 
             # Populate mode dropdown with current mode preselected
             if hasattr(self, 'mode_combo'):
@@ -309,11 +314,12 @@ class StatRepDialog(QDialog):
                 else:
                     self.freq_field.setText("")
 
-            # Request callsign and grid from JS8Call
+            # Request callsign, grid, and frequency from JS8Call
             # Small delay between requests to avoid race condition
-            print(f"[StatRep] Requesting callsign and grid from {rig_name}")
+            print(f"[StatRep] Requesting callsign, grid, and frequency from {rig_name}")
             client.get_callsign()
             QtCore.QTimer.singleShot(100, client.get_grid)  # 100ms delay for grid request
+            QtCore.QTimer.singleShot(200, client.get_frequency)  # 200ms delay for frequency request
         else:
             print(f"[StatRep] Client not available or not connected for {rig_name}")
             if hasattr(self, 'freq_field'):
@@ -353,6 +359,15 @@ class StatRepDialog(QDialog):
             # Update remarks with state derived from grid
             if hasattr(self, 'remarks_field'):
                 self.remarks_field.setText(self._get_default_remarks())
+
+    def _on_frequency_received(self, rig_name: str, dial_freq: int) -> None:
+        """Handle frequency received from JS8Call."""
+        # Only update if this is the currently selected rig
+        if self.rig_combo.currentText() == rig_name:
+            frequency_mhz = dial_freq / 1000000
+            print(f"[StatRep] Frequency received from {rig_name}: {frequency_mhz:.3f} MHz")
+            if hasattr(self, 'freq_field'):
+                self.freq_field.setText(f"{frequency_mhz:.3f}")
 
     def _on_from_field_changed(self, text: str) -> None:
         """Handle user editing the From (callsign) field."""

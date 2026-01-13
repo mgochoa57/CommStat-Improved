@@ -69,8 +69,8 @@ class ConnectorManager:
             print(f"Error adding enabled column: {e}")
 
     def add_frequency_columns(self) -> None:
-        """Add frequency column to StatRep_Data, messages_Data, and marquees_Data."""
-        tables = ["StatRep_Data", "messages_Data", "marquees_Data"]
+        """Add frequency column to StatRep_Data and messages_Data."""
+        tables = ["StatRep_Data", "messages_Data"]
         try:
             with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()

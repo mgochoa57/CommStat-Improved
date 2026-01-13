@@ -279,8 +279,20 @@ class JS8MailDialog(QDialog):
         if not self.tcp_pool:
             return
 
+        # Disconnect frequency signal from all clients to avoid duplicates
+        for client_name in self.tcp_pool.get_all_rig_names():
+            client = self.tcp_pool.get_client(client_name)
+            if client:
+                try:
+                    client.frequency_received.disconnect(self._on_frequency_received)
+                except TypeError:
+                    pass
+
         client = self.tcp_pool.get_client(rig_name)
         if client and client.is_connected():
+            # Connect frequency signal for this client
+            client.frequency_received.connect(self._on_frequency_received)
+
             # Populate mode dropdown with current mode preselected
             speed_name = (client.speed_name or "").upper()
             mode_map = {"SLOW": 0, "NORMAL": 1, "FAST": 2, "TURBO": 3}
@@ -289,14 +301,24 @@ class JS8MailDialog(QDialog):
             self.mode_combo.setCurrentIndex(idx)
             self.mode_combo.blockSignals(False)
 
-            # Populate frequency field
+            # Populate frequency field with cached value initially
             frequency = client.frequency
             if frequency:
                 self.freq_field.setText(f"{frequency:.3f}")
             else:
                 self.freq_field.setText("")
+
+            # Request fresh frequency from JS8Call
+            client.get_frequency()
         else:
             self.freq_field.setText("")
+
+    def _on_frequency_received(self, rig_name: str, dial_freq: int) -> None:
+        """Handle frequency received from JS8Call."""
+        # Only update if this is the currently selected rig
+        if self.rig_combo.currentText() == rig_name:
+            frequency_mhz = dial_freq / 1000000
+            self.freq_field.setText(f"{frequency_mhz:.3f}")
 
     def _on_mode_changed(self, index: int) -> None:
         """Handle mode dropdown change - send MODE.SET_SPEED to JS8Call."""
