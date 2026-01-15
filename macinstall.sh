@@ -32,10 +32,10 @@ if ! command -v python3 &> /dev/null; then
 fi
 
 echo ""
-echo "Installing PyQt5 via Homebrew..."
+echo "Installing PyQt5 and Enchant via Homebrew..."
 echo ""
 
-brew install pyqt5
+brew install pyqt5 enchant
 
 echo ""
 echo "Running Python installer..."

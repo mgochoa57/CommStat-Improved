@@ -47,44 +47,8 @@ class ConnectorManager:
                     )
                 """)
                 conn.commit()
-                # Add enabled column if missing (for existing databases)
-                self._add_enabled_column()
         except sqlite3.Error as e:
             print(f"Error initializing js8_connectors table: {e}")
-
-    def _add_enabled_column(self) -> None:
-        """Add enabled column to existing js8_connectors table if missing."""
-        try:
-            with sqlite3.connect(self.db_path, timeout=10) as conn:
-                cursor = conn.cursor()
-                cursor.execute("PRAGMA table_info(js8_connectors)")
-                columns = [col[1] for col in cursor.fetchall()]
-                if "enabled" not in columns:
-                    cursor.execute(
-                        "ALTER TABLE js8_connectors ADD COLUMN enabled INTEGER DEFAULT 1"
-                    )
-                    conn.commit()
-                    print("Added enabled column to js8_connectors")
-        except sqlite3.Error as e:
-            print(f"Error adding enabled column: {e}")
-
-    def add_frequency_columns(self) -> None:
-        """Add frequency column to StatRep_Data and messages_Data."""
-        tables = ["StatRep_Data", "messages_Data"]
-        try:
-            with sqlite3.connect(self.db_path, timeout=10) as conn:
-                cursor = conn.cursor()
-                for table in tables:
-                    cursor.execute(f"PRAGMA table_info({table})")
-                    columns = [col[1] for col in cursor.fetchall()]
-                    if "frequency" not in columns:
-                        cursor.execute(
-                            f"ALTER TABLE {table} ADD COLUMN frequency INTEGER DEFAULT 0"
-                        )
-                        print(f"Added frequency column to {table}")
-                conn.commit()
-        except sqlite3.Error as e:
-            print(f"Error adding frequency columns: {e}")
 
     def get_all_connectors(self, enabled_only: bool = False) -> List[Dict]:
         """

@@ -118,6 +118,7 @@ def lininstall():
         "pandas",
         "maidenhead",
         "psutil",
+        "pyenchant",
     ]
     for package in packages:
         install(package)
@@ -142,6 +143,7 @@ def macinstall():
         "pandas",
         "maidenhead",
         "psutil",
+        "pyenchant",
     ]
     for package in packages:
         install(package)
@@ -159,6 +161,7 @@ def wininstall():
         "pandas",
         "maidenhead",
         "psutil",
+        "pyenchant",
     ]
     for package in packages:
         install(package)

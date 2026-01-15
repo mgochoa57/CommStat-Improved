@@ -65,7 +65,7 @@ def get_active_group_from_db() -> str:
         with sqlite3.connect(DATABASE_FILE, timeout=10) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT name FROM Groups WHERE is_active = 1 ORDER BY name LIMIT 1"
+                "SELECT name FROM groups WHERE is_active = 1 ORDER BY name LIMIT 1"
             )
             result = cursor.fetchone()
             return result[0] if result else ""

@@ -33,6 +33,13 @@ from typing import Dict, Any, Optional, List, Tuple
 import folium
 import maidenhead as mh
 
+# Optional: PyEnchant for smart title case (acronym detection)
+try:
+    import enchant
+    ENCHANT_AVAILABLE = True
+except ImportError:
+    ENCHANT_AVAILABLE = False
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QTableWidgetItem
@@ -47,6 +54,7 @@ from js8mail import JS8MailDialog
 from js8sms import JS8SMSDialog
 from net_checkin import NetCheckInDialog
 from message import Ui_FormMessage
+from alert import Ui_FormAlert
 from statrep import StatRepDialog
 from connector_manager import ConnectorManager
 from js8_tcp_client import TCPConnectionPool
@@ -100,6 +108,51 @@ def check_internet() -> bool:
         except (socket.timeout, socket.error):
             continue
     return False
+
+
+def smart_title_case(text: str) -> str:
+    """Convert text to smart title case with acronym detection.
+
+    Rules:
+    - Words 1-2 chars stay lowercase (e.g., "a", "of", "to")
+    - Dictionary words get title case
+    - Non-dictionary words become ALL CAPS (treated as acronyms)
+
+    Args:
+        text: Input text to format.
+
+    Returns:
+        Formatted text with smart title case.
+    """
+    if not text:
+        return text
+
+    # Initialize dictionary if available
+    dictionary = None
+    if ENCHANT_AVAILABLE:
+        try:
+            dictionary = enchant.Dict("en_US")
+        except Exception:
+            pass
+
+    words = text.lower().split()
+    result = []
+
+    for word in words:
+        # Strip punctuation for checking, preserve for output
+        clean_word = ''.join(c for c in word if c.isalnum())
+
+        if len(clean_word) <= 2:
+            # Short words stay lowercase
+            result.append(word)
+        elif dictionary and not dictionary.check(clean_word) and not dictionary.check(clean_word.capitalize()):
+            # Not in dictionary - treat as acronym
+            result.append(word.upper())
+        else:
+            # Regular word - title case
+            result.append(word.capitalize())
+
+    return ' '.join(result)
 
 
 # StatRep table column headers
@@ -281,7 +334,7 @@ class ConfigManager:
         # Load toggle settings from config if it exists
         default_feed = list(DEFAULT_RSS_FEEDS.keys())[0]
         if not self.config_path.exists():
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False, 'selected_rss_feed': default_feed}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed}
             return
 
         config = ConfigParser()
@@ -293,10 +346,11 @@ class ConfigManager:
                 'show_all_groups': config.getboolean("DIRECTEDCONFIG", "show_all_groups", fallback=False),
                 'show_every_group': config.getboolean("DIRECTEDCONFIG", "show_every_group", fallback=False),
                 'hide_map': config.getboolean("DIRECTEDCONFIG", "hide_map", fallback=False),
+                'show_alerts': config.getboolean("DIRECTEDCONFIG", "show_alerts", fallback=False),
                 'selected_rss_feed': config.get("DIRECTEDCONFIG", "selected_rss_feed", fallback=default_feed),
             }
         else:
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False, 'selected_rss_feed': default_feed}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed}
 
     def get_color(self, key: str) -> str:
         """Get a color value by key."""
@@ -336,6 +390,12 @@ class ConfigManager:
 
     def set_show_every_group(self, value: bool) -> None:
         self._save_setting('show_every_group', value)
+
+    def get_show_alerts(self) -> bool:
+        return self.directed_config.get('show_alerts', False)
+
+    def set_show_alerts(self, value: bool) -> None:
+        self._save_setting('show_alerts', value)
 
     def get_selected_rss_feed(self) -> str:
         return self.directed_config.get('selected_rss_feed', list(DEFAULT_RSS_FEEDS.keys())[0])
@@ -535,10 +595,10 @@ class DatabaseManager:
                 # Build query based on whether we're showing all or filtering by groups
                 if show_all:
                     query = f"""
-                        SELECT datetime, groupname, callsign, grid, prec, status,
+                        SELECT datetime, groupname, from_callsign, grid, prec, status,
                                commpwr, pubwtr, med, ota, trav, net,
                                fuel, food, crime, civil, political, comments
-                        FROM StatRep_Data
+                        FROM statrep
                         WHERE {date_condition}
                     """
                     params = date_params
@@ -546,10 +606,10 @@ class DatabaseManager:
                     # Build group filter for multiple groups
                     placeholders = ",".join("?" * len(groups))
                     query = f"""
-                        SELECT datetime, groupname, callsign, grid, prec, status,
+                        SELECT datetime, groupname, from_callsign, grid, prec, status,
                                commpwr, pubwtr, med, ota, trav, net,
                                fuel, food, crime, civil, political, comments
-                        FROM StatRep_Data
+                        FROM statrep
                         WHERE groupname IN ({placeholders}) AND {date_condition}
                     """
                     params = list(groups) + date_params
@@ -593,16 +653,16 @@ class DatabaseManager:
 
                 if show_all:
                     # Show all messages regardless of group
-                    query = f"""SELECT datetime, groupid, callsign, message
-                               FROM messages_Data
+                    query = f"""SELECT datetime, target, from_callsign, message
+                               FROM messages
                                WHERE {date_condition}"""
                     params = date_params
                 elif groups:
                     # Filter by active groups
                     placeholders = ",".join("?" * len(groups))
-                    query = f"""SELECT datetime, groupid, callsign, message
-                               FROM messages_Data
-                               WHERE groupid IN ({placeholders}) AND {date_condition}"""
+                    query = f"""SELECT datetime, target, from_callsign, message
+                               FROM messages
+                               WHERE target IN ({placeholders}) AND {date_condition}"""
                     params = list(groups) + date_params
                 else:
                     # No groups and not show_all - return empty
@@ -620,7 +680,7 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path, timeout=10) as connection:
                 cursor = connection.cursor()
                 cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS Groups (
+                    CREATE TABLE IF NOT EXISTS groups (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT UNIQUE NOT NULL,
                         comment TEXT,
@@ -639,7 +699,7 @@ class DatabaseManager:
 
     def _migrate_groups_table(self, cursor, connection) -> None:
         """Add new columns to Groups table if they don't exist."""
-        cursor.execute("PRAGMA table_info(Groups)")
+        cursor.execute("PRAGMA table_info(groups)")
         columns = [col[1] for col in cursor.fetchall()]
 
         new_columns = [
@@ -651,7 +711,7 @@ class DatabaseManager:
 
         for col_name, col_type in new_columns:
             if col_name not in columns:
-                cursor.execute(f"ALTER TABLE Groups ADD COLUMN {col_name} {col_type}")
+                cursor.execute(f"ALTER TABLE groups ADD COLUMN {col_name} {col_type}")
                 print(f"Added column {col_name} to Groups table")
 
         connection.commit()
@@ -659,21 +719,21 @@ class DatabaseManager:
     def get_all_groups(self) -> List[str]:
         """Get all group names."""
         def op(cursor, conn):
-            cursor.execute("SELECT name FROM Groups ORDER BY name")
+            cursor.execute("SELECT name FROM groups ORDER BY name")
             return [row[0] for row in cursor.fetchall()]
         return self._execute(op, [])
 
     def get_all_groups_with_status(self) -> List[Tuple[str, bool]]:
         """Get all groups with their active status."""
         def op(cursor, conn):
-            cursor.execute("SELECT name, is_active FROM Groups ORDER BY name")
+            cursor.execute("SELECT name, is_active FROM groups ORDER BY name")
             return [(row[0], bool(row[1])) for row in cursor.fetchall()]
         return self._execute(op, [])
 
     def get_active_groups(self) -> List[str]:
         """Get list of all active group names."""
         def op(cursor, conn):
-            cursor.execute("SELECT name FROM Groups WHERE is_active = 1 ORDER BY name")
+            cursor.execute("SELECT name FROM groups WHERE is_active = 1 ORDER BY name")
             return [row[0] for row in cursor.fetchall()]
         return self._execute(op, [])
 
@@ -686,7 +746,7 @@ class DatabaseManager:
         """Set a group's active status (doesn't affect other groups)."""
         def op(cursor, conn):
             cursor.execute(
-                "UPDATE Groups SET is_active = ? WHERE name = ?",
+                "UPDATE groups SET is_active = ? WHERE name = ?",
                 (1 if active else 0, group_name.upper())
             )
             conn.commit()
@@ -696,9 +756,9 @@ class DatabaseManager:
     def set_active_group(self, group_name: str) -> bool:
         """Set a group as the only active group (deactivates others)."""
         def op(cursor, conn):
-            cursor.execute("UPDATE Groups SET is_active = 0")
+            cursor.execute("UPDATE groups SET is_active = 0")
             cursor.execute(
-                "UPDATE Groups SET is_active = 1 WHERE name = ?",
+                "UPDATE groups SET is_active = 1 WHERE name = ?",
                 (group_name.upper(),)
             )
             conn.commit()
@@ -715,7 +775,7 @@ class DatabaseManager:
                 cursor = connection.cursor()
                 today = datetime.now().strftime("%Y-%m-%d")
                 cursor.execute(
-                    "INSERT INTO Groups (name, comment, url1, url2, date_added, is_active) VALUES (?, ?, ?, ?, ?, 0)",
+                    "INSERT INTO groups (name, comment, url1, url2, date_added, is_active) VALUES (?, ?, ?, ?, ?, 0)",
                     (name, comment.strip(), url1.strip(), url2.strip(), today)
                 )
                 connection.commit()
@@ -731,7 +791,7 @@ class DatabaseManager:
         """Update an existing group's fields. Returns True if successful."""
         def op(cursor, conn):
             cursor.execute(
-                "UPDATE Groups SET comment = ?, url1 = ?, url2 = ? WHERE name = ?",
+                "UPDATE groups SET comment = ?, url1 = ?, url2 = ? WHERE name = ?",
                 (comment.strip(), url1.strip(), url2.strip(), group_name.upper())
             )
             conn.commit()
@@ -742,7 +802,7 @@ class DatabaseManager:
         """Get full details of a group."""
         def op(cursor, conn):
             cursor.execute(
-                "SELECT name, comment, url1, url2, date_added, is_active FROM Groups WHERE name = ?",
+                "SELECT name, comment, url1, url2, date_added, is_active FROM groups WHERE name = ?",
                 (group_name.upper(),)
             )
             row = cursor.fetchone()
@@ -762,7 +822,7 @@ class DatabaseManager:
         """Get full details of all groups, sorted by name."""
         def op(cursor, conn):
             cursor.execute(
-                "SELECT name, comment, url1, url2, date_added FROM Groups ORDER BY name"
+                "SELECT name, comment, url1, url2, date_added FROM groups ORDER BY name"
             )
             return [
                 {
@@ -779,7 +839,7 @@ class DatabaseManager:
     def remove_group(self, group_name: str) -> bool:
         """Remove a group. Returns True if successful."""
         def op(cursor, conn):
-            cursor.execute("DELETE FROM Groups WHERE name = ?", (group_name.upper(),))
+            cursor.execute("DELETE FROM groups WHERE name = ?", (group_name.upper(),))
             conn.commit()
             return cursor.rowcount > 0
         return self._execute(op, False)
@@ -787,116 +847,9 @@ class DatabaseManager:
     def get_group_count(self) -> int:
         """Get the number of groups."""
         def op(cursor, conn):
-            cursor.execute("SELECT COUNT(*) FROM Groups")
+            cursor.execute("SELECT COUNT(*) FROM groups")
             return cursor.fetchone()[0]
         return self._execute(op, 0)
-
-    def init_db_version_table(self) -> None:
-        """Create db_version table if it doesn't exist and seed initial version."""
-        try:
-            with sqlite3.connect(self.db_path, timeout=10) as connection:
-                cursor = connection.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS db_version (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        version INTEGER NOT NULL DEFAULT 1,
-                        updated_at TEXT
-                    )
-                """)
-                connection.commit()
-
-                # Check if table is empty
-                cursor.execute("SELECT COUNT(*) FROM db_version")
-                if cursor.fetchone()[0] == 0:
-                    # Seed initial version
-                    from datetime import datetime
-                    cursor.execute(
-                        "INSERT INTO db_version (id, version, updated_at) VALUES (1, 1, ?)",
-                        (datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),)
-                    )
-                    connection.commit()
-        except sqlite3.Error as error:
-            print(f"Database error initializing db_version table: {error}")
-
-    def get_db_version(self) -> int:
-        """Get the current database version."""
-        def op(cursor, conn):
-            cursor.execute("SELECT version FROM db_version WHERE id = 1")
-            result = cursor.fetchone()
-            return result[0] if result else 1
-        return self._execute(op, 1)
-
-    def set_db_version(self, version: int) -> bool:
-        """Update the database version."""
-        def op(cursor, conn):
-            from datetime import datetime
-            cursor.execute(
-                "UPDATE db_version SET version = ?, updated_at = ? WHERE id = 1",
-                (version, datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
-            )
-            conn.commit()
-            return cursor.rowcount > 0
-        return self._execute(op, False)
-
-    def execute_migration(self, sql: str) -> bool:
-        """Execute a SQL migration statement."""
-        def op(cursor, conn):
-            cursor.executescript(sql)
-            conn.commit()
-            return True
-        return self._execute(op, False)
-
-    def run_migrations(self) -> None:
-        """Run any pending database migrations."""
-        current_version = self.get_db_version()
-
-        # Migration 2: Remove UNIQUE constraint from StatRep_Data
-        if current_version < 2:
-            print("Running migration 2: Remove UNIQUE constraint from StatRep_Data...")
-            migration_sql = """
-                -- Create new table without UNIQUE constraint
-                CREATE TABLE IF NOT EXISTS StatRep_Data_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    datetime TEXT,
-                    date TEXT,
-                    source TEXT,
-                    freq DOUBLE,
-                    callsign TEXT,
-                    groupname TEXT,
-                    grid TEXT,
-                    SRid TEXT NOT NULL,
-                    prec TEXT,
-                    status TEXT,
-                    commpwr TEXT,
-                    pubwtr TEXT,
-                    med TEXT,
-                    ota TEXT,
-                    trav TEXT,
-                    net TEXT,
-                    fuel TEXT,
-                    food TEXT,
-                    crime TEXT,
-                    civil TEXT,
-                    political TEXT,
-                    comments TEXT,
-                    frequency INTEGER DEFAULT 0
-                );
-
-                -- Copy data from old table (if it exists)
-                INSERT INTO StatRep_Data_new
-                    SELECT * FROM StatRep_Data WHERE EXISTS (SELECT 1 FROM StatRep_Data LIMIT 1);
-
-                -- Drop old table
-                DROP TABLE IF EXISTS StatRep_Data;
-
-                -- Rename new table
-                ALTER TABLE StatRep_Data_new RENAME TO StatRep_Data;
-            """
-            if self.execute_migration(migration_sql):
-                self.set_db_version(2)
-                print("Migration 2 completed successfully")
-            else:
-                print("Migration 2 failed")
 
     def init_qrz_table(self) -> None:
         """Create QRZ settings table if it doesn't exist (single record only)."""
@@ -922,6 +875,87 @@ class DatabaseManager:
                     connection.commit()
         except sqlite3.Error as error:
             print(f"Database error initializing qrz_settings table: {error}")
+
+    def init_alerts_table(self) -> None:
+        """Create alerts table if it doesn't exist."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS alerts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        datetime TEXT,
+                        freq DOUBLE,
+                        db TEXT,
+                        source INTEGER,
+                        from_callsign TEXT,
+                        groupname TEXT,
+                        color INTEGER,
+                        title TEXT,
+                        message TEXT
+                    )
+                """)
+                connection.commit()
+        except sqlite3.Error as error:
+            print(f"Database error initializing alerts table: {error}")
+
+    def init_statrep_table(self) -> None:
+        """Create statrep table if it doesn't exist."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS statrep (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        datetime TEXT,
+                        freq DOUBLE,
+                        db TEXT,
+                        source INTEGER,
+                        SRid INTEGER,
+                        from_callsign TEXT,
+                        groupname TEXT,
+                        grid TEXT,
+                        prec TEXT,
+                        status TEXT,
+                        commpwr TEXT,
+                        pubwtr TEXT,
+                        med TEXT,
+                        ota TEXT,
+                        trav TEXT,
+                        net TEXT,
+                        fuel TEXT,
+                        food TEXT,
+                        crime TEXT,
+                        civil TEXT,
+                        political TEXT,
+                        comments TEXT
+                    )
+                """)
+                connection.commit()
+        except sqlite3.Error as error:
+            print(f"Database error initializing statrep table: {error}")
+
+    def init_messages_table(self) -> None:
+        """Create messages table if it doesn't exist."""
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        datetime TEXT,
+                        freq DOUBLE,
+                        db TEXT,
+                        source INTEGER,
+                        SRid INTEGER,
+                        from_callsign TEXT,
+                        target TEXT,
+                        message TEXT
+                    )
+                """)
+                connection.commit()
+        except sqlite3.Error as error:
+            print(f"Database error initializing messages table: {error}")
 
     def get_qrz_settings(self) -> Tuple[str, str, bool]:
         """Get QRZ settings from database. Returns (username, password, is_active)."""
@@ -996,7 +1030,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # Initialize JS8Call connector manager and TCP connection pool
         self.connector_manager = ConnectorManager()
         self.connector_manager.init_connectors_table()
-        self.connector_manager.add_frequency_columns()
         self.tcp_pool = TCPConnectionPool(self.connector_manager, self)
         self.tcp_pool.any_message_received.connect(self._handle_tcp_message)
         self.tcp_pool.any_connection_changed.connect(self._handle_connection_changed)
@@ -1227,6 +1260,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Define menu actions: (name, text, handler)
         menu_items = [
             ("statrep", "STATREP", self._on_statrep),
+            ("group_alert", "GROUP ALERT", self._on_group_alert),
             ("send_message", "GROUP MESSAGE", self._on_send_message),
             ("js8email", "JS8 EMAIL", self._on_js8email),
             ("js8sms", "JS8 SMS", self._on_js8sms),
@@ -1278,34 +1312,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.filter_menu = QtWidgets.QMenu("Filter", self.menubar)
         self.menubar.addMenu(self.filter_menu)
 
-        # Add Display Filter option
-        filter_action = QtWidgets.QAction("DISPLAY FILTER", self)
+        # Add Live Feed Filter option
+        filter_action = QtWidgets.QAction("LIVE FEED FILTER", self)
         filter_action.triggered.connect(self._on_filter)
         self.filter_menu.addAction(filter_action)
         self.actions["filter"] = filter_action
-
-        self.filter_menu.addSeparator()
-
-        # Add reset date options
-        date_filters = [
-            ("Reset to Midnight", 0),
-            ("Reset to 1 day ago", 1),
-            ("Reset to 1 week ago", 7),
-            ("Reset to 1 month ago", 30),
-            ("Reset to 3 months ago", 90),
-            ("Reset to 6 months ago", 180),
-            ("Reset to 1 year ago", 365),
-        ]
-        for label, days in date_filters:
-            action = QtWidgets.QAction(label, self)
-            action.triggered.connect(lambda checked, d=days: self._reset_filter_date(d))
-            self.filter_menu.addAction(action)
-
-        # Add Data Filters section
-        self.filter_menu.addSeparator()
-        data_filter_label = QtWidgets.QAction("DATA FILTERS", self)
-        data_filter_label.setEnabled(False)  # Disabled as a section title
-        self.filter_menu.addAction(data_filter_label)
 
         # Helper to create styled menu checkboxes
         def create_menu_checkbox(menu, label, is_checked, handler):
@@ -1320,19 +1331,36 @@ class MainWindow(QtWidgets.QMainWindow):
             menu.addAction(action)
             return checkbox
 
-        # Filter menu checkboxes
+        # Live Feed Filter checkbox
         self.hide_heartbeat_checkbox = create_menu_checkbox(
             self.filter_menu, "HIDE CQ & HEARTBEAT",
             self.config.get_hide_heartbeat(), self._on_toggle_heartbeat)
-        self.hide_map_checkbox = create_menu_checkbox(
-            self.filter_menu, "HIDE MAP",
-            self.config.get_hide_map(), self._on_toggle_hide_map)
+
+        # STATREP & MESSAGES section
+        self.filter_menu.addSeparator()
+        statrep_messages_label = QtWidgets.QAction("STATREP & MESSAGES", self)
+        statrep_messages_label.setEnabled(False)  # Disabled as a section title
+        self.filter_menu.addAction(statrep_messages_label)
+
         self.show_all_groups_checkbox = create_menu_checkbox(
             self.filter_menu, "SHOW ALL MY GROUPS",
             self.config.get_show_all_groups(), self._on_toggle_show_all_groups)
         self.show_every_group_checkbox = create_menu_checkbox(
             self.filter_menu, "SHOW EVERY GROUP",
             self.config.get_show_every_group(), self._on_toggle_show_every_group)
+
+        # MAP OPTION section
+        self.filter_menu.addSeparator()
+        map_option_label = QtWidgets.QAction("MAP OPTION", self)
+        map_option_label.setEnabled(False)  # Disabled as a section title
+        self.filter_menu.addAction(map_option_label)
+
+        self.hide_map_checkbox = create_menu_checkbox(
+            self.filter_menu, "HIDE MAP",
+            self.config.get_hide_map(), self._on_toggle_hide_map)
+        self.show_alerts_checkbox = create_menu_checkbox(
+            self.filter_menu, "SHOW ALERTS",
+            self.config.get_show_alerts(), self._on_toggle_show_alerts)
 
         # Create Tools dropdown menu
         self.tools_menu = QtWidgets.QMenu("Tools", self.menubar)
@@ -1588,11 +1616,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # Setup map disabled label (hidden by default)
         self._setup_map_disabled_label()
 
-        # Apply initial hide_map setting
+        # Apply initial hide_map and show_alerts settings
         if self.config.get_hide_map():
             self.map_widget.hide()
-            self.map_disabled_label.show()
-            self._start_slideshow()
+            if self.config.get_show_alerts():
+                # Show alerts mode - don't show slideshow
+                self.map_disabled_label.hide()
+            else:
+                self.map_disabled_label.show()
+                self._start_slideshow()
         else:
             self.map_disabled_label.hide()
 
@@ -1623,6 +1655,116 @@ class MainWindow(QtWidgets.QMainWindow):
         self.slideshow_timer = QtCore.QTimer(self)
         self.slideshow_timer.timeout.connect(self._show_next_image)
         self.slideshow_timer.setInterval(SLIDESHOW_INTERVAL * 60000)  # Convert minutes to ms
+
+        # Setup alert display widget
+        self._setup_alert_display()
+
+    def _setup_alert_display(self) -> None:
+        """Create the alert display widget shown when Show Alerts is enabled."""
+        self.alert_display = QtWidgets.QWidget(self.central_widget)
+        self.alert_display.setFixedSize(MAP_WIDTH, MAP_HEIGHT)
+
+        # Use vertical layout for centering
+        alert_layout = QtWidgets.QVBoxLayout(self.alert_display)
+        alert_layout.setAlignment(Qt.AlignCenter)
+
+        # Spacer at top to push content toward center
+        alert_layout.addStretch(1)
+
+        # Title label (first line)
+        self.alert_title_label = QtWidgets.QLabel()
+        self.alert_title_label.setAlignment(Qt.AlignCenter)
+        title_font = QtGui.QFont("Arial", 24, QtGui.QFont.Bold)
+        self.alert_title_label.setFont(title_font)
+        alert_layout.addWidget(self.alert_title_label)
+
+        # Message label (second line)
+        self.alert_message_label = QtWidgets.QLabel()
+        self.alert_message_label.setAlignment(Qt.AlignCenter)
+        self.alert_message_label.setWordWrap(True)
+        message_font = QtGui.QFont("Arial", 18)
+        self.alert_message_label.setFont(message_font)
+        alert_layout.addWidget(self.alert_message_label)
+
+        # Spacer between message and date
+        alert_layout.addStretch(1)
+
+        # Date received label (at bottom)
+        self.alert_date_label = QtWidgets.QLabel()
+        self.alert_date_label.setAlignment(Qt.AlignCenter)
+        date_font = QtGui.QFont("Arial", 12)
+        self.alert_date_label.setFont(date_font)
+        alert_layout.addWidget(self.alert_date_label)
+
+        # Default styling (will be updated when alert is displayed)
+        self.alert_display.setStyleSheet("background-color: #333333;")
+        self.alert_title_label.setStyleSheet("color: #ffffff;")
+        self.alert_message_label.setStyleSheet("color: #ffffff;")
+        self.alert_date_label.setStyleSheet("color: #ffffff;")
+
+        # Add to same layout position as map
+        self.main_layout.addWidget(self.alert_display, 4, 0, 2, 1, Qt.AlignLeft | Qt.AlignTop)
+
+        # Hidden by default
+        self.alert_display.hide()
+
+        # Apply initial show_alerts setting
+        if self.config.get_show_alerts():
+            self._show_alert_display()
+
+    def _show_alert_display(self) -> None:
+        """Show the alert display with the last alert from database."""
+        # Fetch last alert
+        alert = self._get_last_alert()
+
+        if alert:
+            title, message, color, date_received = alert
+            # Set colors based on alert color
+            color_map = {
+                1: ("#e8e800", "#000000"),  # Yellow
+                2: ("#ff8c00", "#ffffff"),  # Orange
+                3: ("#dc3545", "#ffffff"),  # Red
+                4: ("#000000", "#ffffff"),  # Black
+            }
+            bg_color, text_color = color_map.get(color, ("#333333", "#ffffff"))
+
+            self.alert_display.setStyleSheet(f"background-color: {bg_color};")
+            self.alert_title_label.setStyleSheet(f"color: {text_color};")
+            self.alert_message_label.setStyleSheet(f"color: {text_color};")
+            self.alert_date_label.setStyleSheet(f"color: {text_color};")
+            self.alert_title_label.setText(title)
+            self.alert_message_label.setText(message)
+            self.alert_date_label.setText(f"Date Received: {date_received}")
+        else:
+            # No alerts - show placeholder
+            self.alert_display.setStyleSheet("background-color: #333333;")
+            self.alert_title_label.setStyleSheet("color: #ffffff;")
+            self.alert_message_label.setStyleSheet("color: #ffffff;")
+            self.alert_date_label.setStyleSheet("color: #ffffff;")
+            self.alert_title_label.setText("No Alerts")
+            self.alert_message_label.setText("")
+            self.alert_date_label.setText("")
+
+        self.alert_display.show()
+
+    def _get_last_alert(self) -> Optional[Tuple[str, str, int, str]]:
+        """Get the most recent alert from the database.
+
+        Returns:
+            Tuple of (title, message, color, datetime) or None if no alerts.
+        """
+        try:
+            with sqlite3.connect(DATABASE_FILE, timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT title, message, color, datetime FROM alerts ORDER BY datetime DESC LIMIT 1"
+                )
+                result = cursor.fetchone()
+                if result:
+                    return (result[0], result[1], result[2], result[3])
+        except sqlite3.Error as e:
+            print(f"Error fetching last alert: {e}")
+        return None
 
     def _fetch_backbone_content(self) -> Optional[str]:
         """Fetch and extract content from backbone server.
@@ -2735,6 +2877,13 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.ui.setupUi(dialog)
         dialog.exec_()
 
+    def _on_group_alert(self) -> None:
+        """Open Group Alert window."""
+        dialog = QtWidgets.QDialog(self)
+        dialog.ui = Ui_FormAlert(self.tcp_pool, self.connector_manager)
+        dialog.ui.setupUi(dialog)
+        dialog.exec_()
+
     def _on_filter(self) -> None:
         """Open Display Filter window."""
         dialog = FilterDialog(self.config.filter_settings, self)
@@ -2772,13 +2921,61 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.set_hide_map(checked)
         if checked:
             self.map_widget.hide()
-            self.map_disabled_label.show()
-            self._start_slideshow()
+            # If show_alerts is enabled, show alert display instead of slideshow
+            if self.config.get_show_alerts():
+                self.map_disabled_label.hide()
+                self._show_alert_display()
+            else:
+                self.alert_display.hide()
+                self.map_disabled_label.show()
+                self._start_slideshow()
         else:
             self._stop_slideshow()
             self.ping_message = None  # Clear any message
             self.map_disabled_label.hide()
+            self.alert_display.hide()
             self.map_widget.show()
+            # Uncheck show_alerts when showing map
+            if self.config.get_show_alerts():
+                self.config.set_show_alerts(False)
+                self.show_alerts_checkbox.blockSignals(True)
+                self.show_alerts_checkbox.setChecked(False)
+                self.show_alerts_checkbox.blockSignals(False)
+
+    def _on_toggle_show_alerts(self, checked: bool) -> None:
+        """Toggle alert display mode."""
+        self.config.set_show_alerts(checked)
+        if checked:
+            # Also check hide_map if not already checked
+            if not self.config.get_hide_map():
+                self.config.set_hide_map(True)
+                self.hide_map_checkbox.blockSignals(True)
+                self.hide_map_checkbox.setChecked(True)
+                self.hide_map_checkbox.blockSignals(False)
+                self.map_widget.hide()
+
+            # Stop slideshow and hide slideshow label
+            self._stop_slideshow()
+            self.map_disabled_label.hide()
+
+            # Show alert display
+            self._show_alert_display()
+        else:
+            # Hide alert display
+            self.alert_display.hide()
+            # If hide_map is still checked, show slideshow
+            if self.config.get_hide_map():
+                self.map_disabled_label.show()
+                self._start_slideshow()
+
+    def _trigger_show_alerts(self) -> None:
+        """Trigger Show Alerts mode when a new alert is received."""
+        # Check the Show Alerts checkbox (this will trigger the handler)
+        if not self.show_alerts_checkbox.isChecked():
+            self.show_alerts_checkbox.setChecked(True)
+        else:
+            # Already checked, just refresh the display
+            self._show_alert_display()
 
     def _get_filtered_groups(self) -> tuple:
         """Get groups list and show_all flag based on current filter settings.
@@ -3087,6 +3284,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._load_message_data()
             elif data_type == "checkin":
                 self._save_map_position(callback=self._load_map)
+            elif data_type == "alert":
+                self._trigger_show_alerts()
 
         # Handle RX.ACTIVITY messages (band activity for live feed)
         elif msg_type == "RX.ACTIVITY":
@@ -3172,7 +3371,7 @@ class MainWindow(QtWidgets.QMainWindow):
         MSG_BULLETIN = "{^%}"          # Group bulletin/message
         MSG_STATREP = "{&%}"           # Status report
         MSG_FORWARDED_STATREP = "{F%}" # Forwarded status report (relayed)
-        MSG_CHECKIN = "{~%}"           # Net check-in
+        MSG_ALERT = "{%%}"             # Group alert
 
         # Precedence levels indicate the geographic scope of a status report
         PRECEDENCE_MAP = {
@@ -3199,20 +3398,46 @@ class MainWindow(QtWidgets.QMainWindow):
             # Old CommStat format has marker at END: ,DATA,FIELDS,{MARKER}
             # Extract content BEFORE the marker, strip leading comma
 
-            if MSG_BULLETIN in value:
+            if MSG_ALERT in value:
+                # Parse alert: LRT ,COLOR,TITLE,MESSAGE,{%%}
+                match = re.search(r'LRT\s*,(.+?)\{\%\%\}', value)
+                if match:
+                    fields = match.group(1).split(",")
+                    if len(fields) >= 3:
+                        try:
+                            color = int(fields[0].strip())
+                        except ValueError:
+                            color = 1  # Default to yellow
+                        title = fields[1].strip()
+                        # Apply smart title case to message (acronym detection)
+                        message_text = smart_title_case(",".join(fields[2:]).strip())
+
+                        cursor.execute(
+                            "INSERT INTO alerts "
+                            "(datetime, freq, db, source, from_callsign, groupname, color, title, message) "
+                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (utc, freq, snr, 1, callsign, group, color, title, message_text)
+                        )
+                        conn.commit()
+                        print(f"\033[91m[{rig_name}] Added Alert from: {callsign} - {title}\033[0m")
+                        conn.close()
+                        return "alert"
+
+            elif MSG_BULLETIN in value:
                 # Parse message: ,ID,MESSAGE,{^%}
                 match = re.search(r',(.+?)\{\^\%\}', value)
                 if match:
                     fields = match.group(1).split(",")
                     if len(fields) >= 2:
                         id_num = fields[0].strip()
-                        message_text = ",".join(fields[1:]).strip()
+                        # Apply smart title case to message (acronym detection)
+                        message_text = smart_title_case(",".join(fields[1:]).strip())
 
                         cursor.execute(
-                            "INSERT OR REPLACE INTO messages_Data "
-                            "(datetime, idnum, groupid, callsign, message, frequency) "
-                            "VALUES(?, ?, ?, ?, ?, ?)",
-                            (utc, id_num, group, callsign, message_text, freq)
+                            "INSERT OR REPLACE INTO messages "
+                            "(datetime, freq, db, source, SRid, from_callsign, target, message) "
+                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                            (utc, freq, snr, 1, id_num, callsign, group, message_text)
                         )
                         conn.commit()
                         print(f"\033[92m[{rig_name}] Added Message from: {callsign} ID: {id_num}\033[0m")
@@ -3229,7 +3454,8 @@ class MainWindow(QtWidgets.QMainWindow):
                         prec1 = fields[1].strip()
                         srid = fields[2].strip()
                         srcode = fields[3].strip()
-                        comments = fields[4].strip() if len(fields) > 4 else ""
+                        # Apply smart title case to comments (acronym detection)
+                        comments = smart_title_case(fields[4].strip()) if len(fields) > 4 else ""
                         orig_call = fields[5].strip() if len(fields) > 5 else callsign
 
                         # Expand compressed "+" to all green (111111111111)
@@ -3241,15 +3467,15 @@ class MainWindow(QtWidgets.QMainWindow):
                         if len(srcode) >= 12:
                             sr_fields = list(srcode)
                             cursor.execute(
-                                "INSERT OR IGNORE INTO Statrep_Data "
-                                "(datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, "
-                                "med, ota, trav, net, fuel, food, crime, civil, political, comments, source, frequency) "
-                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                (utc, orig_call, group, curgrid, srid, prec,
+                                "INSERT OR IGNORE INTO statrep "
+                                "(datetime, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
+                                "med, ota, trav, net, fuel, food, crime, civil, political, comments) "
+                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                (utc, freq, snr, 1, srid, orig_call, group, curgrid, prec,
                                  sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
                                  sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
                                  sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
-                                 comments, "1", freq)
+                                 comments)
                             )
                             conn.commit()
                             print(f"\033[92m[{rig_name}] Added Forwarded StatRep from: {orig_call} ID: {srid}\033[0m")
@@ -3270,7 +3496,8 @@ class MainWindow(QtWidgets.QMainWindow):
                         prec1 = fields[1].strip()
                         srid = fields[2].strip()
                         srcode = fields[3].strip()
-                        comments = fields[4].strip() if len(fields) > 4 else ""
+                        # Apply smart title case to comments (acronym detection)
+                        comments = smart_title_case(fields[4].strip()) if len(fields) > 4 else ""
 
                         # Expand compressed "+" shorthand to all green status
                         # "+" means all 12 indicators are at level 1 (green/good)
@@ -3286,72 +3513,20 @@ class MainWindow(QtWidgets.QMainWindow):
                         if len(srcode) >= 12:
                             sr_fields = list(srcode)
                             cursor.execute(
-                                "INSERT OR IGNORE INTO Statrep_Data "
-                                "(datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, "
-                                "med, ota, trav, net, fuel, food, crime, civil, political, comments, source, frequency) "
-                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                (utc, callsign, group, curgrid, srid, prec,
+                                "INSERT OR IGNORE INTO statrep "
+                                "(datetime, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
+                                "med, ota, trav, net, fuel, food, crime, civil, political, comments) "
+                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                (utc, freq, snr, 1, srid, callsign, group, curgrid, prec,
                                  sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
                                  sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
                                  sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
-                                 comments, "1", freq)
+                                 comments)
                             )
                             conn.commit()
                             print(f"\033[92m[{rig_name}] Added StatRep from: {callsign} ID: {srid}\033[0m")
                             conn.close()
                             return "statrep"
-
-            elif MSG_CHECKIN in value:
-                # Parse checkin: ,TRAFFIC,STATE,GRID,{~%}
-                match = re.search(r',(.+?)\{~\%\}', value)
-                if match:
-                    fields = match.group(1).split(",")
-                    if len(fields) >= 3:
-                        traffic = fields[0].strip()
-                        state = fields[1].strip()
-                        checkin_grid = fields[2].strip()
-
-                        # Convert grid to coordinates
-                        try:
-                            if len(checkin_grid) == 6:
-                                coords = mh.to_location(checkin_grid)
-                            else:
-                                coords = mh.to_location(checkin_grid, center=True)
-                            testlat = float(coords[0])
-                            testlong = float(coords[1])
-                        except Exception:
-                            testlat = 0.0
-                            testlong = 0.0
-
-                        # Check for duplicate grids and offset
-                        cursor.execute("SELECT Count() FROM members_Data WHERE grid = ?", (checkin_grid,))
-                        num_rows = cursor.fetchone()[0]
-                        if num_rows > 1:
-                            testlat = testlat + (num_rows * 0.010)
-                            testlong = testlong + (num_rows * 0.010)
-
-                        # Get active group
-                        active_group = self.db.get_active_group()
-
-                        # Insert into members_Data
-                        cursor.execute(
-                            "INSERT OR REPLACE INTO members_Data "
-                            "(date, callsign, groupname1, groupname2, gridlat, gridlong, state, grid) "
-                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                            (utc, callsign, active_group, active_group, testlat, testlong, state, checkin_grid)
-                        )
-
-                        # Insert into checkins_Data
-                        cursor.execute(
-                            "INSERT OR IGNORE INTO checkins_Data "
-                            "(date, callsign, groupname, traffic, gridlat, gridlong, state, grid) "
-                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                            (utc, callsign, group, traffic, testlat, testlong, state, checkin_grid)
-                        )
-                        conn.commit()
-                        print(f"\033[92m[{rig_name}] Added Check-in from: {callsign}\033[0m")
-                        conn.close()
-                        return "checkin"
 
             # =================================================================
             # Pattern-based detection (no markers required)
@@ -3376,7 +3551,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     prec1 = statrep_pattern.group(2)
                     srid = statrep_pattern.group(3)
                     srcode = statrep_pattern.group(4)
-                    comments = statrep_pattern.group(5).strip() if statrep_pattern.group(5) else ""
+                    # Apply smart title case to comments (acronym detection)
+                    comments = smart_title_case(statrep_pattern.group(5).strip()) if statrep_pattern.group(5) else ""
 
                     # Expand compressed "+" to all green (111111111111)
                     if srcode == "+":
@@ -3394,15 +3570,15 @@ class MainWindow(QtWidgets.QMainWindow):
                     if len(srcode) >= 12:
                         sr_fields = list(srcode)
                         cursor.execute(
-                            "INSERT OR IGNORE INTO Statrep_Data "
-                            "(datetime, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, "
-                            "med, ota, trav, net, fuel, food, crime, civil, political, comments, source, frequency) "
-                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            (utc, callsign, pattern_group, curgrid, srid, prec,
+                            "INSERT OR IGNORE INTO statrep "
+                            "(datetime, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
+                            "med, ota, trav, net, fuel, food, crime, civil, political, comments) "
+                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (utc, freq, snr, 1, srid, callsign, pattern_group, curgrid, prec,
                              sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
                              sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
                              sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
-                             comments, "1", freq)
+                             comments)
                         )
                         conn.commit()
                         print(f"\033[92m[{rig_name}] Added StatRep (pattern) from: {callsign} ID: {srid}\033[0m")
@@ -3428,10 +3604,10 @@ class MainWindow(QtWidgets.QMainWindow):
                         id_num = str(int(time.time()) % 100000)
 
                         cursor.execute(
-                            "INSERT OR REPLACE INTO messages_Data "
-                            "(datetime, idnum, groupid, callsign, message, frequency) "
-                            "VALUES(?, ?, ?, ?, ?, ?)",
-                            (utc, id_num, group, callsign, message_text, freq)
+                            "INSERT OR REPLACE INTO messages "
+                            "(datetime, freq, db, source, SRid, from_callsign, target, message) "
+                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                            (utc, freq, snr, 1, id_num, callsign, group, message_text)
                         )
                         conn.commit()
                         print(f"\033[92m[{rig_name}] Added MSG from: {callsign} to: {to_call}\033[0m")
@@ -3699,17 +3875,20 @@ def main() -> None:
 
     db = DatabaseManager()
 
-    # Initialize Groups table (creates if needed, migrates schema)
+    # Initialize Groups table (creates if needed)
     db.init_groups_table()
-
-    # Initialize db_version table (creates if needed, seeds version 1)
-    db.init_db_version_table()
-
-    # Run any pending database migrations
-    db.run_migrations()
 
     # Initialize QRZ settings table (creates if needed)
     db.init_qrz_table()
+
+    # Initialize alerts table (creates if needed)
+    db.init_alerts_table()
+
+    # Initialize statrep table (creates if needed)
+    db.init_statrep_table()
+
+    # Initialize messages table (creates if needed)
+    db.init_messages_table()
 
     # Create and show main window
     window = MainWindow(config, db, debug_mode=debug_mode, demo_mode=demo_mode, demo_version=demo_version, demo_duration=demo_duration)

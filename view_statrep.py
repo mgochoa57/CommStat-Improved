@@ -195,8 +195,8 @@ class StatRepDialog(QDialog):
         try:
             with sqlite3.connect('traffic.db3', timeout=10) as connection:
                 cursor = connection.cursor()
-                query = ("SELECT datetime, SRid, callsign, grid, prec, status, commpwr, pubwtr, med, ota, trav, net, "
-                         "fuel, food, crime, civil, political, comments FROM StatRep_Data WHERE SRid = ?")
+                query = ("SELECT datetime, SRid, from_callsign, grid, prec, status, commpwr, pubwtr, med, ota, trav, net, "
+                         "fuel, food, crime, civil, political, comments FROM statrep WHERE SRid = ?")
                 cursor.execute(query, (self.srid,))
                 result = cursor.fetchone()
                 if result:

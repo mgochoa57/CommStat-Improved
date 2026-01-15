@@ -137,19 +137,20 @@ class UI(QMainWindow):
         importdata = pd.read_csv(filetoopen)
         # write the data to a sqlite table
         conn = sqlite3.connect('traffic.db3')
-        importdata.to_sql('StatRep_Data_temp', conn, if_exists='replace', index=False)
+        importdata.to_sql('statrep_temp', conn, if_exists='replace', index=False)
 
-        crossquery = ("INSERT OR REPLACE INTO StatRep_Data SELECT * FROM StatRep_Data_temp WHERE SRid != StatRep_Data_temp.SRid")
-        #query = conn.execute("SELECT datetime, SRid, callsign, grid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, political, comments FROM StatRep_Data WHERE groupname = ? AND datetime BETWEEN ? AND ?")
+        crossquery = ("INSERT OR REPLACE INTO statrep SELECT * FROM statrep_temp WHERE SRid != statrep_temp.SRid")
+        #query = conn.execute("SELECT datetime, SRid, callsign, grid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, political, comments FROM statrep WHERE groupname = ? AND datetime BETWEEN ? AND ?")
         #result = connection.execute(query, (selectedgroup, start, end))
         #print(crossquery)
 
         cur = conn.cursor()
         # Import from CSV - use INSERT OR IGNORE to avoid overwriting existing records
         # source column: 1=Radio, 2=Internet
-        test = cur.execute("INSERT OR IGNORE INTO StatRep_Data SELECT NULL, datetime, date, source, freq, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, political, comments FROM StatRep_Data_temp")
+        # Note: CSV 'date' column maps to 'db' (SNR) in new schema
+        test = cur.execute("INSERT OR IGNORE INTO statrep SELECT NULL, datetime, freq, date, source, callsign, groupname, grid, SRid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, political, comments FROM statrep_temp")
         conn.commit()
-        #cur.execute("INSERT OR REPLACE INTO StatRep_Data SELECT * FROM StatRep_Data_temp")
+        #cur.execute("INSERT OR REPLACE INTO statrep SELECT * FROM statrep_temp")
         #print(test)
 
 
@@ -172,8 +173,8 @@ class UI(QMainWindow):
             print("Saved data file : "+net_data_name)
 
             conn = sqlite3.connect('traffic.db3')
-            #clients = pd.read_sql_query( "SELECT datetime, SRid, callsign, groupname, grid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, political, comments FROM StatRep_Data WHERE groupname = ? AND datetime BETWEEN ? AND ?", conn, params=(selectedgroup, start, end))
-            clients = pd.read_sql_query("SELECT * FROM StatRep_Data WHERE groupname = ? AND datetime BETWEEN ? AND ?",
+            #clients = pd.read_sql_query( "SELECT datetime, SRid, callsign, groupname, grid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, political, comments FROM statrep WHERE groupname = ? AND datetime BETWEEN ? AND ?", conn, params=(selectedgroup, start, end))
+            clients = pd.read_sql_query("SELECT * FROM statrep WHERE groupname = ? AND datetime BETWEEN ? AND ?",
                 conn, params=(selectedgroup, start, end))
             path = os.path.join('reports', net_data_name)
             clients.to_csv(path, index=False)
@@ -202,7 +203,7 @@ class UI(QMainWindow):
         try:
             conn = sqlite3.connect("commstat.db")
             cursor = conn.cursor()
-            cursor.execute("SELECT name FROM Groups WHERE is_active = 1")
+            cursor.execute("SELECT name FROM groups WHERE is_active = 1")
             result = cursor.fetchone()
             cursor.close()
             conn.close()
@@ -350,7 +351,7 @@ class UI(QMainWindow):
         cursor = connection.cursor()
 
         query = ("SELECT datetime, SRid, callsign, grid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, political, comments "
-                 "FROM StatRep_Data WHERE groupname = ? AND (status  = ? OR status = ? OR status = ?) AND datetime BETWEEN ? AND ? AND substr(grid,1,2) IN ({})".format(', '.join('?' for _ in statelist)))
+                 "FROM statrep WHERE groupname = ? AND (status  = ? OR status = ? OR status = ?) AND datetime BETWEEN ? AND ? AND substr(grid,1,2) IN ({})".format(', '.join('?' for _ in statelist)))
         result = cursor.execute(query, [selectedgroup, green, yellow, red, start, end] +statelist)
 
         self.tableWidget.setRowCount(0)
@@ -460,7 +461,7 @@ class UI(QMainWindow):
         try:
             connection = sqlite3.connect('traffic.db3')
             query = (
-                "SELECT callsign, SRid, status, grid  FROM StatRep_Data WHERE groupname = ? AND (status  = ? OR status = ? OR status = ?) AND datetime BETWEEN ? AND ? AND substr(grid,1,2) IN ({})".format(
+                "SELECT from_callsign, SRid, status, grid  FROM statrep WHERE groupname = ? AND (status  = ? OR status = ? OR status = ?) AND datetime BETWEEN ? AND ? AND substr(grid,1,2) IN ({})".format(
                     ', '.join('?' for _ in statelist)))
             cursor = connection.execute(query, [selectedgroup, green, yellow, red, start, end] + statelist)
             items = cursor.fetchall()
@@ -593,7 +594,7 @@ class UI(QMainWindow):
 
 
         #conn = sqlite3.connect('traffic.db3')
-        #query = ("SELECT datetime, SRid, callsign, grid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, political, comments FROM StatRep_Data WHERE groupname = ? AND datetime BETWEEN ? AND ? AND status = ? OR status = ? OR status = ?")
+        #query = ("SELECT datetime, SRid, callsign, grid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, political, comments FROM statrep WHERE groupname = ? AND datetime BETWEEN ? AND ? AND status = ? OR status = ? OR status = ?")
         #result = conn.execute(query, (selectedgroup, start, end, red, yellow, green))
 
         #cursor = conn.cursor()
@@ -605,7 +606,7 @@ class UI(QMainWindow):
         cursor = connection.cursor()
 
         query = ("SELECT datetime, SRid, callsign, grid, prec, status, commpwr, pubwtr, med, ota, trav, net, fuel, food, crime, civil, political, comments "
-                 "FROM StatRep_Data WHERE groupname = ? AND (status  = ? OR status = ? OR status = ?) AND datetime BETWEEN ? AND ? AND substr(grid,1,2) IN ({})".format(', '.join('?' for _ in statelist)))
+                 "FROM statrep WHERE groupname = ? AND (status  = ? OR status = ? OR status = ?) AND datetime BETWEEN ? AND ? AND substr(grid,1,2) IN ({})".format(', '.join('?' for _ in statelist)))
         result = cursor.execute(query, [selectedgroup, green, yellow, red, start, end] +statelist)
 
 

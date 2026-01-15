@@ -187,7 +187,7 @@ class StatRepDialog(QDialog):
         try:
             with sqlite3.connect(DATABASE_FILE, timeout=10) as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT name FROM Groups WHERE is_active = 1")
+                cursor.execute("SELECT name FROM groups WHERE is_active = 1")
                 result = cursor.fetchone()
                 if result:
                     return result[0]
@@ -216,7 +216,7 @@ class StatRepDialog(QDialog):
         try:
             with sqlite3.connect(DATABASE_FILE, timeout=10) as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT name FROM Groups ORDER BY name")
+                cursor.execute("SELECT name FROM groups ORDER BY name")
                 return [row[0] for row in cursor.fetchall()]
         except sqlite3.Error as e:
             print(f"Error reading groups from database: {e}")
@@ -384,7 +384,7 @@ class StatRepDialog(QDialog):
         try:
             with sqlite3.connect(DATABASE_FILE, timeout=10) as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT SRid FROM StatRep_Data")
+                cursor.execute("SELECT SRid FROM statrep")
                 existing_ids = [str(row[0]) for row in cursor.fetchall()]
 
                 while self.statrep_id in existing_ids:
@@ -773,17 +773,19 @@ class StatRepDialog(QDialog):
             with sqlite3.connect(DATABASE_FILE, timeout=10) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT INTO StatRep_Data(
-                        datetime, callsign, groupname, grid, SRid, prec,
+                    INSERT INTO statrep(
+                        datetime, freq, source, SRid, from_callsign, groupname, grid, prec,
                         status, commpwr, pubwtr, med, ota, trav, net,
-                        fuel, food, crime, civil, political, comments, source, frequency
+                        fuel, food, crime, civil, political, comments
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     date,
+                    frequency,
+                    1,  # source: 1=Radio, 2=Internet
+                    self.statrep_id,
                     self.callsign.upper(),
                     self.to_combo.currentText().upper(),
                     self.grid.upper(),
-                    self.statrep_id,
                     scope_text,
                     values["status"],
                     values["power"],
@@ -798,8 +800,6 @@ class StatRepDialog(QDialog):
                     values["civil"],
                     values["political"],
                     remarks,
-                    "1",  # source: 1=Radio, 2=Internet
-                    frequency,
                 ))
                 conn.commit()
         except sqlite3.Error as e:
