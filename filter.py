@@ -25,7 +25,7 @@ class FilterDialog(QDialog):
         self.result_filters = {}
 
         self.setWindowTitle("CommStat Display Filter")
-        self.setFixedSize(400, 150)
+        self.setFixedSize(500, 150)
         self.setWindowFlags(
             Qt.Window |
             Qt.CustomizeWindowHint |
@@ -64,14 +64,14 @@ class FilterDialog(QDialog):
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
         self.start_date.setDisplayFormat("yyyy-MM-dd")
-        self.start_date.setMinimumHeight(28)
+        self.start_date.setMinimumSize(130, 28)
         date_layout.addWidget(self.start_date, 0, 1)
 
         date_layout.addWidget(QLabel("End Date:"), 0, 2)
         self.end_date = QDateEdit()
         self.end_date.setCalendarPopup(True)
         self.end_date.setDisplayFormat("yyyy-MM-dd")
-        self.end_date.setMinimumHeight(28)
+        self.end_date.setMinimumSize(130, 28)
         date_layout.addWidget(self.end_date, 0, 3)
 
         layout.addWidget(date_group)
