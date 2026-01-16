@@ -112,6 +112,12 @@ def smart_title_case(text: str, abbreviations: Optional[Dict[str, str]] = None) 
         'MHZ', 'KHZ', 'GHZ', 'DB', 'DBM',
         'II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'XI', 'XII',
         'SR', 'SRID', 'STATREP',
+        # US State abbreviations (DC, ID, OK already listed above)
+        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+        'HI', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+        'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+        'NM', 'NY', 'NC', 'ND', 'OH', 'OR', 'PA', 'RI', 'SC',
+        'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
     }
 
     # Find all callsigns in the text and preserve them
