@@ -3077,7 +3077,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_group_alert(self) -> None:
         """Open Group Alert window."""
         dialog = QtWidgets.QDialog(self)
-        dialog.ui = Ui_FormAlert(self.tcp_pool, self.connector_manager)
+        dialog.ui = Ui_FormAlert(self.tcp_pool, self.connector_manager, self._trigger_show_alerts)
         dialog.ui.setupUi(dialog)
         dialog.exec_()
 

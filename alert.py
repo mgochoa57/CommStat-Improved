@@ -61,10 +61,12 @@ class Ui_FormAlert:
     def __init__(
         self,
         tcp_pool: "TCPConnectionPool" = None,
-        connector_manager: "ConnectorManager" = None
+        connector_manager: "ConnectorManager" = None,
+        on_alert_saved: callable = None
     ):
         self.tcp_pool = tcp_pool
         self.connector_manager = connector_manager
+        self.on_alert_saved = on_alert_saved
         self.MainWindow: Optional[QtWidgets.QWidget] = None
         self.callsign: str = ""
         self.grid: str = ""
@@ -587,12 +589,10 @@ class Ui_FormAlert:
 
         callsign, color, title, message = result
 
-        # Build message for display
-        tx_message = self._build_message(callsign, color, title, message)
-        self._show_info(f"CommStat has saved:\n{tx_message}")
-
         self._save_to_database(callsign, color, title, message)
         self.MainWindow.close()
+        if self.on_alert_saved:
+            self.on_alert_saved()
 
     def _transmit(self) -> None:
         """Validate, check for selected call, get frequency, transmit, and save alert."""
@@ -693,6 +693,8 @@ class Ui_FormAlert:
                 f.write("blank line \n")
 
             self.MainWindow.close()
+            if self.on_alert_saved:
+                self.on_alert_saved()
         except Exception as e:
             self._show_error(f"Failed to transmit alert: {e}")
 
