@@ -4,7 +4,7 @@
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
 
 """
-CommStat v2.5.0 - Rebuilt with best practices
+CommStat v2.5.1 - Rebuilt with best practices
 
 A PyQt5 application for monitoring JS8Call communications,
 displaying status reports, messages, and live data feeds.
@@ -65,7 +65,7 @@ from js8_connectors import JS8ConnectorsDialog
 # Constants
 # =============================================================================
 
-VERSION = "2.5.0"
+VERSION = "2.5.1"
 WINDOW_TITLE = f"CommStat (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
@@ -81,7 +81,6 @@ MAX_GROUP_NAME_LENGTH = 15
 # Map and layout dimensions
 MAP_WIDTH = 604
 MAP_HEIGHT = 340
-FILTER_HEIGHT = 24
 SLIDESHOW_INTERVAL = 1  # Minutes between image changes
 
 # Backbone server for remote announcements and slideshow images
@@ -110,20 +109,67 @@ def check_internet() -> bool:
     return False
 
 
-def smart_title_case(text: str) -> str:
+def expand_abbreviations(text: str, abbreviations: Dict[str, str] = None) -> str:
+    """Expand common JS8Call abbreviations to full words.
+
+    Args:
+        text: Input text with possible abbreviations.
+        abbreviations: Dictionary mapping abbreviations to expansions.
+                      If None, no expansion is performed.
+
+    Returns:
+        Text with abbreviations expanded.
+    """
+    if not text or not abbreviations:
+        return text
+
+    words = text.split()
+    result = []
+
+    for word in words:
+        # Preserve punctuation
+        prefix = ""
+        suffix = ""
+        clean_word = word
+
+        # Extract leading punctuation
+        while clean_word and not clean_word[0].isalnum():
+            prefix += clean_word[0]
+            clean_word = clean_word[1:]
+
+        # Extract trailing punctuation
+        while clean_word and not clean_word[-1].isalnum():
+            suffix = clean_word[-1] + suffix
+            clean_word = clean_word[:-1]
+
+        # Check for abbreviation (case-insensitive)
+        upper_word = clean_word.upper()
+        if upper_word in abbreviations:
+            expanded = abbreviations[upper_word]
+            result.append(prefix + expanded + suffix)
+        else:
+            result.append(word)
+
+    return ' '.join(result)
+
+
+def smart_title_case(text: str, abbreviations: Dict[str, str] = None) -> str:
     """Convert text to smart title case with acronym detection.
 
-    Rules:
+    First expands JS8Call abbreviations, then applies title case rules:
     - Words 1-2 chars stay lowercase (e.g., "a", "of", "to")
     - Dictionary words get title case
     - Non-dictionary words become ALL CAPS (treated as acronyms)
 
     Args:
         text: Input text to format.
+        abbreviations: Dictionary mapping abbreviations to expansions.
 
     Returns:
-        Formatted text with smart title case.
+        Formatted text with abbreviations expanded and smart title case.
     """
+    # First expand abbreviations
+    text = expand_abbreviations(text, abbreviations)
     if not text:
         return text
 
@@ -157,7 +203,7 @@ def smart_title_case(text: str) -> str:
 
 # StatRep table column headers
 STATREP_HEADERS = [
-    "Date Time UTC", "Group", "Callsign", "Grid", "Scope", "Map Pin",
+    "Date Time", "From", "To", "Grid", "Scope", "Map Pin",
     "Powr", "H2O", "Med", "Comm", "Trvl", "Inet", "Fuel", "Food",
     "Crime", "Civil", "Pol", "Remarks"
 ]
@@ -595,7 +641,7 @@ class DatabaseManager:
                 # Build query based on whether we're showing all or filtering by groups
                 if show_all:
                     query = f"""
-                        SELECT datetime, groupname, from_callsign, grid, prec, status,
+                        SELECT datetime, from_callsign, groupname, grid, prec, status,
                                commpwr, pubwtr, med, ota, trav, net,
                                fuel, food, crime, civil, political, comments
                         FROM statrep
@@ -603,16 +649,17 @@ class DatabaseManager:
                     """
                     params = date_params
                 else:
-                    # Build group filter for multiple groups
-                    placeholders = ",".join("?" * len(groups))
+                    # Build group filter for multiple groups (add @ prefix for matching)
+                    groups_with_at = ["@" + g for g in groups]
+                    placeholders = ",".join("?" * len(groups_with_at))
                     query = f"""
-                        SELECT datetime, groupname, from_callsign, grid, prec, status,
+                        SELECT datetime, from_callsign, groupname, grid, prec, status,
                                commpwr, pubwtr, med, ota, trav, net,
                                fuel, food, crime, civil, political, comments
                         FROM statrep
                         WHERE groupname IN ({placeholders}) AND {date_condition}
                     """
-                    params = list(groups) + date_params
+                    params = groups_with_at + date_params
 
                 cursor.execute(query, params)
                 return cursor.fetchall()
@@ -653,17 +700,18 @@ class DatabaseManager:
 
                 if show_all:
                     # Show all messages regardless of group
-                    query = f"""SELECT datetime, target, from_callsign, message
+                    query = f"""SELECT datetime, from_callsign, target, message
                                FROM messages
                                WHERE {date_condition}"""
                     params = date_params
                 elif groups:
-                    # Filter by active groups
-                    placeholders = ",".join("?" * len(groups))
-                    query = f"""SELECT datetime, target, from_callsign, message
+                    # Filter by active groups (add @ prefix for matching)
+                    groups_with_at = ["@" + g for g in groups]
+                    placeholders = ",".join("?" * len(groups_with_at))
+                    query = f"""SELECT datetime, from_callsign, target, message
                                FROM messages
                                WHERE target IN ({placeholders}) AND {date_condition}"""
-                    params = list(groups) + date_params
+                    params = groups_with_at + date_params
                 else:
                     # No groups and not show_all - return empty
                     return []
@@ -957,6 +1005,98 @@ class DatabaseManager:
         except sqlite3.Error as error:
             print(f"Database error initializing messages table: {error}")
 
+    def init_abbreviations_table(self) -> None:
+        """Create abbreviations table if it doesn't exist and populate with defaults."""
+        # Default JS8Call abbreviations
+        default_abbreviations = {
+            "ABT": "ABOUT", "AGN": "AGAIN", "ANI": "ANY", "BECUZ": "BECAUSE",
+            "B4": "BEFORE", "BK": "BACK", "BTR": "BETTER", "BTW": "BY THE WAY",
+            "C": "SEE", "CK": "CHECK", "CUD": "COULD", "CUL": "SEE YOU LATER",
+            "CUZ": "BECAUSE", "DA": "THE", "DAT": "THAT", "DIS": "THIS",
+            "DNT": "DON'T", "DX": "DISTANCE", "EM": "THEM", "EVE": "EVENING",
+            "EVRY": "EVERY", "FB": "FINE BUSINESS", "FER": "FOR", "FRM": "FROM",
+            "GD": "GOOD", "GM": "GOOD MORNING", "GN": "GOOD NIGHT", "GRT": "GREAT",
+            "GUD": "GOOD", "HAV": "HAVE", "HM": "HOME", "HPE": "HOPE",
+            "HR": "HERE", "HRD": "HEARD", "HV": "HAVE", "HW": "HOW",
+            "INFO": "INFORMATION", "JUS": "JUST", "K": "OKAY", "KNW": "KNOW",
+            "LK": "LIKE", "LKN": "LOOKING", "LTR": "LATER", "LV": "LOVE",
+            "MBE": "MAYBE", "MORN": "MORNING", "MSG": "MESSAGE", "MTG": "MEETING",
+            "NITE": "NIGHT", "NR": "NEAR", "NW": "NOW", "NXT": "NEXT",
+            "OPR": "OPERATOR", "OT": "OUT", "OVR": "OVER", "PLS": "PLEASE",
+            "PLZ": "PLEASE", "PWR": "POWER", "QRT": "CLOSING STATION",
+            "QRZ": "WHO IS CALLING", "QSL": "CONFIRMED", "QSO": "CONTACT",
+            "QSY": "CHANGE FREQUENCY", "QTH": "LOCATION", "QUIETR": "QUIETER",
+            "R": "ARE", "RCVD": "RECEIVED", "RDY": "READY", "RIG": "RADIO",
+            "SEEMD": "SEEMED", "SED": "SAID", "SHUD": "SHOULD", "SIG": "SIGNAL",
+            "SM": "SOME", "SMBDY": "SOMEBODY", "SMTH": "SOMETHING",
+            "SMTHN": "SOMETHING", "SN": "SOON", "SPOZ": "SUPPOSE", "SRI": "SORRY",
+            "STN": "STATION", "THGHT": "THOUGHT", "THN": "THAN", "THNK": "THINK",
+            "THNKS": "THANKS", "THOT": "THOUGHT", "THT": "THAT", "THX": "THANKS",
+            "TK": "TAKE", "TKN": "TAKEN", "TME": "TIME", "TMRW": "TOMORROW",
+            "TNX": "THANKS", "TONITE": "TONIGHT", "TU": "THANK YOU", "U": "YOU",
+            "UR": "YOUR", "VY": "VERY", "W": "WITH", "WK": "WEEK",
+            "WKEND": "WEEKEND", "WKN": "WEEKEND", "WL": "WILL", "WN": "WHEN",
+            "WRK": "WORK", "WUD": "WOULD", "WX": "WEATHER", "XMTR": "TRANSMITTER",
+            "XTRA": "EXTRA", "YALL": "Y'ALL", "YR": "YOUR", "YRS": "YOURS",
+            "73": "BEST REGARDS", "88": "LOVE AND KISSES",
+        }
+
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS abbreviations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        abbrev TEXT UNIQUE NOT NULL,
+                        expansion TEXT NOT NULL
+                    )
+                """)
+                connection.commit()
+
+                # Check if table is empty and populate with defaults
+                cursor.execute("SELECT COUNT(*) FROM abbreviations")
+                count = cursor.fetchone()[0]
+                if count == 0:
+                    for abbrev, expansion in default_abbreviations.items():
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO abbreviations (abbrev, expansion) VALUES (?, ?)",
+                            (abbrev.upper(), expansion)
+                        )
+                    connection.commit()
+                    print(f"Populated abbreviations table with {len(default_abbreviations)} defaults")
+        except sqlite3.Error as error:
+            print(f"Database error initializing abbreviations table: {error}")
+
+    def get_abbreviations(self) -> Dict[str, str]:
+        """Get all abbreviations from database as a dictionary."""
+        def op(cursor, conn):
+            cursor.execute("SELECT abbrev, expansion FROM abbreviations ORDER BY abbrev")
+            return {row[0]: row[1] for row in cursor.fetchall()}
+        return self._execute(op, {})
+
+    def add_abbreviation(self, abbrev: str, expansion: str) -> bool:
+        """Add or update an abbreviation. Returns True if successful."""
+        abbrev = abbrev.strip().upper()
+        expansion = expansion.strip()
+        if not abbrev or not expansion:
+            return False
+        def op(cursor, conn):
+            cursor.execute(
+                "INSERT OR REPLACE INTO abbreviations (abbrev, expansion) VALUES (?, ?)",
+                (abbrev, expansion)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        return self._execute(op, False)
+
+    def remove_abbreviation(self, abbrev: str) -> bool:
+        """Remove an abbreviation. Returns True if successful."""
+        def op(cursor, conn):
+            cursor.execute("DELETE FROM abbreviations WHERE abbrev = ?", (abbrev.upper(),))
+            conn.commit()
+            return cursor.rowcount > 0
+        return self._execute(op, False)
+
     def get_qrz_settings(self) -> Tuple[str, str, bool]:
         """Get QRZ settings from database. Returns (username, password, is_active)."""
         def op(cursor, conn):
@@ -1182,7 +1322,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._setup_menu()
         self._setup_header()
         self._setup_statrep_table()
-        self._setup_placeholder_area()
         self._setup_map_widget()
         self._setup_live_feed()
         self._setup_message_table()
@@ -1617,23 +1756,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # Add to layout (row 2, spans all columns)
         self.main_layout.addWidget(self.statrep_table, 2, 0, 1, 2)
 
-    def _setup_placeholder_area(self) -> None:
-        """Create placeholder area above message table (for future use)."""
-        fg_color = self.config.get_color('program_foreground')
-
-        # Size policy that allows area to shrink
-        shrink_policy = QtWidgets.QSizePolicy(
-            QtWidgets.QSizePolicy.Ignored,
-            QtWidgets.QSizePolicy.Preferred
-        )
-
-        self.placeholder_area = QtWidgets.QLabel(self.central_widget)
-        self.placeholder_area.setStyleSheet(f"color: {fg_color};")
-        self.placeholder_area.setText("")
-        self.placeholder_area.setSizePolicy(shrink_policy)
-        self.placeholder_area.setFixedHeight(FILTER_HEIGHT)
-        self.main_layout.addWidget(self.placeholder_area, 4, 1, 1, 1)
-
     def _setup_map_widget(self) -> None:
         """Create the map widget using QWebEngineView."""
         self.map_widget = QWebEngineView(self.central_widget)
@@ -1644,8 +1766,8 @@ class MainWindow(QtWidgets.QMainWindow):
         custom_page = CustomWebEnginePage(self)
         self.map_widget.setPage(custom_page)
 
-        # Add to layout (row 4-5, column 0 only, spanning 2 rows)
-        self.main_layout.addWidget(self.map_widget, 4, 0, 2, 1, Qt.AlignLeft | Qt.AlignTop)
+        # Add to layout (row 4, column 0)
+        self.main_layout.addWidget(self.map_widget, 4, 0, 1, 1, Qt.AlignLeft | Qt.AlignTop)
 
         # Set column stretches: map column fixed, message column stretches
         self.main_layout.setColumnStretch(0, 0)  # Map (fixed)
@@ -2545,7 +2667,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Set headers
         self.message_table.setHorizontalHeaderLabels([
-            "Date Time UTC", "Group", "Callsign", "Message"
+            "Date Time", "From", "To", "Message"
         ])
 
         # Configure header behavior
@@ -2554,10 +2676,10 @@ class MainWindow(QtWidgets.QMainWindow):
         header.setStretchLastSection(True)
         self.message_table.verticalHeader().setVisible(False)
         self.message_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.message_table.setFixedHeight(MAP_HEIGHT - FILTER_HEIGHT)
+        self.message_table.setFixedHeight(MAP_HEIGHT)
 
-        # Add to layout (row 5, column 1)
-        self.main_layout.addWidget(self.message_table, 5, 1, 1, 1)
+        # Add to layout (row 4, column 1)
+        self.main_layout.addWidget(self.message_table, 4, 1, 1, 1)
 
     def _load_message_data(self) -> None:
         """Load message data from database into the table."""
@@ -3108,10 +3230,31 @@ class MainWindow(QtWidgets.QMainWindow):
             status_colors: Optional dict mapping values to config color keys
         """
         table.setRowCount(0)
+        is_message_table = (table == self.message_table)
+
         for row_num, row_data in enumerate(data):
             table.insertRow(row_num)
+
+            # Check if this row should be bold (direct message, no @ symbol)
+            bold_row = False
+            if is_message_table and len(row_data) > 2:
+                to_value = str(row_data[2]) if row_data[2] is not None else ""
+                bold_row = to_value and not to_value.startswith("@")
+
             for col_num, value in enumerate(row_data):
-                item = QTableWidgetItem(str(value) if value is not None else "")
+                display_value = str(value) if value is not None else ""
+
+                # Truncate datetime in first column (remove seconds)
+                if col_num == 0 and len(display_value) >= 16:
+                    display_value = display_value[:16]
+
+                item = QTableWidgetItem(display_value)
+
+                # Bold From and To columns (1 and 2) if direct message
+                if bold_row and col_num in (1, 2):
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
 
                 if status_colors and value in status_colors:
                     color = QColor(self.config.get_color(status_colors[value]))
@@ -3293,13 +3436,13 @@ class MainWindow(QtWidgets.QMainWindow):
             rig_name: Name of the rig.
             grid: Maidenhead grid square from JS8Call.
         """
-        from statrep import get_state_from_grid
+        from statrep import get_state_from_connector
 
         if grid:
             self.rig_grids[rig_name] = grid
 
-            # Calculate state from grid
-            state = get_state_from_grid(grid)
+            # Get state from connector table
+            state = get_state_from_connector(self.connector_manager, rig_name)
             if state:
                 self.rig_states[rig_name] = state
 
@@ -3489,10 +3632,13 @@ class MainWindow(QtWidgets.QMainWindow):
             "5": "Other Location"
         }
 
-        # Extract group from to_call (e.g., "@MAGNET" -> "MAGNET")
+        # Load abbreviations from database for text expansion
+        abbreviations = self.db.get_abbreviations()
+
+        # Extract group from to_call (keep @ symbol, e.g., "@MAGNET")
         group = ""
         if to_call.startswith("@"):
-            group = to_call[1:]
+            group = to_call
 
         # Extract callsign (remove suffix like /P)
         callsign = from_call.split("/")[0] if from_call else ""
@@ -3517,7 +3663,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             color = 1  # Default to yellow
                         title = fields[1].strip()
                         # Apply smart title case to message (acronym detection)
-                        message_text = smart_title_case(",".join(fields[2:]).strip())
+                        message_text = smart_title_case(",".join(fields[2:]).strip(), abbreviations)
 
                         cursor.execute(
                             "INSERT INTO alerts "
@@ -3538,7 +3684,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     if len(fields) >= 2:
                         id_num = fields[0].strip()
                         # Apply smart title case to message (acronym detection)
-                        message_text = smart_title_case(",".join(fields[1:]).strip())
+                        message_text = smart_title_case(",".join(fields[1:]).strip(), abbreviations)
 
                         cursor.execute(
                             "INSERT OR REPLACE INTO messages "
@@ -3562,7 +3708,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         srid = fields[2].strip()
                         srcode = fields[3].strip()
                         # Apply smart title case to comments (acronym detection)
-                        comments = smart_title_case(fields[4].strip()) if len(fields) > 4 else ""
+                        comments = smart_title_case(fields[4].strip(), abbreviations) if len(fields) > 4 else ""
                         orig_call = fields[5].strip() if len(fields) > 5 else callsign
 
                         # Expand compressed "+" to all green (111111111111)
@@ -3604,7 +3750,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         srid = fields[2].strip()
                         srcode = fields[3].strip()
                         # Apply smart title case to comments (acronym detection)
-                        comments = smart_title_case(fields[4].strip()) if len(fields) > 4 else ""
+                        comments = smart_title_case(fields[4].strip(), abbreviations) if len(fields) > 4 else ""
 
                         # Expand compressed "+" shorthand to all green status
                         # "+" means all 12 indicators are at level 1 (green/good)
@@ -3659,7 +3805,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     srid = statrep_pattern.group(3)
                     srcode = statrep_pattern.group(4)
                     # Apply smart title case to comments (acronym detection)
-                    comments = smart_title_case(statrep_pattern.group(5).strip()) if statrep_pattern.group(5) else ""
+                    comments = smart_title_case(statrep_pattern.group(5).strip(), abbreviations) if statrep_pattern.group(5) else ""
 
                     # Expand compressed "+" to all green (111111111111)
                     if srcode == "+":
@@ -3670,7 +3816,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     # Extract group from value if not already set (handles embedded @GROUP)
                     pattern_group = group
                     if not pattern_group:
-                        group_match = re.search(r'@([A-Z0-9]+)', value, re.IGNORECASE)
+                        group_match = re.search(r'(@[A-Z0-9]+)', value, re.IGNORECASE)
                         if group_match:
                             pattern_group = group_match.group(1).upper()
 
@@ -3704,17 +3850,17 @@ class MainWindow(QtWidgets.QMainWindow):
                     # Extract message text after "MSG "
                     msg_match = re.search(r'\bMSG\s+(.+)', value)
                     if msg_match:
-                        message_text = msg_match.group(1).strip()
+                        # Apply smart title case to message (acronym detection)
+                        message_text = smart_title_case(msg_match.group(1).strip(), abbreviations)
 
-                        # Generate a simple ID based on timestamp
-                        import time
-                        id_num = str(int(time.time()) % 100000)
+                        # Use to_call for target (includes @ for groups, callsign for direct)
+                        target = to_call
 
                         cursor.execute(
-                            "INSERT OR REPLACE INTO messages "
+                            "INSERT INTO messages "
                             "(datetime, freq, db, source, SRid, from_callsign, target, message) "
                             "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                            (utc, freq, snr, 1, id_num, callsign, group, message_text)
+                            (utc, freq, snr, 1, "", callsign, target, message_text)
                         )
                         conn.commit()
                         print(f"\033[92m[{rig_name}] Added MSG from: {callsign} to: {to_call}\033[0m")
@@ -3996,6 +4142,9 @@ def main() -> None:
 
     # Initialize messages table (creates if needed)
     db.init_messages_table()
+
+    # Initialize abbreviations table (creates if needed, populates with defaults)
+    db.init_abbreviations_table()
 
     # Create and show main window
     window = MainWindow(config, db, debug_mode=debug_mode, demo_mode=demo_mode, demo_version=demo_version, demo_duration=demo_duration)

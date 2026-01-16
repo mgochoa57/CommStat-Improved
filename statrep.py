@@ -12,7 +12,6 @@ import os
 import re
 import random
 import sqlite3
-from configparser import ConfigParser
 from typing import Optional, Dict, List, TYPE_CHECKING
 from dataclasses import dataclass
 
@@ -30,7 +29,6 @@ if TYPE_CHECKING:
 # =============================================================================
 
 DATABASE_FILE = "traffic.db3"
-CONFIG_FILE = "config.ini"
 
 # Status codes
 STATUS_GREEN = "1"
@@ -103,23 +101,22 @@ def make_uppercase(field):
     field.textChanged.connect(to_upper)
 
 
-def get_state_from_grid(grid: str) -> str:
-    """Get the state abbreviation from config.ini.
-
-    The grid parameter is accepted for API compatibility but not used.
-    State is read from config.ini [STATION] section.
+def get_state_from_connector(connector_manager, rig_name: str) -> str:
+    """Get the state abbreviation from connector table for a specific rig.
 
     Args:
-        grid: Maidenhead grid square (unused, kept for API compatibility).
+        connector_manager: ConnectorManager instance for database access.
+        rig_name: Name of the rig to look up.
 
     Returns:
-        State abbreviation from config.ini, or empty string if not configured.
+        State abbreviation from connector, or empty string if not found.
     """
+    if not connector_manager or not rig_name:
+        return ""
     try:
-        config = ConfigParser()
-        config.read(CONFIG_FILE)
-        if config.has_option("STATION", "state"):
-            return config.get("STATION", "state").strip().upper()
+        connector = connector_manager.get_connector_by_name(rig_name)
+        if connector and connector.get("state"):
+            return connector["state"].strip().upper()
     except Exception:
         pass
     return ""
@@ -196,19 +193,17 @@ class StatRepDialog(QDialog):
         return ""
 
     def _get_default_remarks(self) -> str:
-        """Get default remarks with state from config.ini.
+        """Get default remarks with state from the selected rig's connector.
 
-        Returns the state from config.ini [STATION] section, or empty if not set.
+        Returns the state from the connector table, or empty if not set.
         """
-        try:
-            config = ConfigParser()
-            config.read(CONFIG_FILE)
-            if config.has_option("STATION", "state"):
-                config_state = config.get("STATION", "state").strip().upper()
-                if config_state:
-                    return config_state
-        except Exception:
-            pass
+        # Get the currently selected rig
+        if hasattr(self, 'rig_combo'):
+            rig_name = self.rig_combo.currentText()
+            if rig_name and "(disconnected)" not in rig_name:
+                state = get_state_from_connector(self.connector_manager, rig_name)
+                if state:
+                    return state
         return ""
 
     def _get_all_groups_from_db(self) -> list:
@@ -268,6 +263,12 @@ class StatRepDialog(QDialog):
             if hasattr(self, 'freq_field'):
                 self.freq_field.setText("")
             return
+
+        # Update remarks with state from connector
+        if hasattr(self, 'remarks_field'):
+            state = get_state_from_connector(self.connector_manager, rig_name)
+            if state:
+                self.remarks_field.setText(state)
 
         if not self.tcp_pool:
             print("[StatRep] No TCP pool available")

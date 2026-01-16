@@ -9,7 +9,6 @@ Allows sending net check-in messages via JS8Call.
 """
 
 import os
-from configparser import ConfigParser
 from typing import TYPE_CHECKING
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -25,7 +24,6 @@ if TYPE_CHECKING:
 # Constants
 # =============================================================================
 
-CONFIG_FILE = "config.ini"
 DATABASE_FILE = "traffic.db3"
 
 FONT_FAMILY = "Arial"
@@ -46,13 +44,14 @@ def make_uppercase(field):
     field.textChanged.connect(to_upper)
 
 
-def get_state_from_config() -> str:
-    """Get the state abbreviation from config.ini."""
+def get_state_from_connector(connector_manager, rig_name: str) -> str:
+    """Get the state abbreviation from connector table for a specific rig."""
+    if not connector_manager or not rig_name:
+        return ""
     try:
-        config = ConfigParser()
-        config.read(CONFIG_FILE)
-        if config.has_option("STATION", "state"):
-            return config.get("STATION", "state").strip().upper()
+        connector = connector_manager.get_connector_by_name(rig_name)
+        if connector and connector.get("state"):
+            return connector["state"].strip().upper()
     except Exception:
         pass
     return ""
@@ -112,11 +111,13 @@ class NetCheckInDialog(QDialog):
         self._load_defaults()
 
     def _load_defaults(self) -> None:
-        """Load default values from config and database."""
-        # Load state from config
-        state = get_state_from_config()
-        if state:
-            self.state_field.setText(state)
+        """Load default values from connector and database."""
+        # Load state from selected rig's connector (if a rig is auto-selected)
+        current_rig = self.rig_combo.currentText()
+        if current_rig and "(disconnected)" not in current_rig:
+            state = get_state_from_connector(self.connector_manager, current_rig)
+            if state:
+                self.state_field.setText(state)
 
         # Load active group
         group = get_active_group_from_db()
@@ -324,10 +325,15 @@ class NetCheckInDialog(QDialog):
         """
 
     def _on_rig_changed(self, rig_name: str) -> None:
-        """Handle rig selection change - update mode/frequency and grid."""
+        """Handle rig selection change - update mode/frequency, grid, and state."""
         if not rig_name or "(disconnected)" in rig_name:
             self.freq_field.setText("")
             return
+
+        # Update state from connector
+        state = get_state_from_connector(self.connector_manager, rig_name)
+        if state:
+            self.state_field.setText(state)
 
         if not self.tcp_pool:
             return

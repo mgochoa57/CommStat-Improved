@@ -55,7 +55,7 @@ class JS8ConnectorsDialog(QDialog):
     def _setup_window(self) -> None:
         """Configure window properties."""
         self.setWindowTitle("CommStat - JS8 Connectors")
-        self.setFixedSize(500, 550)
+        self.setFixedSize(500, 590)
         self.setWindowFlags(
             Qt.Window |
             Qt.CustomizeWindowHint |
@@ -138,19 +138,30 @@ class JS8ConnectorsDialog(QDialog):
         self.port_edit.setMinimumHeight(28)
         edit_layout.addWidget(self.port_edit, 1, 1)
 
+        # State
+        edit_layout.addWidget(QLabel("State:"), 2, 0)
+        self.state_edit = QLineEdit()
+        self.state_edit.setMaxLength(2)
+        self.state_edit.setPlaceholderText("e.g., TX")
+        self.state_edit.setMinimumHeight(28)
+        self.state_edit.textChanged.connect(
+            lambda text: self.state_edit.setText(text.upper())
+        )
+        edit_layout.addWidget(self.state_edit, 2, 1)
+
         # Comment
-        edit_layout.addWidget(QLabel("Comment:"), 2, 0)
+        edit_layout.addWidget(QLabel("Comment:"), 3, 0)
         self.comment_edit = QLineEdit()
         self.comment_edit.setMaxLength(50)
         self.comment_edit.setPlaceholderText("Optional description")
         self.comment_edit.setMinimumHeight(28)
-        edit_layout.addWidget(self.comment_edit, 2, 1)
+        edit_layout.addWidget(self.comment_edit, 3, 1)
 
         # Add button
         self.add_btn = QPushButton("Add Connector")
         self.add_btn.clicked.connect(self._add_connector)
         self.add_btn.setEnabled(False)
-        edit_layout.addWidget(self.add_btn, 3, 0, 1, 2)
+        edit_layout.addWidget(self.add_btn, 4, 0, 1, 2)
 
         layout.addWidget(edit_group)
 
@@ -193,6 +204,7 @@ class JS8ConnectorsDialog(QDialog):
         for conn in connectors:
             rig_name = conn["rig_name"]
             tcp_port = conn["tcp_port"]
+            state = conn.get("state", "") or ""
             is_default = conn["is_default"]
             is_enabled = conn.get("enabled", 1) == 1
             comment = conn.get("comment", "")
@@ -207,7 +219,10 @@ class JS8ConnectorsDialog(QDialog):
                 status_str = "Disconnected"
 
             # Build display text
-            text = f"{rig_name} (Port {tcp_port})"
+            if state:
+                text = f"{rig_name} (Port {tcp_port}, {state})"
+            else:
+                text = f"{rig_name} (Port {tcp_port})"
             if is_default:
                 text += " [DEFAULT]"
             if not is_enabled:
@@ -228,6 +243,8 @@ class JS8ConnectorsDialog(QDialog):
 
             # Add tooltip with more info
             tooltip = f"Status: {status_str}\nPort: {tcp_port}"
+            if state:
+                tooltip += f"\nState: {state}"
             if comment:
                 tooltip += f"\nComment: {comment}"
             tooltip += f"\nAdded: {conn.get('date_added', 'Unknown')}"
@@ -255,6 +272,7 @@ class JS8ConnectorsDialog(QDialog):
         conn = item.data(Qt.UserRole)
         self.rig_name_edit.setText(conn["rig_name"])
         self.port_edit.setText(str(conn["tcp_port"]))
+        self.state_edit.setText(conn.get("state", "") or "")
         self.comment_edit.setText(conn.get("comment", ""))
 
     def _on_input_changed(self) -> None:
@@ -317,19 +335,21 @@ class JS8ConnectorsDialog(QDialog):
                 )
                 return
 
+        state = self.state_edit.text().strip()
         comment = self.comment_edit.text().strip()
 
         # Check if first connector (will be default)
         is_first = not self.connector_manager.has_connectors()
 
-        if self.connector_manager.add_connector(rig_name, tcp_port, comment, is_first):
+        if self.connector_manager.add_connector(rig_name, tcp_port, state, comment, is_first):
             # Refresh TCP connections
             self.tcp_pool.refresh_connections()
 
             # Clear input fields
             self.rig_name_edit.clear()
-            self.comment_edit.clear()
             self.port_edit.clear()
+            self.state_edit.clear()
+            self.comment_edit.clear()
 
             # Reload list
             self._load_connectors()

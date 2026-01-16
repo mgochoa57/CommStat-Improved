@@ -40,6 +40,7 @@ class ConnectorManager:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         rig_name TEXT UNIQUE NOT NULL,
                         tcp_port INTEGER NOT NULL DEFAULT 2442,
+                        state TEXT,
                         comment TEXT,
                         date_added TEXT NOT NULL,
                         is_default INTEGER DEFAULT 0,
@@ -47,6 +48,13 @@ class ConnectorManager:
                     )
                 """)
                 conn.commit()
+
+                # Add state column if it doesn't exist (migration for existing databases)
+                cursor.execute("PRAGMA table_info(js8_connectors)")
+                columns = [col[1] for col in cursor.fetchall()]
+                if "state" not in columns:
+                    cursor.execute("ALTER TABLE js8_connectors ADD COLUMN state TEXT")
+                    conn.commit()
         except sqlite3.Error as e:
             print(f"Error initializing js8_connectors table: {e}")
 
@@ -67,14 +75,14 @@ class ConnectorManager:
                 cursor = conn.cursor()
                 if enabled_only:
                     cursor.execute("""
-                        SELECT id, rig_name, tcp_port, comment, date_added, is_default, enabled
+                        SELECT id, rig_name, tcp_port, state, comment, date_added, is_default, enabled
                         FROM js8_connectors
                         WHERE enabled = 1
                         ORDER BY is_default DESC, rig_name ASC
                     """)
                 else:
                     cursor.execute("""
-                        SELECT id, rig_name, tcp_port, comment, date_added, is_default, enabled
+                        SELECT id, rig_name, tcp_port, state, comment, date_added, is_default, enabled
                         FROM js8_connectors
                         ORDER BY is_default DESC, rig_name ASC
                     """)
@@ -99,7 +107,7 @@ class ConnectorManager:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, rig_name, tcp_port, comment, date_added, is_default, enabled
+                    SELECT id, rig_name, tcp_port, state, comment, date_added, is_default, enabled
                     FROM js8_connectors
                     WHERE id = ?
                 """, (connector_id,))
@@ -124,7 +132,7 @@ class ConnectorManager:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, rig_name, tcp_port, comment, date_added, is_default, enabled
+                    SELECT id, rig_name, tcp_port, state, comment, date_added, is_default, enabled
                     FROM js8_connectors
                     WHERE rig_name = ?
                 """, (rig_name,))
@@ -146,7 +154,7 @@ class ConnectorManager:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, rig_name, tcp_port, comment, date_added, is_default, enabled
+                    SELECT id, rig_name, tcp_port, state, comment, date_added, is_default, enabled
                     FROM js8_connectors
                     WHERE is_default = 1
                 """)
@@ -160,6 +168,7 @@ class ConnectorManager:
         self,
         rig_name: str,
         tcp_port: int = DEFAULT_TCP_PORT,
+        state: str = "",
         comment: str = "",
         set_as_default: bool = False
     ) -> bool:
@@ -169,6 +178,7 @@ class ConnectorManager:
         Args:
             rig_name: Name for the rig (must be unique).
             tcp_port: TCP port for JS8Call (default 2442).
+            state: 2-letter state code (e.g., TX).
             comment: Optional description.
             set_as_default: If True, set this as the default connector.
 
@@ -185,6 +195,9 @@ class ConnectorManager:
         if not rig_name:
             print("Cannot add connector: rig name is required")
             return False
+
+        # Clean state (uppercase, max 2 chars)
+        state = state.strip().upper()[:2] if state else ""
 
         try:
             with sqlite3.connect(self.db_path, timeout=10) as conn:
@@ -203,9 +216,9 @@ class ConnectorManager:
 
                 cursor.execute("""
                     INSERT INTO js8_connectors
-                    (rig_name, tcp_port, comment, date_added, is_default)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (rig_name, tcp_port, comment, date_added, is_default))
+                    (rig_name, tcp_port, state, comment, date_added, is_default)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (rig_name, tcp_port, state, comment, date_added, is_default))
 
                 conn.commit()
                 print(f"Added connector: {rig_name} on port {tcp_port}")
@@ -223,6 +236,7 @@ class ConnectorManager:
         connector_id: int,
         rig_name: str,
         tcp_port: int,
+        state: str = "",
         comment: str = ""
     ) -> bool:
         """
@@ -232,6 +246,7 @@ class ConnectorManager:
             connector_id: The connector's database ID.
             rig_name: New rig name.
             tcp_port: New TCP port.
+            state: 2-letter state code (e.g., TX).
             comment: New comment.
 
         Returns:
@@ -242,14 +257,17 @@ class ConnectorManager:
             print("Cannot update connector: rig name is required")
             return False
 
+        # Clean state (uppercase, max 2 chars)
+        state = state.strip().upper()[:2] if state else ""
+
         try:
             with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE js8_connectors
-                    SET rig_name = ?, tcp_port = ?, comment = ?
+                    SET rig_name = ?, tcp_port = ?, state = ?, comment = ?
                     WHERE id = ?
-                """, (rig_name, tcp_port, comment, connector_id))
+                """, (rig_name, tcp_port, state, comment, connector_id))
                 conn.commit()
 
                 if cursor.rowcount > 0:
