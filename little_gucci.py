@@ -52,7 +52,6 @@ from groups import GroupsDialog
 from debug_features import DebugFeatures
 from js8mail import JS8MailDialog
 from js8sms import JS8SMSDialog
-from net_checkin import NetCheckInDialog
 from message import Ui_FormMessage
 from alert import Ui_FormAlert
 from statrep import StatRepDialog
@@ -1398,19 +1397,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Define menu actions: (name, text, handler)
         menu_items = [
-            ("statrep", "STATREP", self._on_statrep),
-            ("group_alert", "GROUP ALERT", self._on_group_alert),
-            ("send_message", "GROUP MESSAGE", self._on_send_message),
-            ("js8email", "JS8 EMAIL", self._on_js8email),
+            ("statrep", "StatRep", self._on_statrep),
+            ("group_alert", "Group Alert", self._on_group_alert),
+            ("send_message", "Group Message", self._on_send_message),
+            ("js8email", "JS8 Email", self._on_js8email),
             ("js8sms", "JS8 SMS", self._on_js8sms),
             None,  # Separator
-            ("statrep_ack", "STATREP ACK", self._on_statrep_ack),
-            ("net_roster", "NET MANAGER", self._on_net_roster),
-            ("net_check_in", "NET CHECK IN", self._on_net_check_in),
-            ("member_list", "MEMBER LIST", self._on_member_list),
-            None,  # Separator
-            ("js8_connectors", "JS8 CONNECTORS", self._on_js8_connectors),
-            ("qrz_enable", "QRZ ENABLE", self._on_qrz_enable),
+            ("js8_connectors", "JS8 Connectors", self._on_js8_connectors),
+            ("qrz_enable", "QRZ Enable", self._on_qrz_enable),
             None,  # Separator
         ]
 
@@ -3077,23 +3071,6 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = StatRepDialog(self.tcp_pool, self.connector_manager, self)
         dialog.exec_()
 
-    def _on_net_check_in(self) -> None:
-        """Open Net Check In window."""
-        dialog = NetCheckInDialog(self.tcp_pool, self.connector_manager, self)
-        dialog.exec_()
-
-    def _on_member_list(self) -> None:
-        """Open Member List window."""
-        print("MEMBER LIST clicked - window not yet implemented")
-
-    def _on_statrep_ack(self) -> None:
-        """Open StatRep Acknowledgment window."""
-        print("STATREP ACK clicked - window not yet implemented")
-
-    def _on_net_roster(self) -> None:
-        """Open Net Manager window."""
-        print("NET MANAGER clicked - window not yet implemented")
-
     def _on_send_message(self) -> None:
         """Open Send Message window."""
         dialog = QtWidgets.QDialog(self)
@@ -3356,10 +3333,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _populate_groups_menu(self) -> None:
         """Populate the Groups menu with checkable group items."""
-        # Remove existing group actions (keep Manage Groups, Show Groups, and separator)
+        # Remove existing group actions (keep Manage Groups, Show Groups, separator, and title)
         actions = self.groups_menu.actions()
-        for action in actions[3:]:  # Skip Manage Groups, Show Groups, and separator
+        for action in actions[4:]:  # Skip Manage Groups, Show Groups, separator, and title
             self.groups_menu.removeAction(action)
+
+        # Add section title if not already present
+        if len(self.groups_menu.actions()) == 3:
+            title_action = QtWidgets.QAction("ACTIVE GROUPS", self)
+            title_action.setEnabled(False)
+            self.groups_menu.addAction(title_action)
 
         # Add groups alphabetically with checkboxes (menu stays open when clicked)
         menu_bg = self.config.get_color('menu_background')
