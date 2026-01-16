@@ -1397,7 +1397,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Define menu actions: (name, text, handler)
         menu_items = [
-            ("statrep", "StatRep", self._on_statrep),
+            ("statrep", "Status Report", self._on_statrep),
             ("group_alert", "Group Alert", self._on_group_alert),
             ("send_message", "Group Message", self._on_send_message),
             ("js8email", "JS8 Email", self._on_js8email),
@@ -1508,7 +1508,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # STATREP & MESSAGES section
         self.filter_menu.addSeparator()
-        statrep_messages_label = QtWidgets.QAction("STATREP & MESSAGES", self)
+        statrep_messages_label = QtWidgets.QAction("STATUS REPORTS & MESSAGES", self)
         statrep_messages_label.setEnabled(False)  # Disabled as a section title
         self.filter_menu.addAction(statrep_messages_label)
 
