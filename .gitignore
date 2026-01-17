@@ -33,8 +33,9 @@ Thumbs.db
 output.txt
 copyDIRECTED.TXT
 
-# Claude Code context file (private)
+# Claude Code (private)
 CLAUDE.md
+.claude/
 
 # Demo mode files (generated for demonstrations)
 demo_mode.py
