@@ -202,7 +202,7 @@ def smart_title_case(text: str, abbreviations: Dict[str, str] = None) -> str:
 
 # StatRep table column headers
 STATREP_HEADERS = [
-    "Date Time", "From", "To", "Grid", "Scope", "Map Pin",
+    "", "Date Time", "From", "To", "Grid", "Scope", "Map Pin",
     "Powr", "H2O", "Med", "Comm", "Trvl", "Inet", "Fuel", "Food",
     "Crime", "Civil", "Pol", "Remarks"
 ]
@@ -229,7 +229,7 @@ DEFAULT_COLORS: Dict[str, str] = {
     'condition_red': '#BB0000',         # Critical/emergency status
     'condition_gray': '#808080',        # Unknown/no data
     # Data table colors
-    'data_background': '#FFF5EB',
+    'data_background': '#FFF0D4',
     'data_foreground': '#000000',
     # Live feed display colors
     'feed_background': '#000000',
@@ -640,7 +640,7 @@ class DatabaseManager:
                 # Build query based on whether we're showing all or filtering by groups
                 if show_all:
                     query = f"""
-                        SELECT datetime, from_callsign, groupname, grid, prec, status,
+                        SELECT db, datetime, from_callsign, groupname, grid, prec, status,
                                commpwr, pubwtr, med, ota, trav, net,
                                fuel, food, crime, civil, political, comments
                         FROM statrep
@@ -652,7 +652,7 @@ class DatabaseManager:
                     groups_with_at = ["@" + g for g in groups]
                     placeholders = ",".join("?" * len(groups_with_at))
                     query = f"""
-                        SELECT datetime, from_callsign, groupname, grid, prec, status,
+                        SELECT db, datetime, from_callsign, groupname, grid, prec, status,
                                commpwr, pubwtr, med, ota, trav, net,
                                fuel, food, crime, civil, political, comments
                         FROM statrep
@@ -699,7 +699,7 @@ class DatabaseManager:
 
                 if show_all:
                     # Show all messages regardless of group
-                    query = f"""SELECT datetime, from_callsign, target, message
+                    query = f"""SELECT db, datetime, from_callsign, target, message
                                FROM messages
                                WHERE {date_condition}"""
                     params = date_params
@@ -707,7 +707,7 @@ class DatabaseManager:
                     # Filter by active groups (add @ prefix for matching)
                     groups_with_at = ["@" + g for g in groups]
                     placeholders = ",".join("?" * len(groups_with_at))
-                    query = f"""SELECT datetime, from_callsign, target, message
+                    query = f"""SELECT db, datetime, from_callsign, target, message
                                FROM messages
                                WHERE target IN ({placeholders}) AND {date_condition}"""
                     params = groups_with_at + date_params
@@ -956,7 +956,7 @@ class DatabaseManager:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         datetime TEXT,
                         freq DOUBLE,
-                        db TEXT,
+                        db INTEGER,
                         source INTEGER,
                         SRid INTEGER,
                         from_callsign TEXT,
@@ -981,6 +981,8 @@ class DatabaseManager:
                 connection.commit()
         except sqlite3.Error as error:
             print(f"Database error initializing statrep table: {error}")
+        # Migrate existing databases from TEXT to INTEGER
+        self._migrate_db_column_to_integer('statrep')
 
     def init_messages_table(self) -> None:
         """Create messages table if it doesn't exist."""
@@ -992,7 +994,7 @@ class DatabaseManager:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         datetime TEXT,
                         freq DOUBLE,
-                        db TEXT,
+                        db INTEGER,
                         source INTEGER,
                         SRid INTEGER,
                         from_callsign TEXT,
@@ -1003,6 +1005,93 @@ class DatabaseManager:
                 connection.commit()
         except sqlite3.Error as error:
             print(f"Database error initializing messages table: {error}")
+        # Migrate existing databases from TEXT to INTEGER
+        self._migrate_db_column_to_integer('messages')
+
+    def _migrate_db_column_to_integer(self, table_name: str) -> None:
+        """Migrate the db column from TEXT to INTEGER for existing databases.
+
+        SQLite doesn't support ALTER COLUMN, so we use a temp table approach:
+        1. Check if db column is TEXT type
+        2. Create temp table with INTEGER type
+        3. Copy data with CAST
+        4. Drop old table and rename temp
+        """
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+
+                # Check current column type
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                columns = cursor.fetchall()
+
+                db_column = None
+                for col in columns:
+                    if col[1] == 'db':  # col[1] is column name
+                        db_column = col
+                        break
+
+                if db_column is None:
+                    return  # No db column found, nothing to migrate
+
+                # col[2] is the type - check if it's TEXT (case-insensitive)
+                if db_column[2].upper() != 'TEXT':
+                    return  # Already INTEGER or other type, no migration needed
+
+                print(f"Migrating {table_name}.db column from TEXT to INTEGER...")
+
+                # Get the full CREATE TABLE statement to understand table structure
+                cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                result = cursor.fetchone()
+                if not result:
+                    return
+
+                # Get all column names for the table
+                column_names = [col[1] for col in columns]
+                columns_str = ', '.join(column_names)
+
+                # Create columns string for new table, replacing db TEXT with db INTEGER
+                new_columns = []
+                for col in columns:
+                    col_name = col[1]
+                    col_type = col[2]
+                    if col_name == 'id':
+                        new_columns.append('id INTEGER PRIMARY KEY AUTOINCREMENT')
+                    elif col_name == 'db':
+                        new_columns.append('db INTEGER')
+                    else:
+                        new_columns.append(f'{col_name} {col_type}')
+                new_columns_def = ', '.join(new_columns)
+
+                # Perform migration in a transaction
+                cursor.execute("BEGIN TRANSACTION")
+                try:
+                    # Create temp table with new schema
+                    cursor.execute(f"CREATE TABLE {table_name}_temp ({new_columns_def})")
+
+                    # Build insert with CAST for db column
+                    insert_columns = []
+                    for col_name in column_names:
+                        if col_name == 'db':
+                            insert_columns.append('CAST(db AS INTEGER)')
+                        else:
+                            insert_columns.append(col_name)
+                    insert_str = ', '.join(insert_columns)
+
+                    cursor.execute(f"INSERT INTO {table_name}_temp ({columns_str}) SELECT {insert_str} FROM {table_name}")
+
+                    # Drop old table and rename temp
+                    cursor.execute(f"DROP TABLE {table_name}")
+                    cursor.execute(f"ALTER TABLE {table_name}_temp RENAME TO {table_name}")
+
+                    cursor.execute("COMMIT")
+                    print(f"Successfully migrated {table_name}.db column to INTEGER")
+                except sqlite3.Error as e:
+                    cursor.execute("ROLLBACK")
+                    raise e
+
+        except sqlite3.Error as error:
+            print(f"Database error migrating {table_name}.db column: {error}")
 
     def init_abbreviations_table(self) -> None:
         """Create abbreviations table if it doesn't exist and populate with defaults."""
@@ -1740,7 +1829,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Configure header behavior
         header = self.statrep_table.horizontalHeader()
+        header.setMinimumSectionSize(10)
         header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Fixed)
+        header.resizeSection(0, 10)
         header.setStretchLastSection(True)
         self.statrep_table.verticalHeader().setVisible(False)
 
@@ -2622,7 +2714,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Create the message data table."""
         self.message_table = QtWidgets.QTableWidget(self.central_widget)
         self.message_table.setObjectName("messageTable")
-        self.message_table.setColumnCount(4)
+        self.message_table.setColumnCount(5)
         self.message_table.setRowCount(0)
 
         # Apply styling
@@ -2657,12 +2749,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Set headers
         self.message_table.setHorizontalHeaderLabels([
-            "Date Time", "From", "To", "Message"
+            "", "Date Time", "From", "To", "Message"
         ])
 
         # Configure header behavior
         header = self.message_table.horizontalHeader()
+        header.setMinimumSectionSize(10)
         header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Fixed)
+        header.resizeSection(0, 10)
         header.setStretchLastSection(True)
         self.message_table.verticalHeader().setVisible(False)
         self.message_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
@@ -3204,27 +3299,47 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         table.setRowCount(0)
         is_message_table = (table == self.message_table)
+        is_statrep_table = (table == self.statrep_table)
 
         for row_num, row_data in enumerate(data):
             table.insertRow(row_num)
 
             # Check if this row should be bold (direct message, no @ symbol)
             bold_row = False
-            if is_message_table and len(row_data) > 2:
-                to_value = str(row_data[2]) if row_data[2] is not None else ""
+            if is_message_table and len(row_data) > 3:
+                to_value = str(row_data[3]) if row_data[3] is not None else ""
                 bold_row = to_value and not to_value.startswith("@")
 
             for col_num, value in enumerate(row_data):
                 display_value = str(value) if value is not None else ""
 
-                # Truncate datetime in first column (remove seconds)
-                if col_num == 0 and len(display_value) >= 16:
-                    display_value = display_value[:16]
+                # Handle SNR (db) column (first column)
+                if (is_statrep_table or is_message_table) and col_num == 0:
+                    display_value = ""
+                    item = QTableWidgetItem(display_value)
+                    try:
+                        db_value = int(value) if value is not None else 0
+                        if db_value >= -5:
+                            color = QColor(self.config.get_color('condition_green'))
+                        elif db_value >= -16:
+                            color = QColor(self.config.get_color('condition_yellow'))
+                        else:
+                            color = QColor(self.config.get_color('condition_red'))
+                        item.setBackground(color)
+                    except (ValueError, TypeError):
+                        pass
+                    table.setItem(row_num, col_num, item)
+                    continue
+
+                # Truncate datetime column (remove seconds) - column 1 for both tables
+                if (is_message_table or is_statrep_table) and col_num == 1:
+                    if len(display_value) >= 16:
+                        display_value = display_value[:16]
 
                 item = QTableWidgetItem(display_value)
 
-                # Bold From and To columns (1 and 2) if direct message
-                if bold_row and col_num in (1, 2):
+                # Bold From and To columns (2 and 3) if direct message
+                if bold_row and col_num in (2, 3):
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
@@ -3236,7 +3351,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 table.setItem(row_num, col_num, item)
 
-        table.sortItems(0, QtCore.Qt.DescendingOrder)
+        # Sort by datetime column (column 1 for both statrep and message tables)
+        sort_column = 1 if (is_statrep_table or is_message_table) else 0
+        table.sortItems(sort_column, QtCore.Qt.DescendingOrder)
 
     def _refresh_all_data(self) -> None:
         """Refresh all data views (statrep, messages, and map)."""
