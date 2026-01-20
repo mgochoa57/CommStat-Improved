@@ -202,7 +202,7 @@ def smart_title_case(text: str, abbreviations: Dict[str, str] = None) -> str:
 
 # StatRep table column headers
 STATREP_HEADERS = [
-    "", "Date Time", "From", "To", "Grid", "Scope", "Map Pin",
+    "", "Date Time", "Freq", "From", "To", "Grid", "Scope", "Map Pin",
     "Powr", "H2O", "Med", "Comm", "Trvl", "Inet", "Fuel", "Food",
     "Crime", "Civil", "Pol", "Remarks"
 ]
@@ -640,7 +640,7 @@ class DatabaseManager:
                 # Build query based on whether we're showing all or filtering by groups
                 if show_all:
                     query = f"""
-                        SELECT db, datetime, from_callsign, groupname, grid, prec, status,
+                        SELECT db, datetime, freq, from_callsign, groupname, grid, prec, status,
                                commpwr, pubwtr, med, ota, trav, net,
                                fuel, food, crime, civil, political, comments
                         FROM statrep
@@ -652,7 +652,7 @@ class DatabaseManager:
                     groups_with_at = ["@" + g for g in groups]
                     placeholders = ",".join("?" * len(groups_with_at))
                     query = f"""
-                        SELECT db, datetime, from_callsign, groupname, grid, prec, status,
+                        SELECT db, datetime, freq, from_callsign, groupname, grid, prec, status,
                                commpwr, pubwtr, med, ota, trav, net,
                                fuel, food, crime, civil, political, comments
                         FROM statrep
@@ -699,7 +699,7 @@ class DatabaseManager:
 
                 if show_all:
                     # Show all messages regardless of group
-                    query = f"""SELECT db, datetime, from_callsign, target, message
+                    query = f"""SELECT db, datetime, freq, from_callsign, target, message
                                FROM messages
                                WHERE {date_condition}"""
                     params = date_params
@@ -707,7 +707,7 @@ class DatabaseManager:
                     # Filter by active groups (add @ prefix for matching)
                     groups_with_at = ["@" + g for g in groups]
                     placeholders = ",".join("?" * len(groups_with_at))
-                    query = f"""SELECT db, datetime, from_callsign, target, message
+                    query = f"""SELECT db, datetime, freq, from_callsign, target, message
                                FROM messages
                                WHERE target IN ({placeholders}) AND {date_condition}"""
                     params = groups_with_at + date_params
@@ -1791,7 +1791,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Create the StatRep data table."""
         self.statrep_table = QtWidgets.QTableWidget(self.central_widget)
         self.statrep_table.setObjectName("statrepTable")
-        self.statrep_table.setColumnCount(18)
+        self.statrep_table.setColumnCount(20)
         self.statrep_table.setRowCount(0)
 
         # Apply styling
@@ -2714,7 +2714,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Create the message data table."""
         self.message_table = QtWidgets.QTableWidget(self.central_widget)
         self.message_table.setObjectName("messageTable")
-        self.message_table.setColumnCount(5)
+        self.message_table.setColumnCount(6)
         self.message_table.setRowCount(0)
 
         # Apply styling
@@ -2749,7 +2749,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Set headers
         self.message_table.setHorizontalHeaderLabels([
-            "", "Date Time", "From", "To", "Message"
+            "", "Date Time", "Freq", "From", "To", "Message"
         ])
 
         # Configure header behavior
@@ -2821,10 +2821,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
             gridlist = []
             for row in data:
-                callsign = row[2]
-                srid = row[1]
-                status = str(row[5])
-                grid = row[3]
+                callsign = row[4]
+                srid = row[3]
+                status = str(row[7])
+                grid = row[5]
 
                 # Convert grid to coordinates
                 try:
@@ -3306,8 +3306,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # Check if this row should be bold (direct message, no @ symbol)
             bold_row = False
-            if is_message_table and len(row_data) > 3:
-                to_value = str(row_data[3]) if row_data[3] is not None else ""
+            if is_message_table and len(row_data) > 4:
+                to_value = str(row_data[4]) if row_data[4] is not None else ""
                 bold_row = to_value and not to_value.startswith("@")
 
             for col_num, value in enumerate(row_data):
@@ -3319,6 +3319,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     item = QTableWidgetItem(display_value)
                     try:
                         db_value = int(value) if value is not None else 0
+                        item.setToolTip(f"{db_value} dB")
                         if db_value >= -5:
                             color = QColor(self.config.get_color('condition_green'))
                         elif db_value >= -16:
@@ -3336,10 +3337,19 @@ class MainWindow(QtWidgets.QMainWindow):
                     if len(display_value) >= 16:
                         display_value = display_value[:16]
 
+                # Format frequency column (column 2) - convert Hz to MHz
+                if (is_message_table or is_statrep_table) and col_num == 2:
+                    try:
+                        freq_hz = float(value) if value else 0
+                        freq_mhz = freq_hz / 1000000
+                        display_value = f"{freq_mhz:.3f}"  # Show as 7.110
+                    except (ValueError, TypeError):
+                        pass
+
                 item = QTableWidgetItem(display_value)
 
-                # Bold From and To columns (2 and 3) if direct message
-                if bold_row and col_num in (2, 3):
+                # Bold From and To columns (3 and 4) if direct message
+                if bold_row and col_num in (3, 4):
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
@@ -3618,8 +3628,10 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f"[{rig_name}] RX.DIRECTED: {from_call} -> {to_call}: {value}")
 
             # Process the message for database insertion
+            # Use dial frequency (freq - offset) for database storage
+            dial_freq = freq - offset if freq else 0
             data_type = self._process_directed_message(
-                rig_name, value, from_call, to_call, grid, freq, snr, utc_db
+                rig_name, value, from_call, to_call, grid, dial_freq, snr, utc_db
             )
 
             # Refresh only the relevant UI component
