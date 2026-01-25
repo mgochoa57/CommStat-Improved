@@ -28,7 +28,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from configparser import ConfigParser
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Set
 
 import folium
 import maidenhead as mh
@@ -152,25 +152,40 @@ def expand_abbreviations(text: str, abbreviations: Dict[str, str] = None) -> str
     return ' '.join(result)
 
 
-def smart_title_case(text: str, abbreviations: Dict[str, str] = None) -> str:
+def smart_title_case(text: str, abbreviations: Dict[str, str] = None, apply_normalization: bool = True) -> str:
     """Convert text to smart title case with acronym detection.
 
     First expands JS8Call abbreviations, then applies title case rules:
-    - Words 1-2 chars stay lowercase (e.g., "a", "of", "to")
+    - Words 1-2 chars stay lowercase (e.g., "a", "of", "to"), EXCEPT at sentence start
     - Dictionary words get title case
     - Non-dictionary words become ALL CAPS (treated as acronyms)
+    - First word of each sentence is always capitalized
+    - All-caps words from abbreviation expansion are preserved (e.g., SC, NY, TX)
 
     Args:
         text: Input text to format.
         abbreviations: Dictionary mapping abbreviations to expansions.
+        apply_normalization: If False, returns text unchanged. Defaults to True.
 
     Returns:
-        Formatted text with abbreviations expanded and smart title case.
+        Formatted text with abbreviations expanded and smart title case (if enabled).
     """
+    # If normalization is disabled, return text as-is
+    if not apply_normalization:
+        return text
+
     # First expand abbreviations
     text = expand_abbreviations(text, abbreviations)
     if not text:
         return text
+
+    # Identify words that are all-caps (2+ letters) after abbreviation expansion
+    # These should be preserved as-is (e.g., state abbreviations like SC, NY)
+    preserved_caps = set()
+    for word in text.split():
+        clean = ''.join(c for c in word if c.isalnum())
+        if len(clean) >= 2 and clean.isupper():
+            preserved_caps.add(clean.upper())
 
     # Initialize dictionary if available
     dictionary = None
@@ -183,12 +198,37 @@ def smart_title_case(text: str, abbreviations: Dict[str, str] = None) -> str:
     words = text.lower().split()
     result = []
 
-    for word in words:
+    for i, word in enumerate(words):
         # Strip punctuation for checking, preserve for output
         clean_word = ''.join(c for c in word if c.isalnum())
 
-        if len(clean_word) <= 2:
-            # Short words stay lowercase
+        # Check if this word should be preserved as all-caps
+        if clean_word.upper() in preserved_caps:
+            # Reconstruct word with original punctuation but uppercase letters
+            rebuilt = ""
+            for c in word:
+                rebuilt += c.upper() if c.isalnum() else c
+            result.append(rebuilt)
+            continue
+
+        # Check if this is the start of a sentence
+        is_sentence_start = (i == 0)  # First word
+        if i > 0:
+            # Check if previous word ends with sentence-ending punctuation
+            prev_word = result[-1]
+            if prev_word.rstrip().endswith(('.', '!', '?')):
+                is_sentence_start = True
+
+        if is_sentence_start:
+            # Always capitalize first letter of sentence, even if 1-2 chars
+            if dictionary and not dictionary.check(clean_word) and not dictionary.check(clean_word.capitalize()):
+                # Not in dictionary - treat as acronym
+                result.append(word.upper())
+            else:
+                # Regular word or short word at sentence start - capitalize
+                result.append(word.capitalize())
+        elif len(clean_word) <= 2:
+            # Short words stay lowercase (mid-sentence)
             result.append(word)
         elif dictionary and not dictionary.check(clean_word) and not dictionary.check(clean_word.capitalize()):
             # Not in dictionary - treat as acronym
@@ -441,6 +481,12 @@ class ConfigManager:
 
     def set_show_alerts(self, value: bool) -> None:
         self._save_setting('show_alerts', value)
+
+    def get_apply_text_normalization(self) -> bool:
+        return self.directed_config.get('apply_text_normalization', True)
+
+    def set_apply_text_normalization(self, value: bool) -> None:
+        self._save_setting('apply_text_normalization', value)
 
     def get_selected_rss_feed(self) -> str:
         return self.directed_config.get('selected_rss_feed', list(DEFAULT_RSS_FEEDS.keys())[0])
@@ -1127,6 +1173,19 @@ class DatabaseManager:
             "WRK": "WORK", "WUD": "WOULD", "WX": "WEATHER", "XMTR": "TRANSMITTER",
             "XTRA": "EXTRA", "YALL": "Y'ALL", "YR": "YOUR", "YRS": "YOURS",
             "73": "BEST REGARDS", "88": "LOVE AND KISSES",
+            # US State abbreviations (preserved as all-caps)
+            "AL": "AL", "AK": "AK", "AZ": "AZ", "AR": "AR", "CA": "CA",
+            "CO": "CO", "CT": "CT", "DE": "DE", "FL": "FL", "GA": "GA",
+            "HI": "HI", "ID": "ID", "IL": "IL", "IN": "IN", "IA": "IA",
+            "KS": "KS", "KY": "KY", "LA": "LA", "ME": "ME", "MD": "MD",
+            "MA": "MA", "MI": "MI", "MN": "MN", "MS": "MS", "MO": "MO",
+            "MT": "MT", "NE": "NE", "NV": "NV", "NH": "NH", "NJ": "NJ",
+            "NM": "NM", "NY": "NY", "NC": "NC", "ND": "ND", "OH": "OH",
+            "OK": "OK", "OR": "OR", "PA": "PA", "RI": "RI", "SC": "SC",
+            "SD": "SD", "TN": "TN", "TX": "TX", "UT": "UT", "VT": "VT",
+            "VA": "VA", "WA": "WA", "WV": "WV", "WI": "WI", "WY": "WY",
+            # US Territories
+            "DC": "DC", "PR": "PR", "VI": "VI", "GU": "GU", "AS": "AS",
         }
 
         try:
@@ -1152,6 +1211,28 @@ class DatabaseManager:
                         )
                     connection.commit()
                     print(f"Populated abbreviations table with {len(default_abbreviations)} defaults")
+                else:
+                    # For existing databases, ensure state abbreviations are present
+                    # Define state abbreviations separately for migration
+                    state_abbreviations = {
+                        "AL": "AL", "AK": "AK", "AZ": "AZ", "AR": "AR", "CA": "CA",
+                        "CO": "CO", "CT": "CT", "DE": "DE", "FL": "FL", "GA": "GA",
+                        "HI": "HI", "ID": "ID", "IL": "IL", "IN": "IN", "IA": "IA",
+                        "KS": "KS", "KY": "KY", "LA": "LA", "ME": "ME", "MD": "MD",
+                        "MA": "MA", "MI": "MI", "MN": "MN", "MS": "MS", "MO": "MO",
+                        "MT": "MT", "NE": "NE", "NV": "NV", "NH": "NH", "NJ": "NJ",
+                        "NM": "NM", "NY": "NY", "NC": "NC", "ND": "ND", "OH": "OH",
+                        "OK": "OK", "OR": "OR", "PA": "PA", "RI": "RI", "SC": "SC",
+                        "SD": "SD", "TN": "TN", "TX": "TX", "UT": "UT", "VT": "VT",
+                        "VA": "VA", "WA": "WA", "WV": "WV", "WI": "WI", "WY": "WY",
+                        "DC": "DC", "PR": "PR", "VI": "VI", "GU": "GU", "AS": "AS",
+                    }
+                    for abbrev, expansion in state_abbreviations.items():
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO abbreviations (abbrev, expansion) VALUES (?, ?)",
+                            (abbrev.upper(), expansion)
+                        )
+                    connection.commit()
         except sqlite3.Error as error:
             print(f"Database error initializing abbreviations table: {error}")
 
@@ -1269,6 +1350,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rig_callsigns: Dict[str, str] = {}
         self.rig_grids: Dict[str, str] = {}
         self.rig_states: Dict[str, str] = {}
+        self.rig_status_logged: Set[str] = set()  # Track which rigs have logged initial status
 
         # Active groups (currently single, but list for future multi-group support)
         self.active_groups: List[str] = [self.db.get_active_group()]
@@ -1597,10 +1679,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # STATREP & MESSAGES section
         self.filter_menu.addSeparator()
-        statrep_messages_label = QtWidgets.QAction("STATUS REPORTS & MESSAGES", self)
+        statrep_messages_label = QtWidgets.QAction("STATUS REPORTS && MESSAGES", self)
         statrep_messages_label.setEnabled(False)  # Disabled as a section title
         self.filter_menu.addAction(statrep_messages_label)
 
+        self.apply_text_normalization_checkbox = create_menu_checkbox(
+            self.filter_menu, "Apply Text Normalization",
+            self.config.get_apply_text_normalization(), self._on_toggle_text_normalization)
         self.show_all_groups_checkbox = create_menu_checkbox(
             self.filter_menu, "Show All My Groups",
             self.config.get_show_all_groups(), self._on_toggle_show_all_groups)
@@ -1655,6 +1740,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # Add status bar
         self.statusbar = QtWidgets.QStatusBar(self)
         self.setStatusBar(self.statusbar)
+
+        # Add "Rig Status:" label (no sunken effect, permanent on left)
+        rig_status_header = QtWidgets.QLabel(" Rig Status: ")
+        self.statusbar.addWidget(rig_status_header)
+
+        # Dictionary to hold status widgets for each rig
+        self.rig_status_widgets: Dict[str, Tuple[QtWidgets.QLabel, QtWidgets.QLabel]] = {}
 
     def _setup_header(self) -> None:
         """Create the header row with News Feed and Time."""
@@ -2083,7 +2175,26 @@ class MainWindow(QtWidgets.QMainWindow):
             Extracted content string, or None on error.
         """
         try:
-            with urllib.request.urlopen(_PING, timeout=10) as response:
+            # Get callsign (first available from rig_callsigns)
+            callsign = next((cs for cs in self.rig_callsigns.values() if cs), "UNKNOWN")
+
+            # Get db_version from controls table
+            db_version = 0
+            try:
+                conn = sqlite3.connect(DATABASE_FILE, timeout=10)
+                cursor = conn.cursor()
+                cursor.execute("SELECT db_version FROM controls WHERE id = 1")
+                result = cursor.fetchone()
+                if result:
+                    db_version = result[0]
+                conn.close()
+            except sqlite3.Error:
+                pass  # Use default db_version = 0 if query fails
+
+            # Build heartbeat URL with callsign and db_version parameters
+            heartbeat_url = f"{_PING}?cs={callsign}&db={db_version}"
+
+            with urllib.request.urlopen(heartbeat_url, timeout=10) as response:
                 content = response.read().decode('utf-8')
 
             # Extract content between <pre> tags if present
@@ -3016,12 +3127,60 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_connected_rigs_display(self) -> None:
         """Update the connected rigs display with currently connected rig names."""
+        # Update header label (existing functionality)
         connected = self.tcp_pool.get_connected_rig_names()
         if connected:
             text = "  ".join(f"[{name}]" for name in connected)
         else:
             text = ""
         self.connected_rigs_label.setText(text)
+
+        # Update status bar widgets for each rig
+        all_rigs = self.connector_manager.get_all_connectors()
+
+        # Remove widgets for rigs that no longer exist
+        all_rig_names = [r['rig_name'] for r in all_rigs]
+        for rig_name in list(self.rig_status_widgets.keys()):
+            if rig_name not in all_rig_names:
+                label_rig, label_status = self.rig_status_widgets[rig_name]
+                self.statusbar.removeWidget(label_rig)
+                self.statusbar.removeWidget(label_status)
+                label_rig.deleteLater()
+                label_status.deleteLater()
+                del self.rig_status_widgets[rig_name]
+
+        # Create or update widgets for each rig
+        for rig in all_rigs:
+            rig_name = rig['rig_name']
+            is_connected = rig_name in connected
+
+            if rig_name not in self.rig_status_widgets:
+                # Create new widgets for this rig
+                # Rig name label with sunken effect
+                label_rig = QtWidgets.QLabel(f" {rig_name} ")
+                label_rig.setFrameStyle(QtWidgets.QFrame.Panel | QtWidgets.QFrame.Sunken)
+                label_rig.setLineWidth(2)
+
+                # Status label with sunken effect
+                label_status = QtWidgets.QLabel()
+                label_status.setFrameStyle(QtWidgets.QFrame.Panel | QtWidgets.QFrame.Sunken)
+                label_status.setLineWidth(2)
+
+                # Add to status bar (on left side, not permanent)
+                self.statusbar.addWidget(label_rig)
+                self.statusbar.addWidget(label_status)
+
+                # Store references
+                self.rig_status_widgets[rig_name] = (label_rig, label_status)
+
+            # Update status label
+            _, label_status = self.rig_status_widgets[rig_name]
+            if is_connected:
+                label_status.setText(" Connected ")
+                label_status.setStyleSheet("background-color: #00dd00; color: black;")
+            else:
+                label_status.setText(" Disconnected ")
+                label_status.setStyleSheet("background-color: #dd0000; color: white;")
 
     def _update_newsfeed_text(self, frame: int) -> None:
         """Update news feed display for current animation frame."""
@@ -3187,10 +3346,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _reset_filter_date(self, days_ago: int) -> None:
         """Reset filter start date to specified days ago and apply."""
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
-        # Calculate new start date
-        new_start = (datetime.now() - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+        # Calculate new start date using UTC time
+        if days_ago == 0:
+            # For midnight, use current UTC date at 00:00:00
+            utc_now = datetime.now(timezone.utc)
+            new_start = utc_now.strftime("%Y-%m-%d") + " 00:00:00"
+        else:
+            # For days ago, calculate from current UTC time
+            new_start = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d %H:%M:%S")
 
         # Update in-memory filter settings
         self.config.filter_settings = {
@@ -3201,7 +3366,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Refresh data with new filters
         self._refresh_all_data()
 
-        print(f"Filter reset: start={new_start}")
+        print(f"Filter reset (UTC): start={new_start}")
 
     def _on_toggle_heartbeat(self, checked: bool) -> None:
         """Toggle heartbeat message filtering in live feed."""
@@ -3379,6 +3544,17 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_toggle_show_every_group(self, checked: bool) -> None:
         """Toggle showing every group's data (no filtering at all)."""
         self.config.set_show_every_group(checked)
+
+        # When "Show Every Group" is checked, also check "Show All My Groups"
+        if checked:
+            self.show_all_groups_checkbox.setChecked(True)
+            self.config.set_show_all_groups(True)
+
+        self._refresh_all_data()
+
+    def _on_toggle_text_normalization(self, checked: bool) -> None:
+        """Toggle text normalization (abbreviation expansion and smart title case)."""
+        self.config.set_apply_text_normalization(checked)
         self._refresh_all_data()
 
     def _on_manage_groups(self) -> None:
@@ -3506,6 +3682,8 @@ class MainWindow(QtWidgets.QMainWindow):
             status_line = f"{utc_str}\t[{rig_name}] Disconnected"
             self.feed_messages.insert(0, status_line)
             self._update_feed_display()
+            # Clear status logged flag so it will log again on reconnect
+            self.rig_status_logged.discard(rig_name)
         self._update_connected_rigs_display()
 
     def _handle_callsign_received(self, rig_name: str, callsign: str) -> None:
@@ -3555,14 +3733,17 @@ class MainWindow(QtWidgets.QMainWindow):
             # Get cached values from the TCP client
             client = self.tcp_pool.clients.get(rig_name)
             if client:
-                speed_name = client.speed_name or "UNKNOWN"
-                callsign = client.callsign or "UNKNOWN"
-                frequency = client.frequency
+                # Only log the status message once per connection
+                if rig_name not in self.rig_status_logged:
+                    speed_name = client.speed_name or "UNKNOWN"
+                    callsign = client.callsign or "UNKNOWN"
+                    frequency = client.frequency
 
-                # Format: [IC-7300] Running in TURBO mode, N0DDK, EM83CV, GA on 7.110
-                status_line = f"[{rig_name}] Running in {speed_name} mode, {callsign}, {grid}, {state or 'XX'} on {frequency:.3f}"
-                print(status_line)
-                self._handle_status_message(rig_name, status_line)
+                    # Format: [IC-7300] Running in TURBO mode, N0DDK, EM83CV, GA on 7.110
+                    status_line = f"[{rig_name}] Running in {speed_name} mode, {callsign}, {grid}, {state or 'XX'} on {frequency:.3f}"
+                    print(status_line)
+                    self._handle_status_message(rig_name, status_line)
+                    self.rig_status_logged.add(rig_name)
 
     def _handle_status_message(self, rig_name: str, message: str) -> None:
         """
@@ -3778,7 +3959,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             color = 1  # Default to yellow
                         title = fields[1].strip()
                         # Apply smart title case to message (acronym detection)
-                        message_text = smart_title_case(",".join(fields[2:]).strip(), abbreviations)
+                        message_text = smart_title_case(",".join(fields[2:]).strip(), abbreviations, self.config.get_apply_text_normalization())
 
                         cursor.execute(
                             "INSERT INTO alerts "
@@ -3799,7 +3980,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     if len(fields) >= 2:
                         id_num = fields[0].strip()
                         # Apply smart title case to message (acronym detection)
-                        message_text = smart_title_case(",".join(fields[1:]).strip(), abbreviations)
+                        message_text = smart_title_case(",".join(fields[1:]).strip(), abbreviations, self.config.get_apply_text_normalization())
 
                         cursor.execute(
                             "INSERT OR REPLACE INTO messages "
@@ -3823,7 +4004,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         srid = fields[2].strip()
                         srcode = fields[3].strip()
                         # Apply smart title case to comments (acronym detection)
-                        comments = smart_title_case(fields[4].strip(), abbreviations) if len(fields) > 4 else ""
+                        comments = smart_title_case(fields[4].strip(), abbreviations, self.config.get_apply_text_normalization()) if len(fields) > 4 else ""
                         orig_call = fields[5].strip() if len(fields) > 5 else callsign
 
                         # Expand compressed "+" to all green (111111111111)
@@ -3834,12 +4015,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
                         if len(srcode) >= 12:
                             sr_fields = list(srcode)
+                            # Extract date from datetime string (format: "YYYY-MM-DD   HH:MM:SS")
+                            date_only = utc.split()[0] if utc else ""
                             cursor.execute(
                                 "INSERT OR IGNORE INTO statrep "
-                                "(datetime, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
+                                "(datetime, date, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
                                 "med, ota, trav, net, fuel, food, crime, civil, political, comments) "
-                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                (utc, freq, snr, 1, srid, orig_call, group, curgrid, prec,
+                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                (utc, date_only, freq, snr, 1, srid, orig_call, group, curgrid, prec,
                                  sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
                                  sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
                                  sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
@@ -3865,7 +4048,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         srid = fields[2].strip()
                         srcode = fields[3].strip()
                         # Apply smart title case to comments (acronym detection)
-                        comments = smart_title_case(fields[4].strip(), abbreviations) if len(fields) > 4 else ""
+                        comments = smart_title_case(fields[4].strip(), abbreviations, self.config.get_apply_text_normalization()) if len(fields) > 4 else ""
 
                         # Expand compressed "+" shorthand to all green status
                         # "+" means all 12 indicators are at level 1 (green/good)
@@ -3880,12 +4063,14 @@ class MainWindow(QtWidgets.QMainWindow):
                         # Values: 1=Green, 2=Yellow, 3=Red, 4=Gray/Unknown
                         if len(srcode) >= 12:
                             sr_fields = list(srcode)
+                            # Extract date from datetime string (format: "YYYY-MM-DD   HH:MM:SS")
+                            date_only = utc.split()[0] if utc else ""
                             cursor.execute(
                                 "INSERT OR IGNORE INTO statrep "
-                                "(datetime, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
+                                "(datetime, date, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
                                 "med, ota, trav, net, fuel, food, crime, civil, political, comments) "
-                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                (utc, freq, snr, 1, srid, callsign, group, curgrid, prec,
+                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                (utc, date_only, freq, snr, 1, srid, callsign, group, curgrid, prec,
                                  sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
                                  sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
                                  sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
@@ -3920,7 +4105,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     srid = statrep_pattern.group(3)
                     srcode = statrep_pattern.group(4)
                     # Apply smart title case to comments (acronym detection)
-                    comments = smart_title_case(statrep_pattern.group(5).strip(), abbreviations) if statrep_pattern.group(5) else ""
+                    comments = smart_title_case(statrep_pattern.group(5).strip(), abbreviations, self.config.get_apply_text_normalization()) if statrep_pattern.group(5) else ""
 
                     # Expand compressed "+" to all green (111111111111)
                     if srcode == "+":
@@ -3937,12 +4122,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
                     if len(srcode) >= 12:
                         sr_fields = list(srcode)
+                        # Extract date from datetime string (format: "YYYY-MM-DD   HH:MM:SS")
+                        date_only = utc.split()[0] if utc else ""
                         cursor.execute(
                             "INSERT OR IGNORE INTO statrep "
-                            "(datetime, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
+                            "(datetime, date, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
                             "med, ota, trav, net, fuel, food, crime, civil, political, comments) "
-                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                            (utc, freq, snr, 1, srid, callsign, pattern_group, curgrid, prec,
+                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (utc, date_only, freq, snr, 1, srid, callsign, pattern_group, curgrid, prec,
                              sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
                              sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
                              sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
@@ -3952,6 +4139,313 @@ class MainWindow(QtWidgets.QMainWindow):
                         print(f"\033[92m[{rig_name}] Added StatRep (pattern) from: {callsign} ID: {srid}\033[0m")
                         conn.close()
                         return "statrep"
+
+            # Check for F!304 statrep format (BEFORE standard MSG check)
+            # Format: [CALLSIGN:] [@GROUP|CALLSIGN] [MSG] F!304 {8 digits} {remainder text}
+            # Note: MSG is optional
+            # This must be checked before standard " MSG " to avoid false matches
+            if "F!304" in value:
+                import random
+
+                # Check the pattern before "F!304" to determine if we should process
+                # Pattern: look at what comes before F!304
+                pre_msg = value.split("F!304")[0]
+
+                # Check for callsign-to-callsign pattern (skip if found)
+                # Pattern: CALL1: CALL2 [MSG] (two callsigns before F!304)
+                callsign_pattern = re.search(r'([A-Z0-9]+):\s+([A-Z0-9/]+)\s+(?:MSG\s+)?$', pre_msg, re.IGNORECASE)
+                if callsign_pattern:
+                    # This is a callsign-to-callsign message, skip processing
+                    conn.close()
+                    return ""
+
+                # Extract pattern: [MSG] F!304 {8 digits} {remainder}
+                # MSG is optional
+                f304_pattern = re.search(r'(?:MSG\s+)?F!304\s+(\d{8})\s*(.*?)(?:>])?$', value)
+
+                if f304_pattern:
+                    digits = f304_pattern.group(1)      # 8-digit code
+                    remainder = f304_pattern.group(2)   # Rest of message
+
+                    # Parse the 8 digits
+                    # Position 1 (digits[0]): Landline text
+                    # Position 2 (digits[1]): ota mapping
+                    ota_digit = int(digits[1])
+                    if ota_digit == 1:
+                        ota = "1"
+                    elif ota_digit in [2, 3]:
+                        ota = "2"
+                    elif ota_digit == 4:
+                        ota = "3"
+                    else:
+                        ota = "4"
+
+                    # Position 4-6 (digits[3-5]): direct mapping
+                    net = digits[3]
+                    pubwtr = digits[4]
+                    commpw = digits[5]
+
+                    # Build comment string
+                    # Helper function to map digit to text
+                    def map_value(digit):
+                        mapping = {1: "Yes", 2: "Limited", 3: "No", 4: "Unknown"}
+                        return mapping.get(int(digit), "Unknown")
+
+                    landline = map_value(digits[0])  # Position 1
+                    amfmtv = map_value(digits[2])    # Position 3
+                    natgas = map_value(digits[6])    # Position 7
+                    noaa = map_value(digits[7])      # Position 8
+
+                    # Extract grid square from remainder (pattern: 2 alpha + 2 digits + optional 2 alphanumeric)
+                    # Look for grid square like EM48AT, EM48, etc.
+                    f304_grid = grid  # Default to sender's grid from parameter
+                    f304_grid_found = False  # Track if grid was found in message
+                    grid_match = re.search(r'\b([A-Z]{2}\d{2}[A-Z0-9]{0,2})\b', remainder, re.IGNORECASE)
+                    if grid_match:
+                        f304_grid = grid_match.group(1).upper()
+                        f304_grid_found = True
+                        # Remove grid square from remainder
+                        remainder = remainder.replace(grid_match.group(0), '').strip()
+
+                    # Build comment
+                    comment_parts = [
+                        "F!304",
+                        f"Landline = {landline}",
+                        f"AM/FM/TV = {amfmtv}",
+                        f"Nat Gas = {natgas}",
+                        f"NOAA = {noaa}"
+                    ]
+
+                    if remainder.strip():
+                        # Apply text normalization to remainder if enabled
+                        formatted_remainder = smart_title_case(
+                            remainder.strip(),
+                            abbreviations,
+                            self.config.get_apply_text_normalization()
+                        )
+                        comments = ", ".join(comment_parts) + f" - {formatted_remainder}"
+                    else:
+                        comments = ", ".join(comment_parts)
+
+                    # Extract group: check for @GROUP in value, otherwise use "@ALL"
+                    f304_group = group if group else ""
+                    if not f304_group and "@" in value:
+                        group_match = re.search(r'(@[A-Z0-9]+)', value, re.IGNORECASE)
+                        if group_match:
+                            f304_group = group_match.group(1).upper()
+
+                    # If still no group found, set to @ALL
+                    if not f304_group:
+                        f304_group = "@ALL"
+
+                    # Generate random 3-digit SRid
+                    srid_f304 = random.randint(100, 999)
+
+                    # Extract date from datetime string (format: "YYYY-MM-DD   HH:MM:SS")
+                    date_only = utc.split()[0] if utc else ""
+
+                    # Calculate status based on sum of last 8 digits (all digits for F!304)
+                    # Count 4 as 1, all others as face value
+                    digit_score = 0
+                    for d in digits:
+                        digit_val = int(d)
+                        digit_score += 1 if digit_val == 4 else digit_val
+
+                    # Determine status based on score
+                    if digit_score > 12:
+                        f304_status = "3"
+                    elif digit_score > 10:
+                        f304_status = "2"
+                    elif f304_grid_found:
+                        f304_status = "1"
+                    else:
+                        f304_status = "4"
+
+                    # Insert into statrep table
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO statrep "
+                        "(datetime, date, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
+                        "med, ota, trav, net, fuel, food, crime, civil, political, comments) "
+                        "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (utc, date_only, freq, snr, 1,
+                         srid_f304,      # SRid: random 3-digit number (100-999)
+                         callsign,       # from_callsign
+                         f304_group,     # groupname
+                         f304_grid,      # grid from message or sender's grid
+                         "My Location",  # prec: set to "My Location"
+                         f304_status,    # status: "1" if grid found in message, "4" if not
+                         commpw,         # commpwr
+                         pubwtr,         # pubwtr
+                         "4",            # med (hardcoded)
+                         ota,            # ota (mapped from digit 2)
+                         "4",            # trav (hardcoded)
+                         net,            # net
+                         "4",            # fuel (hardcoded)
+                         "4",            # food (hardcoded)
+                         "4",            # crime (hardcoded)
+                         "4",            # civil (hardcoded)
+                         "4",            # political (hardcoded)
+                         comments)       # comments (formatted string)
+                    )
+                    conn.commit()
+                    print(f"\033[92m[{rig_name}] Added F!304 StatRep from: {callsign}\033[0m")
+                    conn.close()
+                    return "statrep"
+
+            # Check for F!301 statrep format (BEFORE standard MSG check)
+            # Format: [CALLSIGN:] [@GROUP|CALLSIGN] [MSG] F!301 {9 digits} {remainder text}
+            # Note: MSG is optional
+            # First digit = precedence (1-5), remaining 8 digits same as F!304
+            if "F!301" in value:
+                import random
+
+                # Check the pattern before "F!301" to determine if we should process
+                # Pattern: look at what comes before F!301
+                pre_msg = value.split("F!301")[0]
+
+                # Check for callsign-to-callsign pattern (skip if found)
+                # Pattern: CALL1: CALL2 [MSG] (two callsigns before F!301)
+                callsign_pattern = re.search(r'([A-Z0-9]+):\s+([A-Z0-9/]+)\s+(?:MSG\s+)?$', pre_msg, re.IGNORECASE)
+                if callsign_pattern:
+                    # This is a callsign-to-callsign message, skip processing
+                    conn.close()
+                    return ""
+
+                # Extract pattern: [MSG] F!301 {9 digits} {remainder}
+                # MSG is optional
+                f301_pattern = re.search(r'(?:MSG\s+)?F!301\s+(\d{9})\s*(.*?)(?:>])?$', value)
+
+                if f301_pattern:
+                    digits = f301_pattern.group(1)      # 9-digit code
+                    remainder = f301_pattern.group(2)   # Rest of message
+
+                    # Parse the 9 digits
+                    # Position 1 (digits[0]): precedence (1-5, maps to PRECEDENCE_MAP)
+                    prec1 = digits[0]
+                    prec = PRECEDENCE_MAP.get(prec1, "Unknown")
+
+                    # Remaining 8 digits follow F!304 rules
+                    # Position 2 (digits[1]): ignored (same as F!304 position 1)
+                    # Position 3 (digits[2]): ota mapping (same as F!304 position 2)
+                    ota_digit = int(digits[2])
+                    if ota_digit == 1:
+                        ota = "1"
+                    elif ota_digit in [2, 3]:
+                        ota = "2"
+                    elif ota_digit == 4:
+                        ota = "3"
+                    else:
+                        ota = "4"
+
+                    # Positions 5-7 (digits[4-6]): direct mapping (same as F!304 positions 4-6)
+                    net = digits[4]
+                    pubwtr = digits[5]
+                    commpw = digits[6]
+
+                    # Build comment string
+                    # Helper function to map digit to text
+                    def map_value(digit):
+                        mapping = {1: "Yes", 2: "Limited", 3: "No", 4: "Unknown"}
+                        return mapping.get(int(digit), "Unknown")
+
+                    amfmtv = map_value(digits[3])   # Position 4 (same as F!304 position 3)
+                    natgas = map_value(digits[7])   # Position 8 (same as F!304 position 7)
+                    noaa = map_value(digits[8])     # Position 9 (same as F!304 position 8)
+
+                    # Extract grid square from remainder (pattern: 2 alpha + 2 digits + optional 2 alphanumeric)
+                    # Look for grid square like EM48AT, EM48, etc.
+                    f301_grid = grid  # Default to sender's grid from parameter
+                    f301_grid_found = False  # Track if grid was found in message
+                    grid_match = re.search(r'\b([A-Z]{2}\d{2}[A-Z0-9]{0,2})\b', remainder, re.IGNORECASE)
+                    if grid_match:
+                        f301_grid = grid_match.group(1).upper()
+                        f301_grid_found = True
+                        # Remove grid square from remainder
+                        remainder = remainder.replace(grid_match.group(0), '').strip()
+
+                    # Build comment
+                    comment_parts = [
+                        "F!301",
+                        f"AM/FM/TV = {amfmtv}",
+                        f"Nat Gas = {natgas}",
+                        f"NOAA = {noaa}"
+                    ]
+
+                    if remainder.strip():
+                        # Apply text normalization to remainder if enabled
+                        formatted_remainder = smart_title_case(
+                            remainder.strip(),
+                            abbreviations,
+                            self.config.get_apply_text_normalization()
+                        )
+                        comments = ", ".join(comment_parts) + f" - {formatted_remainder}"
+                    else:
+                        comments = ", ".join(comment_parts)
+
+                    # Extract group: check for @GROUP in value, otherwise use "@ALL"
+                    f301_group = group if group else ""
+                    if not f301_group and "@" in value:
+                        group_match = re.search(r'(@[A-Z0-9]+)', value, re.IGNORECASE)
+                        if group_match:
+                            f301_group = group_match.group(1).upper()
+
+                    # If still no group found, set to @ALL
+                    if not f301_group:
+                        f301_group = "@ALL"
+
+                    # Generate random 3-digit SRid
+                    srid_f301 = random.randint(100, 999)
+
+                    # Extract date from datetime string (format: "YYYY-MM-DD   HH:MM:SS")
+                    date_only = utc.split()[0] if utc else ""
+
+                    # Calculate status based on sum of last 8 digits (skip first precedence digit)
+                    # Count 4 as 1, all others as face value
+                    digit_score = 0
+                    for d in digits[1:]:  # Skip first digit (precedence)
+                        digit_val = int(d)
+                        digit_score += 1 if digit_val == 4 else digit_val
+
+                    # Determine status based on score
+                    if digit_score > 12:
+                        f301_status = "3"
+                    elif digit_score > 10:
+                        f301_status = "2"
+                    elif f301_grid_found:
+                        f301_status = "1"
+                    else:
+                        f301_status = "4"
+
+                    # Insert into statrep table
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO statrep "
+                        "(datetime, date, freq, db, source, SRid, from_callsign, groupname, grid, prec, status, commpwr, pubwtr, "
+                        "med, ota, trav, net, fuel, food, crime, civil, political, comments) "
+                        "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (utc, date_only, freq, snr, 1,
+                         srid_f301,      # SRid: random 3-digit number (100-999)
+                         callsign,       # from_callsign
+                         f301_group,     # groupname
+                         f301_grid,      # grid from message or sender's grid
+                         prec,           # prec: from first digit (1-5) mapped to PRECEDENCE_MAP
+                         f301_status,    # status: "1" if grid found in message, "4" if not
+                         commpw,         # commpwr
+                         pubwtr,         # pubwtr
+                         "4",            # med (hardcoded)
+                         ota,            # ota (mapped from digit 3)
+                         "4",            # trav (hardcoded)
+                         net,            # net
+                         "4",            # fuel (hardcoded)
+                         "4",            # food (hardcoded)
+                         "4",            # crime (hardcoded)
+                         "4",            # civil (hardcoded)
+                         "4",            # political (hardcoded)
+                         comments)       # comments (formatted string)
+                    )
+                    conn.commit()
+                    print(f"\033[92m[{rig_name}] Added F!301 StatRep from: {callsign}\033[0m")
+                    conn.close()
+                    return "statrep"
 
             # Check for standard JS8Call MSG format (no special marker)
             # Format: " MSG " with spaces on both sides
@@ -3966,7 +4460,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     msg_match = re.search(r'\bMSG\s+(.+)', value)
                     if msg_match:
                         # Apply smart title case to message (acronym detection)
-                        message_text = smart_title_case(msg_match.group(1).strip(), abbreviations)
+                        message_text = smart_title_case(msg_match.group(1).strip(), abbreviations, self.config.get_apply_text_normalization())
 
                         # Use to_call for target (includes @ for groups, callsign for direct)
                         target = to_call

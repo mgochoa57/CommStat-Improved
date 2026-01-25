@@ -422,8 +422,12 @@ class JS8ConnectorsDialog(QDialog):
         # Enable the connector if it was disabled
         if not is_enabled:
             self.connector_manager.set_enabled(self._selected_id, True)
-            # Refresh connections to create the client (this also starts connecting)
+            # Refresh connections to create the client
             self.tcp_pool.refresh_connections()
+            # Trigger manual reconnect on the newly created client
+            client = self.tcp_pool.get_client(rig_name)
+            if client:
+                client.manual_reconnect()
             msg = f"Connector '{rig_name}' has been enabled.\n\nAttempting to connect..."
             QMessageBox.information(self, "Reconnecting", msg)
         else:

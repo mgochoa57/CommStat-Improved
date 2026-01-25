@@ -14,7 +14,6 @@ import sqlite3
 from typing import Optional, TYPE_CHECKING
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from text_utils import normalize_text
 from PyQt5.QtCore import QDateTime
 from PyQt5.QtWidgets import QMessageBox
 
@@ -564,7 +563,6 @@ class Ui_FormAlert:
         now = QDateTime.currentDateTime()
         date = now.toUTC().toString("yyyy-MM-dd HH:mm:ss")
         group = self.group_combo.currentText()
-        message = normalize_text(message)
 
         conn = sqlite3.connect(DATABASE_FILE)
         try:
