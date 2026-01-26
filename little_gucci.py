@@ -80,7 +80,7 @@ MAX_GROUP_NAME_LENGTH = 15
 # Map and layout dimensions
 MAP_WIDTH = 604
 MAP_HEIGHT = 340
-SLIDESHOW_INTERVAL = 1  # Minutes between image changes
+SLIDESHOW_INTERVAL = 5  # Minutes between image changes
 
 # Backbone server for remote announcements and slideshow images
 # This allows the developer to push messages/images to all CommStat users
@@ -179,13 +179,21 @@ def smart_title_case(text: str, abbreviations: Dict[str, str] = None, apply_norm
     if not text:
         return text
 
-    # Identify words that are all-caps (2+ letters) after abbreviation expansion
-    # These should be preserved as-is (e.g., state abbreviations like SC, NY)
+    # Identify words that should be preserved as all-caps
+    # These are words that:
+    # 1. Are in the abbreviations dictionary
+    # 2. Expand to an all-caps form (e.g., state codes: TX, NY, SC)
     preserved_caps = set()
-    for word in text.split():
-        clean = ''.join(c for c in word if c.isalnum())
-        if len(clean) >= 2 and clean.isupper():
-            preserved_caps.add(clean.upper())
+    if abbreviations:
+        for word in text.split():
+            clean = ''.join(c for c in word if c.isalnum())
+            upper_clean = clean.upper()
+            # Check if this word is in abbreviations and expands to all-caps
+            if upper_clean in abbreviations:
+                expansion = abbreviations[upper_clean]
+                # If expansion is all uppercase, preserve it
+                if expansion.isupper():
+                    preserved_caps.add(expansion.upper())
 
     # Initialize dictionary if available
     dictionary = None
@@ -419,7 +427,7 @@ class ConfigManager:
         # Load toggle settings from config if it exists
         default_feed = list(DEFAULT_RSS_FEEDS.keys())[0]
         if not self.config_path.exists():
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': True}
             return
 
         config = ConfigParser()
@@ -433,9 +441,10 @@ class ConfigManager:
                 'hide_map': config.getboolean("DIRECTEDCONFIG", "hide_map", fallback=False),
                 'show_alerts': config.getboolean("DIRECTEDCONFIG", "show_alerts", fallback=False),
                 'selected_rss_feed': config.get("DIRECTEDCONFIG", "selected_rss_feed", fallback=default_feed),
+                'apply_text_normalization': config.getboolean("DIRECTEDCONFIG", "apply_text_normalization", fallback=True),
             }
         else:
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': True}
 
     def get_color(self, key: str) -> str:
         """Get a color value by key."""
@@ -2084,6 +2093,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if alert:
             title, message, color, date_received, from_callsign = alert
+
+            # Apply text normalization to message field only if enabled
+            apply_normalization = self.config.get_apply_text_normalization()
+            if apply_normalization:
+                abbreviations = self.db.get_abbreviations()
+                message = smart_title_case(message, abbreviations, apply_normalization)
+
             # Set colors based on alert color
             color_map = {
                 1: ("#e8e800", "#000000"),  # Yellow
@@ -3466,6 +3482,10 @@ class MainWindow(QtWidgets.QMainWindow):
         is_message_table = (table == self.message_table)
         is_statrep_table = (table == self.statrep_table)
 
+        # Get abbreviations and normalization setting for text processing
+        apply_normalization = self.config.get_apply_text_normalization()
+        abbreviations = self.db.get_abbreviations() if apply_normalization else None
+
         for row_num, row_data in enumerate(data):
             table.insertRow(row_num)
 
@@ -3477,6 +3497,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
             for col_num, value in enumerate(row_data):
                 display_value = str(value) if value is not None else ""
+
+                # Apply text normalization to message/comment fields only if enabled
+                if apply_normalization and display_value:
+                    # For statrep table: col 19=comments only
+                    # For message table: col 5=message only
+                    if is_statrep_table and col_num == 19:
+                        display_value = smart_title_case(display_value, abbreviations, apply_normalization)
+                    elif is_message_table and col_num == 5:
+                        display_value = smart_title_case(display_value, abbreviations, apply_normalization)
 
                 # Handle SNR (db) column (first column)
                 if (is_statrep_table or is_message_table) and col_num == 0:
