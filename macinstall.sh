@@ -32,10 +32,10 @@ if ! command -v python3 &> /dev/null; then
 fi
 
 echo ""
-echo "Installing PyQt5 and Enchant via Homebrew..."
+echo "Installing Enchant via Homebrew..."
 echo ""
 
-brew install pyqt5 enchant
+brew install enchant
 
 echo ""
 echo "Running Python installer..."
@@ -43,8 +43,18 @@ echo ""
 
 python3 install.py
 
+# Create launcher script for macOS
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cat > "$SCRIPT_DIR/run_commstat.sh" << 'EOF'
+#!/bin/bash
+# CommStat macOS Launcher
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$SCRIPT_DIR/startup.py" "$@"
+EOF
+chmod +x "$SCRIPT_DIR/run_commstat.sh"
+
 echo ""
 echo "=============================================="
 echo "Installation complete!"
-echo "Run CommStat with: python3 startup.py"
+echo "Run CommStat with: ./run_commstat.sh"
 echo "=============================================="

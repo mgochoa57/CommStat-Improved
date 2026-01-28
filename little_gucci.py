@@ -2792,7 +2792,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Feed text area
         self.feed_text = QtWidgets.QPlainTextEdit(self.central_widget)
         self.feed_text.setObjectName("feedText")
-        self.feed_text.setFont(QtGui.QFont("Source Code Pro", 10))
+        mono_font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
+        mono_font.setPointSize(10)
+        self.feed_text.setFont(mono_font)
         self.feed_text.setStyleSheet(
             f"background-color: {self.config.get_color('feed_background')};"
             f"color: {self.config.get_color('feed_foreground')};"
@@ -2818,11 +2820,17 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         if not self.feed_messages:
-            # No connectors configured
-            self.feed_text.setPlainText(
-                "No JS8Call connectors configured.\n\n"
-                "Use Menu > JS8 CONNECTORS to add a connection."
-            )
+            # Build startup messages for missing configuration
+            messages = []
+            messages.append("No JS8Call connectors configured.\n")
+            messages.append("Use Menu > JS8 CONNECTORS to add a connection.")
+
+            # Check for groups
+            if not self.db.get_all_groups():
+                messages.append("\n\nNo groups configured.\n")
+                messages.append("Use Menu > Groups > Manage Groups to add a group.")
+
+            self.feed_text.setPlainText(''.join(messages))
             return
 
         # Filter messages based on settings

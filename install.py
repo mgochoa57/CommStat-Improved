@@ -63,7 +63,11 @@ def runsettings():
 
 def install(package):
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        cmd = [sys.executable, "-m", "pip", "install"]
+        if sys.platform == 'darwin':
+            cmd.extend(["--break-system-packages", "--user"])
+        cmd.append(package)
+        subprocess.check_call(cmd)
 
     except subprocess.CalledProcessError as e:
         # print("this is the except install error: "+str(e.returncode))
@@ -127,16 +131,11 @@ def lininstall():
 
 def macinstall():
     """Install dependencies for macOS systems."""
-    print("\n" + "="*60)
-    print("macOS Installation Notes:")
-    print("="*60)
-    print("If PyQt5 fails to install via pip, install via Homebrew:")
-    print("  brew install pyqt5")
-    print("="*60 + "\n")
-
     packages = [
-        "pyqt5",
+        "PyQt5",
+        "PyQt5-Qt5",
         "PyQtWebEngine",
+        "PyQtWebEngine-Qt5",
         "feedparser",
         "file-read-backwards",
         "folium",
