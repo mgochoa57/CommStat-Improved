@@ -273,9 +273,8 @@ class StatRepDialog(QDialog):
         def submit_thread():
             """Background thread that performs the HTTP POST."""
             try:
-                # Format data string: datetime\tfreq_mhz\t0\t30\tmessage
-                freq_mhz = f"{frequency / 1000000.0:.6f}"
-                data_string = f"{now}\t{freq_mhz}\t0\t30\t{message}"
+                # Format data string: datetime\tfreq_hz\t0\t30\tmessage
+                data_string = f"{now}\t{frequency}\t0\t30\t{message}"
 
                 # Build POST data
                 post_data = urllib.parse.urlencode({

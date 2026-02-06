@@ -2161,6 +2161,299 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f"Error handling program_update: {e}")
             return False
 
+    def _handle_backbone_data_messages(self, content: str) -> bool:
+        """Handle backbone server data messages with ID prefixes.
+
+        Expected format (one or more lines):
+        113:  2026-02-06 18:32:32    14118000    0    30    N0DDK: @MAGNET ,EM83CV,3,T31,321311111331,GA,{&%}
+        114:  2026-02-06 18:35:10    14118000    0    30    W1ABC: @ALL LRT ,1,Test Alert,This is a test,{%%}
+
+        Format per line:
+        ID: date time freq_hz unused(0) snr callsign: message_data
+
+        Args:
+            content: The backbone response content with ID-prefixed messages
+
+        Returns:
+            True if at least one message was processed, False otherwise
+        """
+        import re
+        from datetime import datetime, timezone
+        from id_utils import generate_time_based_id
+
+        try:
+            lines = content.split('\n')
+            processed_count = 0
+            last_data_id = 0
+            data_types_processed = set()  # Track which data types were added
+
+            # Process each line that starts with an ID
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Check if line starts with a number followed by colon
+                id_match = re.match(r'^(\d+):\s*(.+)$', line)
+                if not id_match:
+                    continue
+
+                data_id = int(id_match.group(1))
+                data = id_match.group(2).strip()
+
+                # Track the highest ID we've seen
+                if data_id > last_data_id:
+                    last_data_id = data_id
+
+                # Parse the data line: date time freq_hz unused snr callsign: message
+                # Example: 2026-02-06 18:32:32    14118000    0    30    N0DDK: @MAGNET ,EM83CV,3,T31,321311111331,GA,{&%}
+                # Fields: date(0) time(1) freq_hz(2) unused/0(3) snr/db(4) callsign:message(5)
+                parts = data.split(None, 5)  # Split on whitespace, max 6 parts
+                if len(parts) < 6:
+                    print(f"Skipping malformed data line (ID {data_id}): insufficient fields")
+                    continue
+
+                try:
+                    utc_date = parts[0]  # YYYY-MM-DD
+                    utc_time = parts[1]  # HH:MM:SS
+                    utc = f"{utc_date} {utc_time}"
+                    freq = int(parts[2])  # Frequency in Hz
+                    # parts[3] is unknown/unused (always 0)
+                    db = int(parts[4])  # SNR in dB
+                    message_part = parts[5]  # callsign: message_data
+
+                    # Split callsign from message
+                    if ':' not in message_part:
+                        print(f"Skipping malformed message (ID {data_id}): no callsign separator")
+                        continue
+
+                    callsign_and_msg = message_part.split(':', 1)
+                    from_callsign = callsign_and_msg[0].strip()
+                    message_value = callsign_and_msg[1].strip() if len(callsign_and_msg) > 1 else ""
+
+                    # Determine message type by markers
+                    MSG_STATREP = "{&%}"
+                    MSG_FORWARDED_STATREP = "{F%}"
+                    MSG_ALERT = "{%%}"
+
+                    # Extract target group (if present)
+                    target = ""
+                    target_match = re.search(r'(@[A-Z0-9]+)', message_value, re.IGNORECASE)
+                    if target_match:
+                        target = target_match.group(1).upper()
+
+                    # Process based on message type
+                    processed = False
+
+                    # ============================================================
+                    # STATREP PROCESSING
+                    # ============================================================
+                    if MSG_STATREP in message_value or MSG_FORWARDED_STATREP in message_value:
+                        is_forwarded = MSG_FORWARDED_STATREP in message_value
+                        marker = MSG_FORWARDED_STATREP if is_forwarded else MSG_STATREP
+
+                        # Extract statrep data before marker
+                        match = re.search(r',(.+?)' + re.escape(marker), message_value)
+                        if match:
+                            fields = match.group(1).split(",")
+
+                            # Standard statrep: GRID,PREC,SRID,SRCODE,COMMENTS
+                            # Forwarded: GRID,PREC,SRID,SRCODE,COMMENTS,ORIG_CALL
+                            if len(fields) >= 4:
+                                grid = fields[0].strip()
+                                prec_num = fields[1].strip()
+                                sr_id = fields[2].strip()
+                                srcode = fields[3].strip()
+
+                                # Handle forwarded statrep origin callsign
+                                origin_call = ""
+                                if is_forwarded and len(fields) >= 5:
+                                    # Remove empty trailing fields
+                                    while fields and not fields[-1].strip():
+                                        fields.pop()
+                                    if len(fields) >= 5:
+                                        origin_call = fields[-1].strip()
+                                        comments_raw = ",".join(fields[4:-1]).strip() if len(fields) > 5 else ""
+                                    else:
+                                        comments_raw = ""
+                                else:
+                                    comments_raw = ",".join([f for f in fields[4:] if f.strip()]).strip() if len(fields) > 4 else ""
+
+                                # Clean non-ASCII characters
+                                comments = re.sub(r'[^ -~]+', '', comments_raw).strip() if comments_raw else ""
+
+                                # Append forwarded origin info
+                                if origin_call:
+                                    origin_suffix = f" (FWD) ORIGIN: {origin_call}"
+                                    comments = (comments + origin_suffix) if comments else origin_suffix.lstrip()
+
+                                # Expand "+" to all green
+                                if srcode == "+":
+                                    srcode = "111111111111"
+
+                                # Map precedence
+                                SCOPE_MAP = {
+                                    "1": "My Location",
+                                    "2": "My Community",
+                                    "3": "My County",
+                                    "4": "My Region",
+                                    "5": "Other Location"
+                                }
+                                scope = SCOPE_MAP.get(prec_num, "Unknown")
+
+                                # Insert statrep with source=2 (Internet)
+                                if len(srcode) >= 12:
+                                    sr_fields = list(srcode)
+                                    date_only = utc.split()[0]
+
+                                    conn = sqlite3.connect(DATABASE_FILE, timeout=10)
+                                    cursor = conn.cursor()
+                                    try:
+                                        cursor.execute(
+                                            "INSERT OR IGNORE INTO statrep "
+                                            "(datetime, date, freq, db, source, sr_id, from_callsign, target, grid, scope, map, power, water, "
+                                            "med, telecom, travel, internet, fuel, food, crime, civil, political, comments) "
+                                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                            (utc, date_only, freq, db, 2, sr_id, from_callsign, target, grid, scope,
+                                             sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
+                                             sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
+                                             sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
+                                             comments)
+                                        )
+                                        conn.commit()
+                                        print(f"\033[92m[BACKBONE] Added StatRep from: {from_callsign} ID: {sr_id} (data_id: {data_id})\033[0m")
+                                        processed = True
+                                        data_types_processed.add('statrep')
+                                    except sqlite3.Error as e:
+                                        print(f"Database error inserting statrep (ID {data_id}): {e}")
+                                    finally:
+                                        conn.close()
+
+                    # ============================================================
+                    # ALERT PROCESSING
+                    # ============================================================
+                    elif MSG_ALERT in message_value:
+                        # Parse alert: LRT ,COLOR,TITLE,MESSAGE,{%%}
+                        match = re.search(r'LRT\s*,(.+?)\{\%\%\}', message_value)
+                        if match:
+                            fields = match.group(1).split(",")
+                            if len(fields) >= 3:
+                                try:
+                                    color = int(fields[0].strip())
+                                except ValueError:
+                                    color = 1  # Default to yellow
+
+                                title = fields[1].strip()
+                                message_text = ",".join(fields[2:]).strip().rstrip(',')
+
+                                # Generate alert ID
+                                dt = datetime.strptime(utc, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                                alert_id = generate_time_based_id(dt)
+                                date_only = utc.split()[0]
+
+                                conn = sqlite3.connect(DATABASE_FILE, timeout=10)
+                                cursor = conn.cursor()
+                                try:
+                                    cursor.execute(
+                                        "INSERT INTO alerts "
+                                        "(datetime, date, freq, db, source, alert_id, from_callsign, target, color, title, message) "
+                                        "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                        (utc, date_only, freq, db, 2, alert_id, from_callsign, target, color, title, message_text)
+                                    )
+                                    conn.commit()
+                                    print(f"\033[91m[BACKBONE] Added Alert from: {from_callsign} - {title} (data_id: {data_id})\033[0m")
+                                    processed = True
+                                    data_types_processed.add('alert')
+                                except sqlite3.Error as e:
+                                    print(f"Database error inserting alert (ID {data_id}): {e}")
+                                finally:
+                                    conn.close()
+
+                    # ============================================================
+                    # MESSAGE PROCESSING (default)
+                    # ============================================================
+                    else:
+                        # Standard message - save to messages table
+                        # Generate message ID
+                        dt = datetime.strptime(utc, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                        msg_id = generate_time_based_id(dt)
+
+                        # Clean message value (remove target if present)
+                        message_clean = message_value
+                        if target:
+                            message_clean = message_value.replace(target, '').strip()
+
+                        conn = sqlite3.connect(DATABASE_FILE, timeout=10)
+                        cursor = conn.cursor()
+                        try:
+                            cursor.execute(
+                                "INSERT INTO messages "
+                                "(datetime, freq, db, source, msg_id, from_callsign, target, message) "
+                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                                (utc, freq, db, 2, msg_id, from_callsign, target, message_clean)
+                            )
+                            conn.commit()
+                            print(f"\033[92m[BACKBONE] Added Message from: {from_callsign} (data_id: {data_id})\033[0m")
+                            processed = True
+                            data_types_processed.add('message')
+                        except sqlite3.Error as e:
+                            print(f"Database error inserting message (ID {data_id}): {e}")
+                        finally:
+                            conn.close()
+
+                    if processed:
+                        processed_count += 1
+
+                except (ValueError, IndexError) as e:
+                    print(f"Error parsing data line (ID {data_id}): {e}")
+                    continue
+
+            # Update data_id in controls table if we processed any messages
+            if last_data_id > 0:
+                try:
+                    conn = sqlite3.connect(DATABASE_FILE, timeout=10)
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE controls SET data_id = ? WHERE id = 1", (last_data_id,))
+                    conn.commit()
+                    conn.close()
+                    print(f"Updated data_id to {last_data_id} in controls table")
+                except sqlite3.Error as e:
+                    print(f"Warning: Failed to update data_id in controls table: {e}")
+
+            # Trigger UI refresh for processed data types (on main thread)
+            if data_types_processed:
+                QtCore.QMetaObject.invokeMethod(
+                    self, "_refresh_backbone_data",
+                    QtCore.Qt.QueuedConnection,
+                    QtCore.Q_ARG(set, data_types_processed)
+                )
+
+            return processed_count > 0
+
+        except Exception as e:
+            print(f"Error handling backbone data messages: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    @QtCore.pyqtSlot(set)
+    def _refresh_backbone_data(self, data_types: set) -> None:
+        """Refresh UI for data received from backbone server (called from main thread).
+
+        Args:
+            data_types: Set of data types to refresh ('statrep', 'alert', 'message')
+        """
+        if 'statrep' in data_types:
+            self._load_statrep_data()
+            self._save_map_position(callback=self._load_map)
+
+        if 'message' in data_types:
+            self._load_message_data()
+
+        if 'alert' in data_types:
+            # Alerts are shown in the live feed, so refresh it
+            self._load_live_feed()
+
     @QtCore.pyqtSlot(int)
     @QtCore.pyqtSlot(int)
     def _show_program_update_notification(self, new_build: int) -> None:
@@ -2634,6 +2927,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         Handles both new hierarchical format and legacy format.
         """
+        import re
         from datetime import datetime
         # Backbone check runs silently
         try:
@@ -2657,6 +2951,13 @@ class MainWindow(QtWidgets.QMainWindow):
             elif content_stripped.startswith('program_update'):
                 self._handle_program_update(content_stripped)
                 return
+
+            # Check for ID-prefixed data messages (from other users via backbone)
+            # Format: ID: datetime freq db unknown callsign: message
+            # Example: 113:  2026-02-06 18:32:32    14.118000    0    30    N0DDK: @MAGNET ,EM83CV,3,T31,321311111331,GA,{&%}
+            if re.search(r'^\d+:\s+\d{4}-\d{2}-\d{2}', content_stripped, re.MULTILINE):
+                if self._handle_backbone_data_messages(content_stripped):
+                    return  # Data messages were processed
 
             # Parse into sections
             sections = self._parse_backbone_sections(content_stripped)
