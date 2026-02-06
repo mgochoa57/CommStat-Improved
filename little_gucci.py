@@ -764,7 +764,7 @@ class DatabaseManager:
                 # Build query based on whether we're showing all or filtering by groups
                 if show_all:
                     query = f"""
-                        SELECT db, datetime, freq, from_callsign, "group", grid, scope, map,
+                        SELECT db, datetime, freq, from_callsign, target, grid, scope, map,
                                power, water, med, telecom, travel, internet,
                                fuel, food, crime, civil, political, comments, source, sr_id
                         FROM statrep
@@ -776,11 +776,11 @@ class DatabaseManager:
                     groups_with_at = ["@" + g for g in groups]
                     placeholders = ",".join("?" * len(groups_with_at))
                     query = f"""
-                        SELECT db, datetime, freq, from_callsign, "group", grid, scope, map,
+                        SELECT db, datetime, freq, from_callsign, target, grid, scope, map,
                                power, water, med, telecom, travel, internet,
                                fuel, food, crime, civil, political, comments, source, sr_id
                         FROM statrep
-                        WHERE "group" IN ({placeholders}) AND {date_condition}
+                        WHERE target IN ({placeholders}) AND {date_condition}
                     """
                     params = groups_with_at + date_params
 
@@ -844,48 +844,6 @@ class DatabaseManager:
         except sqlite3.Error as error:
             print(f"Database error: {error}")
             return []
-
-    def init_groups_table(self) -> None:
-        """Create Groups table if it doesn't exist and migrate schema if needed."""
-        try:
-            with sqlite3.connect(self.db_path, timeout=10) as connection:
-                cursor = connection.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS groups (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT UNIQUE NOT NULL,
-                        comment TEXT,
-                        url1 TEXT,
-                        url2 TEXT,
-                        date_added TEXT,
-                        is_active INTEGER DEFAULT 0
-                    )
-                """)
-                connection.commit()
-
-                # Migrate existing table if needed (add new columns)
-                self._migrate_groups_table(cursor, connection)
-        except sqlite3.Error as error:
-            print(f"Database error initializing Groups table: {error}")
-
-    def _migrate_groups_table(self, cursor, connection) -> None:
-        """Add new columns to Groups table if they don't exist."""
-        cursor.execute("PRAGMA table_info(groups)")
-        columns = [col[1] for col in cursor.fetchall()]
-
-        new_columns = [
-            ("comment", "TEXT"),
-            ("url1", "TEXT"),
-            ("url2", "TEXT"),
-            ("date_added", "TEXT"),
-        ]
-
-        for col_name, col_type in new_columns:
-            if col_name not in columns:
-                cursor.execute(f"ALTER TABLE groups ADD COLUMN {col_name} {col_type}")
-                print(f"Added column {col_name} to Groups table")
-
-        connection.commit()
 
     def get_all_groups(self) -> List[str]:
         """Get all group names."""
@@ -1021,300 +979,6 @@ class DatabaseManager:
             cursor.execute("SELECT COUNT(*) FROM groups")
             return cursor.fetchone()[0]
         return self._execute(op, 0)
-
-    def init_qrz_table(self) -> None:
-        """Create QRZ settings table if it doesn't exist (single record only)."""
-        try:
-            with sqlite3.connect(self.db_path, timeout=10) as connection:
-                cursor = connection.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS qrz_settings (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        username TEXT,
-                        password TEXT,
-                        is_active INTEGER DEFAULT 0
-                    )
-                """)
-                connection.commit()
-
-                # Check if table is empty and seed with empty record
-                cursor.execute("SELECT COUNT(*) FROM qrz_settings")
-                if cursor.fetchone()[0] == 0:
-                    cursor.execute(
-                        "INSERT INTO qrz_settings (id, username, password, is_active) VALUES (1, '', '', 0)"
-                    )
-                    connection.commit()
-        except sqlite3.Error as error:
-            print(f"Database error initializing qrz_settings table: {error}")
-
-    def init_alerts_table(self) -> None:
-        """Create alerts table if it doesn't exist."""
-        try:
-            with sqlite3.connect(self.db_path, timeout=10) as connection:
-                cursor = connection.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS alerts (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        datetime TEXT,
-                        freq DOUBLE,
-                        db TEXT,
-                        source INTEGER,
-                        alert_id TEXT,
-                        from_callsign TEXT,
-                        "group" TEXT,
-                        color INTEGER,
-                        title TEXT,
-                        message TEXT
-                    )
-                """)
-                connection.commit()
-        except sqlite3.Error as error:
-            print(f"Database error initializing alerts table: {error}")
-
-    def init_statrep_table(self) -> None:
-        """Create statrep table if it doesn't exist."""
-        try:
-            with sqlite3.connect(self.db_path, timeout=10) as connection:
-                cursor = connection.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS statrep (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        datetime TEXT,
-                        date TEXT,
-                        freq DOUBLE,
-                        db INTEGER,
-                        source INTEGER,
-                        sr_id TEXT,
-                        from_callsign TEXT,
-                        group TEXT,
-                        grid TEXT,
-                        scope TEXT,
-                        map TEXT,
-                        power TEXT,
-                        water TEXT,
-                        med TEXT,
-                        telecom TEXT,
-                        travel TEXT,
-                        internet TEXT,
-                        fuel TEXT,
-                        food TEXT,
-                        crime TEXT,
-                        civil TEXT,
-                        political TEXT,
-                        comments TEXT
-                    )
-                """)
-                connection.commit()
-        except sqlite3.Error as error:
-            print(f"Database error initializing statrep table: {error}")
-        # Migrate existing databases from TEXT to INTEGER
-        self._migrate_db_column_to_integer('statrep')
-
-    def init_messages_table(self) -> None:
-        """Create messages table if it doesn't exist."""
-        try:
-            with sqlite3.connect(self.db_path, timeout=10) as connection:
-                cursor = connection.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS messages (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        datetime TEXT,
-                        freq DOUBLE,
-                        db INTEGER,
-                        source INTEGER,
-                        msg_id TEXT,
-                        from_callsign TEXT,
-                        target TEXT,
-                        message TEXT
-                    )
-                """)
-                connection.commit()
-        except sqlite3.Error as error:
-            print(f"Database error initializing messages table: {error}")
-        # Migrate existing databases from TEXT to INTEGER
-        self._migrate_db_column_to_integer('messages')
-
-    def _migrate_db_column_to_integer(self, table_name: str) -> None:
-        """Migrate the db column from TEXT to INTEGER for existing databases.
-
-        SQLite doesn't support ALTER COLUMN, so we use a temp table approach:
-        1. Check if db column is TEXT type
-        2. Create temp table with INTEGER type
-        3. Copy data with CAST
-        4. Drop old table and rename temp
-        """
-        try:
-            with sqlite3.connect(self.db_path, timeout=10) as connection:
-                cursor = connection.cursor()
-
-                # Check current column type
-                cursor.execute(f"PRAGMA table_info({table_name})")
-                columns = cursor.fetchall()
-
-                db_column = None
-                for col in columns:
-                    if col[1] == 'db':  # col[1] is column name
-                        db_column = col
-                        break
-
-                if db_column is None:
-                    return  # No db column found, nothing to migrate
-
-                # col[2] is the type - check if it's TEXT (case-insensitive)
-                if db_column[2].upper() != 'TEXT':
-                    return  # Already INTEGER or other type, no migration needed
-
-                print(f"Migrating {table_name}.db column from TEXT to INTEGER...")
-
-                # Get the full CREATE TABLE statement to understand table structure
-                cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'")
-                result = cursor.fetchone()
-                if not result:
-                    return
-
-                # Get all column names for the table
-                column_names = [col[1] for col in columns]
-                columns_str = ', '.join(column_names)
-
-                # Create columns string for new table, replacing db TEXT with db INTEGER
-                new_columns = []
-                for col in columns:
-                    col_name = col[1]
-                    col_type = col[2]
-                    if col_name == 'id':
-                        new_columns.append('id INTEGER PRIMARY KEY AUTOINCREMENT')
-                    elif col_name == 'db':
-                        new_columns.append('db INTEGER')
-                    else:
-                        new_columns.append(f'{col_name} {col_type}')
-                new_columns_def = ', '.join(new_columns)
-
-                # Perform migration in a transaction
-                cursor.execute("BEGIN TRANSACTION")
-                try:
-                    # Create temp table with new schema
-                    cursor.execute(f"CREATE TABLE {table_name}_temp ({new_columns_def})")
-
-                    # Build insert with CAST for db column
-                    insert_columns = []
-                    for col_name in column_names:
-                        if col_name == 'db':
-                            insert_columns.append('CAST(db AS INTEGER)')
-                        else:
-                            insert_columns.append(col_name)
-                    insert_str = ', '.join(insert_columns)
-
-                    cursor.execute(f"INSERT INTO {table_name}_temp ({columns_str}) SELECT {insert_str} FROM {table_name}")
-
-                    # Drop old table and rename temp
-                    cursor.execute(f"DROP TABLE {table_name}")
-                    cursor.execute(f"ALTER TABLE {table_name}_temp RENAME TO {table_name}")
-
-                    cursor.execute("COMMIT")
-                    print(f"Successfully migrated {table_name}.db column to INTEGER")
-                except sqlite3.Error as e:
-                    cursor.execute("ROLLBACK")
-                    raise e
-
-        except sqlite3.Error as error:
-            print(f"Database error migrating {table_name}.db column: {error}")
-
-    def init_abbreviations_table(self) -> None:
-        """Create abbreviations table if it doesn't exist and populate with defaults."""
-        # Default JS8Call abbreviations
-        default_abbreviations = {
-            "ABT": "ABOUT", "AGN": "AGAIN", "ANI": "ANY", "BECUZ": "BECAUSE",
-            "B4": "BEFORE", "BK": "BACK", "BTR": "BETTER", "BTW": "BY THE WAY",
-            "C": "SEE", "CK": "CHECK", "CUD": "COULD", "CUL": "SEE YOU LATER",
-            "CUZ": "BECAUSE", "DA": "THE", "DAT": "THAT", "DIS": "THIS",
-            "DNT": "DON'T", "DX": "DISTANCE", "EM": "THEM", "EVE": "EVENING",
-            "EVRY": "EVERY", "FB": "FINE BUSINESS", "FER": "FOR", "FRM": "FROM",
-            "GD": "GOOD", "GM": "GOOD MORNING", "GN": "GOOD NIGHT", "GRT": "GREAT",
-            "GUD": "GOOD", "HAV": "HAVE", "HM": "HOME", "HPE": "HOPE",
-            "HR": "HERE", "HRD": "HEARD", "HV": "HAVE", "HW": "HOW",
-            "INFO": "INFORMATION", "JUS": "JUST", "K": "OKAY", "KNW": "KNOW",
-            "LK": "LIKE", "LKN": "LOOKING", "LTR": "LATER", "LV": "LOVE",
-            "MBE": "MAYBE", "MORN": "MORNING", "MSG": "MESSAGE", "MTG": "MEETING",
-            "NITE": "NIGHT", "NR": "NEAR", "NW": "NOW", "NXT": "NEXT",
-            "OPR": "OPERATOR", "OT": "OUT", "OVR": "OVER", "PLS": "PLEASE",
-            "PLZ": "PLEASE", "PWR": "POWER", "QRT": "CLOSING STATION",
-            "QRZ": "WHO IS CALLING", "QSL": "CONFIRMED", "QSO": "CONTACT",
-            "QSY": "CHANGE FREQUENCY", "QTH": "LOCATION", "QUIETR": "QUIETER",
-            "R": "ARE", "RCVD": "RECEIVED", "RDY": "READY", "RIG": "RADIO",
-            "SEEMD": "SEEMED", "SED": "SAID", "SHUD": "SHOULD", "SIG": "SIGNAL",
-            "SM": "SOME", "SMBDY": "SOMEBODY", "SMTH": "SOMETHING",
-            "SMTHN": "SOMETHING", "SN": "SOON", "SPOZ": "SUPPOSE", "SRI": "SORRY",
-            "STN": "STATION", "THGHT": "THOUGHT", "THN": "THAN", "THNK": "THINK",
-            "THNKS": "THANKS", "THOT": "THOUGHT", "THT": "THAT", "THX": "THANKS",
-            "TK": "TAKE", "TKN": "TAKEN", "TME": "TIME", "TMRW": "TOMORROW",
-            "TNX": "THANKS", "TONITE": "TONIGHT", "TU": "THANK YOU", "U": "YOU",
-            "UR": "YOUR", "VY": "VERY", "W": "WITH", "WK": "WEEK",
-            "WKEND": "WEEKEND", "WKN": "WEEKEND", "WL": "WILL", "WN": "WHEN",
-            "WRK": "WORK", "WUD": "WOULD", "WX": "WEATHER", "XMTR": "TRANSMITTER",
-            "XTRA": "EXTRA", "YALL": "Y'ALL", "YR": "YOUR", "YRS": "YOURS",
-            "73": "BEST REGARDS", "88": "LOVE AND KISSES",
-            # US State abbreviations (preserved as all-caps)
-            "AL": "AL", "AK": "AK", "AZ": "AZ", "AR": "AR", "CA": "CA",
-            "CO": "CO", "CT": "CT", "DE": "DE", "FL": "FL", "GA": "GA",
-            "HI": "HI", "ID": "ID", "IL": "IL", "IN": "IN", "IA": "IA",
-            "KS": "KS", "KY": "KY", "LA": "LA", "ME": "ME", "MD": "MD",
-            "MA": "MA", "MI": "MI", "MN": "MN", "MS": "MS", "MO": "MO",
-            "MT": "MT", "NE": "NE", "NV": "NV", "NH": "NH", "NJ": "NJ",
-            "NM": "NM", "NY": "NY", "NC": "NC", "ND": "ND", "OH": "OH",
-            "OK": "OK", "OR": "OR", "PA": "PA", "RI": "RI", "SC": "SC",
-            "SD": "SD", "TN": "TN", "TX": "TX", "UT": "UT", "VT": "VT",
-            "VA": "VA", "WA": "WA", "WV": "WV", "WI": "WI", "WY": "WY",
-            # US Territories
-            "DC": "DC", "PR": "PR", "VI": "VI", "GU": "GU", "AS": "AS",
-        }
-
-        try:
-            with sqlite3.connect(self.db_path, timeout=10) as connection:
-                cursor = connection.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS abbreviations (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        abbrev TEXT UNIQUE NOT NULL,
-                        expansion TEXT NOT NULL
-                    )
-                """)
-                connection.commit()
-
-                # Check if table is empty and populate with defaults
-                cursor.execute("SELECT COUNT(*) FROM abbreviations")
-                count = cursor.fetchone()[0]
-                if count == 0:
-                    for abbrev, expansion in default_abbreviations.items():
-                        cursor.execute(
-                            "INSERT OR IGNORE INTO abbreviations (abbrev, expansion) VALUES (?, ?)",
-                            (abbrev.upper(), expansion)
-                        )
-                    connection.commit()
-                    print(f"Populated abbreviations table with {len(default_abbreviations)} defaults")
-                else:
-                    # For existing databases, ensure state abbreviations are present
-                    # Define state abbreviations separately for migration
-                    state_abbreviations = {
-                        "AL": "AL", "AK": "AK", "AZ": "AZ", "AR": "AR", "CA": "CA",
-                        "CO": "CO", "CT": "CT", "DE": "DE", "FL": "FL", "GA": "GA",
-                        "HI": "HI", "ID": "ID", "IL": "IL", "IN": "IN", "IA": "IA",
-                        "KS": "KS", "KY": "KY", "LA": "LA", "ME": "ME", "MD": "MD",
-                        "MA": "MA", "MI": "MI", "MN": "MN", "MS": "MS", "MO": "MO",
-                        "MT": "MT", "NE": "NE", "NV": "NV", "NH": "NH", "NJ": "NJ",
-                        "NM": "NM", "NY": "NY", "NC": "NC", "ND": "ND", "OH": "OH",
-                        "OK": "OK", "OR": "OR", "PA": "PA", "RI": "RI", "SC": "SC",
-                        "SD": "SD", "TN": "TN", "TX": "TX", "UT": "UT", "VT": "VT",
-                        "VA": "VA", "WA": "WA", "WV": "WV", "WI": "WI", "WY": "WY",
-                        "DC": "DC", "PR": "PR", "VI": "VI", "GU": "GU", "AS": "AS",
-                    }
-                    for abbrev, expansion in state_abbreviations.items():
-                        cursor.execute(
-                            "INSERT OR IGNORE INTO abbreviations (abbrev, expansion) VALUES (?, ?)",
-                            (abbrev.upper(), expansion)
-                        )
-                    connection.commit()
-        except sqlite3.Error as error:
-            print(f"Database error initializing abbreviations table: {error}")
 
     def get_abbreviations(self) -> Dict[str, str]:
         """Get all abbreviations from database as a dictionary."""
@@ -2087,17 +1751,19 @@ class MainWindow(QtWidgets.QMainWindow):
         # Track current alert index (0 = most recent)
         self.alert_index = 0
 
-        # Use vertical layout for centering
+        # Use vertical layout
         alert_layout = QtWidgets.QVBoxLayout(self.alert_display)
-        alert_layout.setAlignment(Qt.AlignCenter)
+        alert_layout.setAlignment(Qt.AlignTop)
 
-        # Spacer at top to push content toward center
-        alert_layout.addStretch(1)
+        # Add small spacing at top
+        alert_layout.addSpacing(20)
 
         # Title label (first line)
         self.alert_title_label = QtWidgets.QLabel()
         self.alert_title_label.setAlignment(Qt.AlignCenter)
-        title_font = QtGui.QFont("Arial", 24, QtGui.QFont.Bold)
+        self.alert_title_label.setTextFormat(Qt.RichText)  # Enable HTML formatting
+        # Title uses Roboto Slab with Black weight (heaviest/900)
+        title_font = QtGui.QFont("Roboto Slab", 24, QtGui.QFont.Black)
         self.alert_title_label.setFont(title_font)
         alert_layout.addWidget(self.alert_title_label)
 
@@ -2105,7 +1771,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.alert_message_label = QtWidgets.QLabel()
         self.alert_message_label.setAlignment(Qt.AlignCenter)
         self.alert_message_label.setWordWrap(True)
-        message_font = QtGui.QFont("Arial", 18)
+        # Message uses Roboto (clean sans-serif for readability)
+        message_font = QtGui.QFont("Roboto", 18)
         self.alert_message_label.setFont(message_font)
         alert_layout.addWidget(self.alert_message_label)
 
@@ -2115,7 +1782,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Date received label (at bottom)
         self.alert_date_label = QtWidgets.QLabel()
         self.alert_date_label.setAlignment(Qt.AlignCenter)
-        date_font = QtGui.QFont("Arial", 12)
+        self.alert_date_label.setTextFormat(Qt.RichText)  # Enable HTML formatting
+        # Date uses Roboto (clean sans-serif for readability)
+        date_font = QtGui.QFont("Roboto", 12)
         self.alert_date_label.setFont(date_font)
         alert_layout.addWidget(self.alert_date_label)
 
@@ -2166,7 +1835,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.alert_next_btn.setEnabled(self.alert_index < alert_count - 1)
 
         if alert:
-            title, message, color, date_received, from_callsign = alert
+            title, message, color, date_received, from_callsign, group = alert
 
             # Apply text normalization to message field only if enabled
             apply_normalization = self.config.get_apply_text_normalization()
@@ -2174,36 +1843,51 @@ class MainWindow(QtWidgets.QMainWindow):
                 abbreviations = self.db.get_abbreviations()
                 message = smart_title_case(message, abbreviations, apply_normalization)
 
-            # Set colors based on alert color
+            # Set colors based on alert color - all alerts use red
             color_map = {
-                1: ("#e8e800", "#000000"),  # Yellow
-                2: ("#E07000", "#ffffff"),  # Orange
+                1: ("#dc3545", "#ffffff"),  # Red (formerly Yellow)
+                2: ("#dc3545", "#ffffff"),  # Red (formerly Orange)
                 3: ("#dc3545", "#ffffff"),  # Red
-                4: ("#000000", "#ffffff"),  # Black
+                4: ("#dc3545", "#ffffff"),  # Red (formerly Black)
             }
-            bg_color, text_color = color_map.get(color, ("#333333", "#ffffff"))
+            bg_color, text_color = color_map.get(color, ("#dc3545", "#ffffff"))
 
             # Format date to remove seconds (e.g., "2026-01-15 11:00:00" -> "2026-01-15 11:00")
             date_formatted = date_received[:16] if len(date_received) > 16 else date_received
 
-            # Build date/callsign line
-            date_line = f"Date Received: {date_formatted}"
+            # Build date/callsign line with bold labels (use Roboto font)
+            date_line = f'<span style="font-family: Roboto;"><b>Date Received:</b> {date_formatted}'
             if from_callsign:
-                date_line += f"   By: {from_callsign}"
+                date_line += f"&nbsp;&nbsp;&nbsp;<b>Sent By:</b> {from_callsign}"
+            date_line += "</span>"
+
+            # Format alert display:
+            # Top: group - ALERT (smaller font)
+            # Middle: title (bold, bigger than message)
+            # Bottom: message (normal)
+            if group:
+                # Show group + ALERT at top, then title in bold below (strip @ symbol)
+                group_display = group.lstrip('@')
+                formatted_title = f'<div style="font-family: \'Roboto Slab\'; font-size: 16pt; font-weight: normal; margin-top: -10px;">{group_display} - ALERT</div>'
+                if title:
+                    formatted_title += f'<div style="font-family: \'Roboto Slab\'; font-size: 22pt; font-weight: 900; margin-top: 44px;">{title}</div>'
+            else:
+                # No group, just show title in bold
+                formatted_title = f'<div style="font-family: \'Roboto Slab\'; font-size: 22pt; font-weight: 900;">{title if title else ""}</div>'
 
             self.alert_display.setStyleSheet(f"background-color: {bg_color};")
             self.alert_title_label.setStyleSheet(f"color: {text_color};")
-            self.alert_message_label.setStyleSheet(f"color: {text_color};")
-            self.alert_date_label.setStyleSheet(f"color: {text_color};")
-            self.alert_title_label.setText(title)
+            self.alert_message_label.setStyleSheet(f"color: {text_color}; font-family: Roboto;")
+            self.alert_date_label.setStyleSheet(f"color: {text_color}; font-family: Roboto;")
+            self.alert_title_label.setText(formatted_title)
             self.alert_message_label.setText(message)
             self.alert_date_label.setText(date_line)
         else:
             # No alerts - show placeholder
             self.alert_display.setStyleSheet("background-color: #333333;")
             self.alert_title_label.setStyleSheet("color: #ffffff;")
-            self.alert_message_label.setStyleSheet("color: #ffffff;")
-            self.alert_date_label.setStyleSheet("color: #ffffff;")
+            self.alert_message_label.setStyleSheet("color: #ffffff; font-family: Roboto;")
+            self.alert_date_label.setStyleSheet("color: #ffffff; font-family: Roboto;")
             self.alert_title_label.setText("No Alerts")
             self.alert_message_label.setText("")
             self.alert_date_label.setText("")
@@ -2235,25 +1919,25 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f"Error getting alert count: {e}")
         return 0
 
-    def _get_alert_at_offset(self, offset: int) -> Optional[Tuple[str, str, int, str, str]]:
+    def _get_alert_at_offset(self, offset: int) -> Optional[Tuple[str, str, int, str, str, str]]:
         """Get an alert at the specified offset from most recent.
 
         Args:
             offset: 0 for most recent, 1 for second most recent, etc.
 
         Returns:
-            Tuple of (title, message, color, datetime, from_callsign) or None if not found.
+            Tuple of (title, message, color, datetime, from_callsign, group) or None if not found.
         """
         try:
             with sqlite3.connect(DATABASE_FILE, timeout=10) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT title, message, color, datetime, from_callsign FROM alerts ORDER BY datetime DESC LIMIT 1 OFFSET ?",
+                    "SELECT title, message, color, datetime, from_callsign, target FROM alerts ORDER BY datetime DESC LIMIT 1 OFFSET ?",
                     (offset,)
                 )
                 result = cursor.fetchone()
                 if result:
-                    return (result[0], result[1], result[2], result[3], result[4] or "")
+                    return (result[0], result[1], result[2], result[3], result[4] or "", result[5] or "")
         except sqlite3.Error as e:
             print(f"Error fetching alert at offset {offset}: {e}")
         return None
@@ -4348,7 +4032,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             date_only = utc.split()[0] if utc else ""
                             cursor.execute(
                                 "INSERT OR IGNORE INTO statrep "
-                                "(datetime, date, freq, db, source, SRid, from_callsign, group, grid, scope, map, power, water, "
+                                "(datetime, date, freq, db, source, SRid, from_callsign, target, grid, scope, map, power, water, "
                                 "med, telecom, travel, internet, fuel, food, crime, civil, political, comments) "
                                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                 (utc, date_only, freq, snr, 1, srid, callsign, group, curgrid, prec,
@@ -4412,7 +4096,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             date_only = utc.split()[0] if utc else ""
                             cursor.execute(
                                 "INSERT OR IGNORE INTO statrep "
-                                "(datetime, date, freq, db, source, SRid, from_callsign, group, grid, scope, map, power, water, "
+                                "(datetime, date, freq, db, source, SRid, from_callsign, target, grid, scope, map, power, water, "
                                 "med, telecom, travel, internet, fuel, food, crime, civil, political, comments) "
                                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                 (utc, date_only, freq, snr, 1, srid, callsign, group, curgrid, prec,
@@ -4551,7 +4235,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     # Insert into statrep table
                     cursor.execute(
                         "INSERT OR IGNORE INTO statrep "
-                        "(datetime, date, freq, db, source, sr_id, from_callsign, \"group\", grid, scope, map, power, water, "
+                        "(datetime, date, freq, db, source, sr_id, from_callsign, target, grid, scope, map, power, water, "
                         "med, telecom, travel, internet, fuel, food, crime, civil, political, comments) "
                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (utc, date_only, freq, snr, 1,
@@ -4707,7 +4391,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     # Insert into statrep table
                     cursor.execute(
                         "INSERT OR IGNORE INTO statrep "
-                        "(datetime, date, freq, db, source, sr_id, from_callsign, \"group\", grid, scope, map, power, water, "
+                        "(datetime, date, freq, db, source, sr_id, from_callsign, target, grid, scope, map, power, water, "
                         "med, telecom, travel, internet, fuel, food, crime, civil, political, comments) "
                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (utc, date_only, freq, snr, 1,
@@ -4772,7 +4456,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
                         cursor.execute(
                             "INSERT INTO alerts "
-                            "(datetime, date, freq, db, source, alert_id, from_callsign, \"group\", color, title, message) "
+                            "(datetime, date, freq, db, source, alert_id, from_callsign, target, color, title, message) "
                             "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             (utc, date_only, freq, snr, 1, alert_id, callsign, group, color, title, message_text)
                         )
@@ -5175,6 +4859,31 @@ def main() -> None:
 
     app = QtWidgets.QApplication(sys.argv)
 
+    # Load bundled fonts
+    from PyQt5.QtGui import QFontDatabase
+    import os
+
+    font_dir = os.path.join(os.path.dirname(__file__), 'fonts')
+    fonts_to_load = [
+        'Roboto-Regular.ttf',
+        'Roboto-Bold.ttf',
+        'RobotoSlab-Regular.ttf',
+        'RobotoSlab-Bold.ttf',
+        'RobotoSlab-Black.ttf'
+    ]
+
+    for font_file in fonts_to_load:
+        font_path = os.path.join(font_dir, font_file)
+        if os.path.exists(font_path):
+            font_id = QFontDatabase.addApplicationFont(font_path)
+            if font_id == -1:
+                print(f"Warning: Failed to load font {font_file}")
+            else:
+                families = QFontDatabase.applicationFontFamilies(font_id)
+                print(f"Loaded font: {font_file} -> {families}")
+        else:
+            print(f"Warning: Font file not found: {font_path}")
+
     # Load configuration
     config = ConfigManager()
 
@@ -5184,24 +4893,6 @@ def main() -> None:
         init_demo_database()  # Creates demo.db3 if needed
 
     db = DatabaseManager()
-
-    # Initialize Groups table (creates if needed)
-    db.init_groups_table()
-
-    # Initialize QRZ settings table (creates if needed)
-    db.init_qrz_table()
-
-    # Initialize alerts table (creates if needed)
-    db.init_alerts_table()
-
-    # Initialize statrep table (creates if needed)
-    db.init_statrep_table()
-
-    # Initialize messages table (creates if needed)
-    db.init_messages_table()
-
-    # Initialize abbreviations table (creates if needed, populates with defaults)
-    db.init_abbreviations_table()
 
     # Create and show main window
     window = MainWindow(config, db, debug_mode=debug_mode, demo_mode=demo_mode, demo_version=demo_version, demo_duration=demo_duration)
