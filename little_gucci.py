@@ -4804,6 +4804,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # Fixed JS8Call: "W8APP: message" -> "W8APP: message" (no change)
         value = strip_duplicate_callsign(value, from_call)
 
+        # SECOND: Strip slash suffix from callsign in message
+        # W3BFO/P: @AMRRON MSG... -> W3BFO: @AMRRON MSG...
+        # W3BFO/QRP: @AMRRON MSG... -> W3BFO: @AMRRON MSG...
+        value = re.sub(r'^(\w+)/\w+:', r'\1:', value)
+
         # Extract callsign (remove suffix like /P)
         from_callsign = from_call.split("/")[0] if from_call else ""
 
