@@ -3013,7 +3013,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if reply == QtWidgets.QMessageBox.Yes:
             # Close the application gracefully - this triggers closeEvent() which
             # disconnects TCP connections and saves state
-            # startup.py will apply the update on next launch
+            # commstat.py will apply the update on next launch
             self.close()
 
     def _parse_backbone_sections(self, content: str) -> dict:
@@ -5293,8 +5293,7 @@ def main() -> None:
             None,
             "Update Pending",
             "An update is waiting to be applied.\n\n"
-            "Please run startup.py instead of commstat.py\n"
-            "to apply the update."
+            "Please run commstat.py to apply the update and launch the application."
         )
         sys.exit(1)
 

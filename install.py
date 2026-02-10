@@ -58,7 +58,7 @@ def setup_files():
 
 def runsettings():
     setup_files()
-    print("\nInstallation complete. Run 'python startup.py' to start the program.")
+    print("\nInstallation complete. Run 'python commstat.py' to start the program.")
 
 
 def install(package):

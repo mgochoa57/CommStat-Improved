@@ -49,7 +49,7 @@ cat > "$SCRIPT_DIR/run_commstat.sh" << 'EOF'
 #!/bin/bash
 # CommStat macOS Launcher
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec python3 "$SCRIPT_DIR/startup.py" "$@"
+exec python3 "$SCRIPT_DIR/commstat.py" "$@"
 EOF
 chmod +x "$SCRIPT_DIR/run_commstat.sh"
 

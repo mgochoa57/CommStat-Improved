@@ -3,7 +3,7 @@
 # This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 """
-startup.py - CommStat Launcher
+commstat.py - CommStat Launcher
 
 Checks for pending updates before launching the main application.
 If an update zip file is present, extracts it to overwrite program files.

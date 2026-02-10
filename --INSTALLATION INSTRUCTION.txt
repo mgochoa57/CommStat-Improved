@@ -14,7 +14,7 @@ WINDOWS
    python install.py
 
 4. Run CommStat:
-   python startup.py
+   python commstat.py
 
 
 LINUX
@@ -26,7 +26,7 @@ LINUX
      ChatGPT, Grok, Gemini, or your grandson.
 
 2. Run CommStat:
-   python3 startup.py
+   python3 commstat.py
 
 
 MAC
