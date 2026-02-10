@@ -39,7 +39,7 @@ echo "(You may be prompted for your sudo password)"
 echo ""
 
 sudo apt update
-sudo apt install -y python3-pyqt5.qtwebengine libenchant-2-dev
+sudo apt install -y python3-pyqt5 python3-pyqt5.qtwebengine libenchant-2-dev
 
 echo ""
 echo "Running Python installer..."
