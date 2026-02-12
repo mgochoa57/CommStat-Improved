@@ -5005,7 +5005,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Determine if message is relevant (to group or to our callsign)
         is_to_group = to_call.startswith("@")
-        user_callsign = self._get_rig_callsign(rig_name)
+        user_callsign = self.get_callsign_for_rig(rig_name)
         is_to_user = to_call == user_callsign if user_callsign else False
 
         # Only process if to group OR to our callsign
