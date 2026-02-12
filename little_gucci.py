@@ -4876,9 +4876,13 @@ class MainWindow(QtWidgets.QMainWindow):
                     }
                     scope = SCOPE_MAP.get(prec_num, "Unknown")
 
+                    # Validate SRCODE: must be at least 12 numeric digits
+                    if len(srcode) < 12 or not srcode[:12].isdigit():
+                        print(f"{ConsoleColors.WARNING}[{rig_name}] WARNING: Invalid STATREP SRCODE from {from_callsign} - must be 12 numeric digits, got: {srcode}{ConsoleColors.RESET}")
+                        return ""
+
                     # Insert statrep
-                    if len(srcode) >= 12:
-                        sr_fields = list(srcode)
+                    sr_fields = list(srcode[:12])  # Use only first 12 digits
                         date_only, _ = parse_message_datetime(utc)
 
                         # Build data dict for insertion
