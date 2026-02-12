@@ -1,5 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
-# Shell scripts must use LF line endings (Unix format)
+# Shell scripts and Python files must use LF line endings (Unix format)
 *.sh text eol=lf
+*.py text eol=lf
