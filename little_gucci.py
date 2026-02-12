@@ -2538,7 +2538,8 @@ class MainWindow(QtWidgets.QMainWindow):
         freq: int,
         snr: int,
         utc: str,
-        format_code: str  # "F!304" or "F!301"
+        format_code: str,  # "F!304" or "F!301"
+        source: int = 1  # 1=Radio (TCP), 2=Internet (backbone)
     ) -> str:
         """
         Process F!304 or F!301 STATREP format messages.
@@ -2601,7 +2602,7 @@ class MainWindow(QtWidgets.QMainWindow):
             'date': date_only,
             'freq': freq,
             'db': snr,
-            'source': 1,
+            'source': source,
             'sr_id': srid,
             'from_callsign': from_callsign,
             'target': fcode_group,
@@ -2697,254 +2698,23 @@ class MainWindow(QtWidgets.QMainWindow):
                     from_callsign = callsign_and_msg[0].strip()
                     message_value = callsign_and_msg[1].strip() if len(callsign_and_msg) > 1 else ""
 
-                    # Determine message type by markers
-                    MSG_STATREP = "{&%}"
-                    MSG_FORWARDED_STATREP = "{F%}"
-                    MSG_ALERT = "{%%}"
-
-                    # Extract target group (if present)
+                    # Extract target group from message if present
                     target = ""
                     target_match = re.search(r'(@[A-Z0-9]+)', message_value, re.IGNORECASE)
                     if target_match:
                         target = target_match.group(1).upper()
 
-                    # Process based on message type
-                    processed = False
+                    # Preprocess message value
+                    message_value = self._preprocess_message_value(message_value, from_callsign)
 
-                    # ============================================================
-                    # STATREP PROCESSING
-                    # ============================================================
-                    if MSG_STATREP in message_value or MSG_FORWARDED_STATREP in message_value:
-                        is_forwarded = MSG_FORWARDED_STATREP in message_value
-                        marker = MSG_FORWARDED_STATREP if is_forwarded else MSG_STATREP
+                    # Parse using unified parser (source=2 for Internet)
+                    msg_type, _ = self._parse_commstat_message(
+                        "BACKBONE", from_callsign, message_value, target, "", freq, db, utc, source=2
+                    )
 
-                        # Extract statrep data before marker
-                        match = re.search(r',(.+?)' + re.escape(marker), message_value)
-                        if match:
-                            fields = match.group(1).split(",")
-
-                            # Standard statrep: GRID,PREC,SRID,SRCODE,COMMENTS
-                            # Forwarded: GRID,PREC,SRID,SRCODE,COMMENTS,ORIG_CALL
-                            # Handle missing grid (only 3 fields): PREC,SRID,SRCODE or similar
-
-                            grid = None
-                            prec_num = None
-                            sr_id = None
-                            srcode = None
-
-                            if len(fields) >= 4:
-                                # Normal case - has grid field
-                                grid = fields[0].strip()
-                                prec_num = fields[1].strip()
-                                sr_id = fields[2].strip()
-                                srcode = fields[3].strip()
-
-                                # Validate grid square
-                                if not self._is_valid_grid(grid):
-                                    print(f"[BACKBONE] Invalid grid '{grid}' for {from_callsign}, attempting QRZ lookup")
-                                    qrz_grid = self._lookup_grid_for_callsign(from_callsign)
-                                    if qrz_grid:
-                                        grid = qrz_grid
-                                    else:
-                                        print(f"[BACKBONE] QRZ lookup failed for {from_callsign}, skipping statrep")
-                                        continue
-
-                            elif len(fields) >= 3:
-                                # Missing grid - try QRZ lookup
-                                print(f"[BACKBONE] Missing grid for {from_callsign}, attempting QRZ lookup")
-                                qrz_grid = self._lookup_grid_for_callsign(from_callsign)
-                                if qrz_grid:
-                                    grid = qrz_grid
-                                    # Shift fields: field[0]=PREC, field[1]=SRID, field[2]=SRCODE
-                                    prec_num = fields[0].strip()
-                                    sr_id = fields[1].strip()
-                                    srcode = fields[2].strip()
-                                else:
-                                    print(f"[BACKBONE] QRZ lookup failed for {from_callsign}, skipping statrep")
-                                    continue
-                            else:
-                                # Not enough fields
-                                print(f"[BACKBONE] Insufficient fields for statrep (ID {data_id})")
-                                continue
-
-                            # At this point we should have grid, prec_num, sr_id, srcode
-                            if not all([grid, prec_num, sr_id, srcode]):
-                                print(f"[BACKBONE] Missing required statrep fields (ID {data_id})")
-                                continue
-
-                            # Handle forwarded statrep origin callsign and comments
-                            origin_call = ""
-                            comments_raw = ""
-
-                            # Determine comment field index based on whether grid was present
-                            comment_start_idx = 4 if len(fields) >= 4 and self._is_valid_grid(fields[0].strip()) else 3
-
-                            if is_forwarded and len(fields) > comment_start_idx:
-                                # Remove empty trailing fields
-                                while fields and not fields[-1].strip():
-                                    fields.pop()
-                                if len(fields) > comment_start_idx:
-                                    origin_call = fields[-1].strip()
-                                    comments_raw = ",".join(fields[comment_start_idx:-1]).strip() if len(fields) > comment_start_idx + 1 else ""
-                            else:
-                                # Standard statrep comments
-                                comments_raw = ",".join([f for f in fields[comment_start_idx:] if f.strip()]).strip() if len(fields) > comment_start_idx else ""
-
-                                # Clean non-ASCII characters
-                                comments = re.sub(r'[^ -~]+', '', comments_raw).strip() if comments_raw else ""
-
-                                # Append forwarded origin info
-                                if origin_call:
-                                    origin_suffix = f" (FWD) ORIGIN: {origin_call}"
-                                    comments = (comments + origin_suffix) if comments else origin_suffix.lstrip()
-
-                                # Expand "+" to all green
-                                if srcode == "+":
-                                    srcode = "111111111111"
-
-                                # Map precedence
-                                SCOPE_MAP = {
-                                    "1": "My Location",
-                                    "2": "My Community",
-                                    "3": "My County",
-                                    "4": "My Region",
-                                    "5": "Other Location"
-                                }
-                                scope = SCOPE_MAP.get(prec_num, "Unknown")
-
-                                # Insert statrep with source=2 (Internet)
-                                if len(srcode) >= 12:
-                                    sr_fields = list(srcode)
-                                    date_only = utc.split()[0]
-
-                                    conn = sqlite3.connect(DATABASE_FILE, timeout=10)
-                                    cursor = conn.cursor()
-                                    try:
-                                        cursor.execute(
-                                            "INSERT OR IGNORE INTO statrep "
-                                            "(datetime, date, freq, db, source, sr_id, from_callsign, target, grid, scope, map, power, water, "
-                                            "med, telecom, travel, internet, fuel, food, crime, civil, political, comments) "
-                                            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                            (utc, date_only, freq, db, 2, sr_id, from_callsign, target, grid, scope,
-                                             sr_fields[0], sr_fields[1], sr_fields[2], sr_fields[3],
-                                             sr_fields[4], sr_fields[5], sr_fields[6], sr_fields[7],
-                                             sr_fields[8], sr_fields[9], sr_fields[10], sr_fields[11],
-                                             comments)
-                                        )
-                                        conn.commit()
-                                        print(f"\033[92m[BACKBONE] Added StatRep from: {from_callsign} ID: {sr_id} (data_id: {data_id})\033[0m")
-                                        processed = True
-                                        data_types_processed.add('statrep')
-                                    except sqlite3.Error as e:
-                                        print(f"Database error inserting statrep (ID {data_id}): {e}")
-                                    finally:
-                                        conn.close()
-
-                    # ============================================================
-                    # ALERT PROCESSING
-                    # ============================================================
-                    elif MSG_ALERT in message_value:
-                        # Parse alert: LRT ,COLOR,TITLE,MESSAGE,{%%}
-                        match = re.search(r'LRT\s*,(.+?)\{\%\%\}', message_value)
-                        if match:
-                            fields = match.group(1).split(",")
-                            if len(fields) >= 3:
-                                try:
-                                    color = int(fields[0].strip())
-                                except ValueError:
-                                    color = 1  # Default to yellow
-
-                                title = fields[1].strip()
-                                message_text = ",".join(fields[2:]).strip().rstrip(',')
-
-                                # Generate alert ID
-                                dt = datetime.strptime(utc, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-                                alert_id = generate_time_based_id(dt)
-                                date_only = utc.split()[0]
-
-                                conn = sqlite3.connect(DATABASE_FILE, timeout=10)
-                                cursor = conn.cursor()
-                                try:
-                                    cursor.execute(
-                                        "INSERT INTO alerts "
-                                        "(datetime, date, freq, db, source, alert_id, from_callsign, target, color, title, message) "
-                                        "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                        (utc, date_only, freq, db, 2, alert_id, from_callsign, target, color, title, message_text)
-                                    )
-                                    conn.commit()
-                                    print(f"\033[91m[BACKBONE] Added Alert from: {from_callsign} - {title} (data_id: {data_id})\033[0m")
-                                    processed = True
-                                    data_types_processed.add('alert')
-                                except sqlite3.Error as e:
-                                    print(f"Database error inserting alert (ID {data_id}): {e}")
-                                finally:
-                                    conn.close()
-
-                    # ============================================================
-                    # MESSAGE PROCESSING (default)
-                    # ============================================================
-                    else:
-                        # Standard message - save to messages table
-                        # Generate message ID
-                        dt = datetime.strptime(utc, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-                        msg_id = generate_time_based_id(dt)
-
-                        # Clean message value (remove target if present)
-                        message_clean = message_value
-                        if target:
-                            message_clean = message_value.replace(target, '').strip()
-
-                        # Remove duplicate callsign prefix (e.g., "NY5V: NY5V: message" -> "NY5V: message")
-                        dup_callsign_match = re.match(r'^(\w+):\s+\1:\s+(.+)', message_clean)
-                        if dup_callsign_match:
-                            message_clean = f"{dup_callsign_match.group(1)}: {dup_callsign_match.group(2)}"
-
-                        # Extract text after "MSG " if present
-                        msg_match = re.search(r'\bMSG\s+(.+)$', message_clean, re.IGNORECASE)
-                        if msg_match:
-                            message_clean = msg_match.group(1).strip()
-
-                        # If bulletin message ({^%}), remove bulletin ID pattern: ,XXX, (3 digits)
-                        # Example: "MSG ,223,ANYONE..." becomes "ANYONE..."
-                        if '{^%}' in message_clean:
-                            message_clean = re.sub(r'^\s*,\d{3},\s*', '', message_clean)
-
-                        # Remove CommStat markers from message text
-                        commstat_markers = ['{&%}', '{F%}', '{^%}', '{%%}', '{*%}', '{~%}']
-                        for marker in commstat_markers:
-                            # Remove marker and preceding comma if present
-                            message_clean = re.sub(r',\s*' + re.escape(marker), '', message_clean)
-                            # Also remove marker without comma
-                            message_clean = message_clean.replace(marker, '')
-
-                        message_clean = message_clean.strip()
-
-                        # Remove non-ASCII characters
-                        message_clean = re.sub(r'[^ -~]+', '', message_clean).strip()
-
-                        # Extract date from datetime (YYYY-MM-DD)
-                        date_only = utc.split()[0] if utc else ""
-
-                        conn = sqlite3.connect(DATABASE_FILE, timeout=10)
-                        cursor = conn.cursor()
-                        try:
-                            cursor.execute(
-                                "INSERT INTO messages "
-                                "(datetime, date, freq, db, source, msg_id, from_callsign, target, message) "
-                                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                (utc, date_only, freq, db, 2, msg_id, from_callsign, target, message_clean)
-                            )
-                            conn.commit()
-                            print(f"\033[92m[BACKBONE] Added Message from: {from_callsign} (data_id: {data_id})\033[0m")
-                            processed = True
-                            data_types_processed.add('message')
-                        except sqlite3.Error as e:
-                            print(f"Database error inserting message (ID {data_id}): {e}")
-                        finally:
-                            conn.close()
-
-                    if processed:
+                    if msg_type:
                         processed_count += 1
+                        data_types_processed.add(msg_type)
 
                 except (ValueError, IndexError) as e:
                     print(f"Error parsing data line (ID {data_id}): {e}")
@@ -4764,6 +4534,416 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             return generate_time_based_id()
 
+    def _preprocess_message_value(self, value: str, from_call: str) -> str:
+        """
+        Preprocess message value before parsing.
+
+        Applies:
+        1. Duplicate callsign removal (JS8Call bug fix)
+        2. Slash suffix stripping from message callsign
+
+        Args:
+            value: Raw message text
+            from_call: Sender callsign (may include suffix)
+
+        Returns:
+            Cleaned message value
+        """
+        import re
+
+        # Strip duplicate callsign (JS8Call bug: "W8APP: W8APP: @GROUP" → "W8APP: @GROUP")
+        value = strip_duplicate_callsign(value, from_call)
+
+        # Strip slash suffix from callsign in message (W3BFO/P: → W3BFO:)
+        value = re.sub(r'^(\w+)/\w+:', r'\1:', value)
+
+        return value
+
+    def _parse_standard_statrep(
+        self,
+        rig_name: str,
+        message_value: str,
+        from_callsign: str,
+        target: str,
+        grid: str,
+        freq: int,
+        snr: int,
+        utc: str,
+        source: int
+    ) -> tuple:
+        """
+        Parse standard STATREP message format.
+
+        Format: ,GRID,PREC,SRID,SRCODE,COMMENTS,{&%}
+        Forwarded: ,GRID,PREC,SRID,SRCODE,COMMENTS,ORIG_CALL,{F%}
+
+        Args:
+            rig_name: Name of the rig/source
+            message_value: Message text
+            from_callsign: Sender callsign (base callsign without suffix)
+            target: Target @GROUP or callsign
+            grid: Grid square from TCP params or empty for backbone
+            freq: Frequency in Hz
+            snr: Signal-to-noise ratio in dB
+            utc: UTC timestamp string "YYYY-MM-DD HH:MM:SS"
+            source: 1=Radio (TCP), 2=Internet (backbone)
+
+        Returns:
+            (message_type, None) where message_type is "statrep" or ""
+        """
+        import re
+
+        is_forwarded = "{F%}" in message_value
+        marker = "{F%}" if is_forwarded else "{&%}"
+
+        # Extract statrep data before marker
+        match = re.search(r',(.+?)' + re.escape(marker), message_value)
+        if not match:
+            return ("", None)
+
+        fields = match.group(1).split(",")
+
+        # Need at least 4 fields: GRID, PREC, SRID, SRCODE
+        if len(fields) < 4:
+            return ("", None)
+
+        statrep_grid = fields[0].strip()
+        prec_num = fields[1].strip()
+        sr_id = fields[2].strip()
+        srcode = fields[3].strip()
+
+        # Expand "+" shorthand
+        srcode = expand_plus_shorthand(srcode)
+
+        # Validate SRCODE: must be at least 12 numeric digits
+        if len(srcode) < 12 or not srcode[:12].isdigit():
+            print(f"{ConsoleColors.WARNING}[{rig_name}] WARNING: Invalid STATREP SRCODE from {from_callsign} - must be 12 numeric digits, got: {srcode}{ConsoleColors.RESET}")
+            return ("", None)
+
+        # Validate and get grid (use QRZ if invalid/missing)
+        statrep_grid = self._resolve_grid(rig_name, statrep_grid, from_callsign, grid, "STATREP")
+
+        # Handle forwarded statrep
+        if is_forwarded and len(fields) > 4:
+            # Remove empty trailing fields
+            while fields and not fields[-1].strip():
+                fields.pop()
+            # Last field is origin callsign
+            origin_call = fields[-1].strip() if len(fields) > 4 else ""
+            # Comments are between SRCODE and origin
+            comments_raw = ",".join(fields[4:-1]).strip() if len(fields) > 5 else ""
+            comments = format_statrep_comments(comments_raw, self.db.get_abbreviations(), self.config.get_apply_text_normalization())
+            # Append forwarded info
+            if origin_call:
+                fwd_suffix = f" FORWARDED BY: {from_callsign}"
+                comments = (comments + fwd_suffix) if comments else fwd_suffix.lstrip()
+                # Use origin callsign as sender
+                from_callsign = origin_call
+        else:
+            # Standard statrep comments
+            comments_raw = ",".join([f for f in fields[4:] if f.strip()]).strip() if len(fields) > 4 else ""
+            comments = format_statrep_comments(comments_raw, self.db.get_abbreviations(), self.config.get_apply_text_normalization())
+
+        # Map scope
+        SCOPE_MAP = {
+            "1": "My Location",
+            "2": "My Community",
+            "3": "My County",
+            "4": "My Region",
+            "5": "Other Location"
+        }
+        scope = SCOPE_MAP.get(prec_num, "Unknown")
+
+        # Insert statrep
+        sr_fields = list(srcode[:12])  # Use only first 12 digits
+        date_only, _ = parse_message_datetime(utc)
+
+        # Build data dict for insertion
+        data = {
+            'datetime': utc,
+            'date': date_only,
+            'freq': freq,
+            'db': snr,
+            'source': source,
+            'sr_id': sr_id,
+            'from_callsign': from_callsign,
+            'target': target,
+            'grid': statrep_grid,
+            'scope': scope,
+            'map': sr_fields[0],
+            'power': sr_fields[1],
+            'water': sr_fields[2],
+            'med': sr_fields[3],
+            'telecom': sr_fields[4],
+            'travel': sr_fields[5],
+            'internet': sr_fields[6],
+            'fuel': sr_fields[7],
+            'food': sr_fields[8],
+            'crime': sr_fields[9],
+            'civil': sr_fields[10],
+            'political': sr_fields[11],
+            'comments': comments
+        }
+
+        fwd_marker = " (FORWARDED)" if is_forwarded else ""
+        result = self._insert_message_data(
+            rig_name, "statrep", data, "sr_id", "statrep", from_callsign, fwd_marker
+        )
+        if result:
+            return (result, None)
+
+        return ("", None)
+
+    def _parse_alert(
+        self,
+        rig_name: str,
+        message_value: str,
+        from_callsign: str,
+        target: str,
+        freq: int,
+        snr: int,
+        utc: str,
+        source: int
+    ) -> tuple:
+        """
+        Parse ALERT message format.
+
+        Format: @GROUP ,COLOR,TITLE,MESSAGE,{%%}
+        Legacy backbone format: LRT ,COLOR,TITLE,MESSAGE,{%%}
+
+        Args:
+            rig_name: Name of the rig/source
+            message_value: Message text
+            from_callsign: Sender callsign (base callsign without suffix)
+            target: Target @GROUP or callsign
+            freq: Frequency in Hz
+            snr: Signal-to-noise ratio in dB
+            utc: UTC timestamp string "YYYY-MM-DD HH:MM:SS"
+            source: 1=Radio (TCP), 2=Internet (backbone)
+
+        Returns:
+            (message_type, None) where message_type is "alert" or ""
+        """
+        import re
+
+        # Try standard @GROUP pattern first
+        match = re.search(r'(@\w+)\s*,(.+?)\{\%\%\}', message_value)
+        if match:
+            alert_target = match.group(1).strip()
+            fields_str = match.group(2).strip()
+        else:
+            # Try LRT pattern (legacy backbone format)
+            match = re.search(r'LRT\s*,(.+?)\{\%\%\}', message_value)
+            if match:
+                alert_target = target if target else "@ALL"
+                fields_str = match.group(1).strip()
+            else:
+                return ("", None)
+
+        # Split into COLOR, TITLE, MESSAGE (max 2 splits to preserve commas in message)
+        fields = fields_str.split(",", 2)
+
+        if len(fields) < 3:
+            return ("", None)
+
+        try:
+            alert_color = int(fields[0].strip())
+        except ValueError:
+            print(f"{ConsoleColors.WARNING}[{rig_name}] WARNING: Invalid alert color in message from {from_callsign}{ConsoleColors.RESET}")
+            return ("", None)
+
+        alert_title = sanitize_ascii(fields[1].strip())
+        alert_message = sanitize_ascii(fields[2].strip())
+
+        # Generate time-based alert ID
+        date_only, alert_id = parse_message_datetime(utc)
+
+        # Build data dict for insertion
+        data = {
+            'datetime': utc,
+            'date': date_only,
+            'freq': freq,
+            'db': snr,
+            'source': source,
+            'alert_id': alert_id,
+            'from_callsign': from_callsign,
+            'target': alert_target,
+            'color': alert_color,
+            'title': alert_title,
+            'message': alert_message
+        }
+
+        result = self._insert_message_data(
+            rig_name, "alerts", data, "alert_id", "alert", from_callsign
+        )
+        if result:
+            return (result, None)
+
+        return ("", None)
+
+    def _parse_message(
+        self,
+        rig_name: str,
+        message_value: str,
+        from_callsign: str,
+        target: str,
+        freq: int,
+        snr: int,
+        utc: str,
+        source: int
+    ) -> tuple:
+        """
+        Parse MESSAGE format.
+
+        TCP format: CALLSIGN: TARGET MSG message_text
+        Backbone format: Any message not caught by earlier filters
+
+        Args:
+            rig_name: Name of the rig/source
+            message_value: Message text
+            from_callsign: Sender callsign (base callsign without suffix)
+            target: Target @GROUP or callsign
+            freq: Frequency in Hz
+            snr: Signal-to-noise ratio in dB
+            utc: UTC timestamp string "YYYY-MM-DD HH:MM:SS"
+            source: 1=Radio (TCP), 2=Internet (backbone)
+
+        Returns:
+            (message_type, None) where message_type is "message" or ""
+        """
+        import re
+
+        # Try strict MSG pattern first
+        msg_pattern = re.match(r'^(\w+):\s+(@?\w+)\s+MSG\s+(.+)$', message_value, re.IGNORECASE)
+
+        if msg_pattern:
+            # Extract from pattern
+            message_text = msg_pattern.group(3).strip()
+            msg_target = msg_pattern.group(2).strip()
+        elif source == 2:
+            # Backbone: accept any non-STATREP/ALERT as message
+            message_text = message_value
+            msg_target = target if target else ""
+        else:
+            # TCP: require MSG keyword
+            return ("", None)
+
+        # Skip if message is empty
+        if not message_text:
+            return ("", None)
+
+        # If bulletin message ({^%}), remove bulletin ID pattern: ,XXX, (3 digits)
+        # Example: "MSG ,223,ANYONE..." becomes "ANYONE..."
+        if '{^%}' in message_text:
+            message_text = re.sub(r'^\s*,\d{3},\s*', '', message_text)
+
+        # Remove bulletin marker {^%} and preceding comma
+        message_text = message_text.replace(',{^%}', '')
+
+        message_text = sanitize_ascii(message_text.strip())
+
+        # Generate time-based message ID
+        date_only, msg_id = parse_message_datetime(utc)
+
+        # Build data dict for insertion
+        data = {
+            'datetime': utc,
+            'date': date_only,
+            'freq': freq,
+            'db': snr,
+            'source': source,
+            'msg_id': msg_id,
+            'from_callsign': from_callsign,
+            'target': msg_target,
+            'message': message_text
+        }
+
+        result = self._insert_message_data(
+            rig_name, "messages", data, "msg_id", "message", from_callsign
+        )
+        if result:
+            return (result, None)
+
+        return ("", None)
+
+    def _parse_commstat_message(
+        self,
+        rig_name: str,
+        from_callsign: str,
+        message_value: str,
+        target: str,
+        grid: str,
+        freq: int,
+        snr: int,
+        utc: str,
+        source: int  # 1=Radio, 2=Internet
+    ) -> tuple:
+        """
+        Parse and validate CommStat message in any format.
+
+        Processes messages in priority order:
+        1. Standard STATREP ({&%} or {F%})
+        2. F!304 STATREP (8-digit format)
+        3. F!301 STATREP (9-digit format)
+        4. ALERT ({%%})
+        5. MESSAGE (contains "MSG" keyword)
+
+        Args:
+            rig_name: Name of the rig/source
+            from_callsign: Sender callsign (base callsign without suffix)
+            message_value: Message text (already preprocessed)
+            target: Target @GROUP or callsign
+            grid: Grid square from TCP params or empty for backbone
+            freq: Frequency in Hz
+            snr: Signal-to-noise ratio in dB
+            utc: UTC timestamp string "YYYY-MM-DD HH:MM:SS"
+            source: 1=Radio (TCP), 2=Internet (backbone)
+
+        Returns:
+            (message_type, data_dict) where:
+            - message_type: "statrep", "alert", "message", or "" (invalid/skip)
+            - data_dict: None (already inserted by sub-parsers)
+        """
+        # Validate inputs
+        if not from_callsign or not message_value:
+            return ("", None)
+
+        # Extract base callsign (remove /P, /M suffixes)
+        from_callsign = from_callsign.split("/")[0]
+
+        # PRIORITY 1: Standard STATREP ({&%} or {F%})
+        if "{&%}" in message_value or "{F%}" in message_value:
+            return self._parse_standard_statrep(
+                rig_name, message_value, from_callsign, target, grid, freq, snr, utc, source
+            )
+
+        # PRIORITY 2: F!304 STATREP
+        if "F!304" in message_value:
+            result = self._process_fcode_statrep(
+                rig_name, message_value, from_callsign, target, grid, freq, snr, utc, "F!304", source
+            )
+            if result:
+                return (result, None)
+
+        # PRIORITY 3: F!301 STATREP
+        if "F!301" in message_value:
+            result = self._process_fcode_statrep(
+                rig_name, message_value, from_callsign, target, grid, freq, snr, utc, "F!301", source
+            )
+            if result:
+                return (result, None)
+
+        # PRIORITY 4: ALERT ({%%})
+        if "{%%}" in message_value:
+            return self._parse_alert(
+                rig_name, message_value, from_callsign, target, freq, snr, utc, source
+            )
+
+        # PRIORITY 5: MESSAGE
+        return self._parse_message(
+            rig_name, message_value, from_callsign, target, freq, snr, utc, source
+        )
+
     def _process_directed_message(
         self,
         rig_name: str,
@@ -4776,7 +4956,7 @@ class MainWindow(QtWidgets.QMainWindow):
         utc: str
     ) -> str:
         """
-        Process a directed message received via TCP.
+        Process a directed message received via TCP from JS8Call.
 
         SIMPLIFIED: Only processes messages containing " MSG "
         - Process ALL messages to groups (to_call starts with @)
@@ -4793,276 +4973,34 @@ class MainWindow(QtWidgets.QMainWindow):
             utc: UTC timestamp string.
 
         Returns:
-            "message" if saved, empty string otherwise.
+            "statrep", "message", "alert", "checkin", or empty string
         """
-        import re
-        from id_utils import generate_time_based_id
-        from datetime import datetime, timezone
+        # Preprocess message value
+        value = self._preprocess_message_value(value, from_call)
 
-        # FIRST: Strip duplicate callsign from value (JS8Call bug)
-        # Buggy JS8Call: "W8APP: W8APP: message" -> "W8APP: message"
-        # Fixed JS8Call: "W8APP: message" -> "W8APP: message" (no change)
-        value = strip_duplicate_callsign(value, from_call)
-
-        # SECOND: Strip slash suffix from callsign in message
-        # W3BFO/P: @AMRRON MSG... -> W3BFO: @AMRRON MSG...
-        # W3BFO/QRP: @AMRRON MSG... -> W3BFO: @AMRRON MSG...
-        value = re.sub(r'^(\w+)/\w+:', r'\1:', value)
-
-        # Extract callsign (remove suffix like /P)
+        # Extract base callsign
         from_callsign = from_call.split("/")[0] if from_call else ""
 
-        # Extract target group (if present)
+        # Extract target group
         target = ""
         if to_call.startswith("@"):
             target = to_call
 
-        # =================================================================
-        # Standard STATREP Processing (HIGHEST PRIORITY)
-        # =================================================================
-        # Format: ,GRID,PREC,SRID,SRCODE,COMMENTS,{&%}
-        # Forwarded: ,GRID,PREC,SRID,SRCODE,COMMENTS,ORIG_CALL,{F%}
+        # Determine if message is relevant (to group or to our callsign)
+        is_to_group = to_call.startswith("@")
+        user_callsign = self._get_rig_callsign(rig_name)
+        is_to_user = to_call == user_callsign if user_callsign else False
 
-        if "{&%}" in value or "{F%}" in value:
-            is_forwarded = "{F%}" in value
-            marker = "{F%}" if is_forwarded else "{&%}"
-
-            # Extract statrep data before marker
-            match = re.search(r',(.+?)' + re.escape(marker), value)
-            if match:
-                fields = match.group(1).split(",")
-
-                # Need at least 4 fields: GRID, PREC, SRID, SRCODE
-                if len(fields) >= 4:
-                    statrep_grid = fields[0].strip()
-                    prec_num = fields[1].strip()
-                    sr_id = fields[2].strip()
-                    srcode = fields[3].strip()
-
-                    # Expand "+" shorthand
-                    srcode = expand_plus_shorthand(srcode)
-
-                    # Validate and get grid (use QRZ if invalid/missing)
-                    statrep_grid = self._resolve_grid(rig_name, statrep_grid, from_callsign, grid, "STATREP")
-
-                    # Handle forwarded statrep
-                    if is_forwarded and len(fields) > 4:
-                        # Remove empty trailing fields
-                        while fields and not fields[-1].strip():
-                            fields.pop()
-                        # Last field is origin callsign
-                        origin_call = fields[-1].strip() if len(fields) > 4 else ""
-                        # Comments are between SRCODE and origin
-                        comments_raw = ",".join(fields[4:-1]).strip() if len(fields) > 5 else ""
-                        comments = format_statrep_comments(comments_raw, self.db.get_abbreviations(), self.config.get_apply_text_normalization())
-                        # Append forwarded info
-                        if origin_call:
-                            fwd_suffix = f" FORWARDED BY: {from_callsign}"
-                            comments = (comments + fwd_suffix) if comments else fwd_suffix.lstrip()
-                            # Use origin callsign as sender
-                            from_callsign = origin_call
-                    else:
-                        # Standard statrep comments
-                        comments_raw = ",".join([f for f in fields[4:] if f.strip()]).strip() if len(fields) > 4 else ""
-                        comments = format_statrep_comments(comments_raw, self.db.get_abbreviations(), self.config.get_apply_text_normalization())
-
-                    # Map scope
-                    SCOPE_MAP = {
-                        "1": "My Location",
-                        "2": "My Community",
-                        "3": "My County",
-                        "4": "My Region",
-                        "5": "Other Location"
-                    }
-                    scope = SCOPE_MAP.get(prec_num, "Unknown")
-
-                    # Validate SRCODE: must be at least 12 numeric digits
-                    if len(srcode) < 12 or not srcode[:12].isdigit():
-                        print(f"{ConsoleColors.WARNING}[{rig_name}] WARNING: Invalid STATREP SRCODE from {from_callsign} - must be 12 numeric digits, got: {srcode}{ConsoleColors.RESET}")
-                        return ""
-
-                    # Insert statrep
-                    sr_fields = list(srcode[:12])  # Use only first 12 digits
-                        date_only, _ = parse_message_datetime(utc)
-
-                        # Build data dict for insertion
-                        data = {
-                            'datetime': utc,
-                            'date': date_only,
-                            'freq': freq,
-                            'db': snr,
-                            'source': 1,
-                            'sr_id': sr_id,
-                            'from_callsign': from_callsign,
-                            'target': target,
-                            'grid': statrep_grid,
-                            'scope': scope,
-                            'map': sr_fields[0],
-                            'power': sr_fields[1],
-                            'water': sr_fields[2],
-                            'med': sr_fields[3],
-                            'telecom': sr_fields[4],
-                            'travel': sr_fields[5],
-                            'internet': sr_fields[6],
-                            'fuel': sr_fields[7],
-                            'food': sr_fields[8],
-                            'crime': sr_fields[9],
-                            'civil': sr_fields[10],
-                            'political': sr_fields[11],
-                            'comments': comments
-                        }
-
-                        fwd_marker = " (FORWARDED)" if is_forwarded else ""
-                        result = self._insert_message_data(
-                            rig_name, "statrep", data, "sr_id", "statrep", from_callsign, fwd_marker
-                        )
-                        if result:
-                            return result
-
-                        return ""
-
-        # =================================================================
-        # F!304 and F!301 STATREP Processing (MEDIUM PRIORITY)
-        # =================================================================
-        # These must be processed BEFORE message processing
-        # If detected, save as statrep and return "statrep" to skip message processing
-
-        # Check for F!304 format: [CALLSIGN:] [@GROUP|CALLSIGN] [MSG] F!304 {8 digits} {remainder}
-        # =================================================================
-        # F!304 and F!301 STATREP Processing (PRIORITY 2 & 3)
-        # =================================================================
-
-        if "F!304" in value:
-            result = self._process_fcode_statrep(
-                rig_name, value, from_callsign, target, grid, freq, snr, utc, "F!304"
-            )
-            if result:
-                return result
-
-        if "F!301" in value:
-            result = self._process_fcode_statrep(
-                rig_name, value, from_callsign, target, grid, freq, snr, utc, "F!301"
-            )
-            if result:
-                return result
-
-        # =================================================================
-        # ALERT Processing (PRIORITY 4)
-        # =================================================================
-        # Format: @GROUP ,COLOR,TITLE,MESSAGE,{%%}
-        # Example: "W1ABC: @ALL ,1,Test Alert,This is a test,{%%}"
-
-        if "{%%}" in value:
-            # Extract alert data before marker
-            match = re.search(r'(@\w+)\s*,(.+?)\{\%\%\}', value)
-            if match:
-                alert_target = match.group(1).strip()
-                fields_str = match.group(2).strip()
-
-                # Split into COLOR, TITLE, MESSAGE (max 2 splits to preserve commas in message)
-                fields = fields_str.split(",", 2)
-
-                if len(fields) >= 3:
-                    try:
-                        alert_color = int(fields[0].strip())
-                    except ValueError:
-                        print(f"{ConsoleColors.WARNING}[{rig_name}] WARNING: Invalid alert color in message from {from_callsign}{ConsoleColors.RESET}")
-                        return ""
-
-                    alert_title = sanitize_ascii(fields[1].strip())
-                    alert_message = sanitize_ascii(fields[2].strip())
-
-                    # Generate time-based alert ID
-                    date_only, alert_id = parse_message_datetime(utc)
-
-                    # Build data dict for insertion
-                    data = {
-                        'datetime': utc,
-                        'date': date_only,
-                        'freq': freq,
-                        'db': snr,
-                        'source': 1,
-                        'alert_id': alert_id,
-                        'from_callsign': from_callsign,
-                        'target': alert_target,
-                        'color': alert_color,
-                        'title': alert_title,
-                        'message': alert_message
-                    }
-
-                    result = self._insert_message_data(
-                        rig_name, "alerts", data, "alert_id", "alert", from_callsign
-                    )
-                    if result:
-                        return result
-
-                    return ""
-
-        # =================================================================
-        # MESSAGE Processing (PRIORITY 5 - LOWEST PRIORITY)
-        # =================================================================
-        # Pattern: CALLSIGN: TARGET MSG message_text
-        # Where TARGET is @GROUP or CALLSIGN
-        # Example: "W8APP: @AMRRON MSG Hello everyone"
-        # Example: "W8APP: N0DDK MSG Hello there"
-
-        # Match the specific pattern
-        msg_pattern = re.match(r'^(\w+):\s+(@?\w+)\s+MSG\s+(.+)$', value, re.IGNORECASE)
-        if not msg_pattern:
-            return ""
-
-        # Extract components
-        msg_from = msg_pattern.group(1).strip()  # Should match from_callsign
-        msg_target = msg_pattern.group(2).strip()  # Should match to_call
-        message_text = msg_pattern.group(3).strip()
-
-        # Determine if we should process this message
-        is_to_group = msg_target.startswith("@")
-        is_to_user = msg_target.upper() in [c.upper() for c in self.rig_callsigns.values() if c]
-
-        # Only process if it's to a group or to the user
+        # Only process if to group OR to our callsign
         if not (is_to_group or is_to_user):
             return ""
 
-        # Skip if message is empty
-        if not message_text:
-            return ""
-
-        # If bulletin message ({^%}), remove bulletin ID pattern: ,XXX, (3 digits)
-        # Example: "MSG ,223,ANYONE..." becomes "ANYONE..."
-        if '{^%}' in message_text:
-            message_text = re.sub(r'^\s*,\d{3},\s*', '', message_text)
-
-        # Remove bulletin marker {^%} and preceding comma
-        # (Only marker that can reach MESSAGE processing - others caught by higher priorities)
-        # {&%}/{F%} → PRIORITY 1 (STATREP), {%%} → PRIORITY 4 (ALERT), {*%}/{~%} → legacy/unused
-        message_text = message_text.replace(',{^%}', '')
-
-        message_text = sanitize_ascii(message_text.strip())
-
-        # Generate time-based message ID
-        date_only, msg_id = parse_message_datetime(utc)
-
-        # Build data dict for insertion
-        data = {
-            'datetime': utc,
-            'date': date_only,
-            'freq': freq,
-            'db': snr,
-            'source': 1,
-            'msg_id': msg_id,
-            'from_callsign': from_callsign,
-            'target': msg_target,
-            'message': message_text
-        }
-
-        result = self._insert_message_data(
-            rig_name, "messages", data, "msg_id", "message", from_callsign
+        # Parse using unified parser (source=1 for Radio)
+        msg_type, _ = self._parse_commstat_message(
+            rig_name, from_callsign, value, target, grid, freq, snr, utc, source=1
         )
-        if result:
-            return result
 
-        return ""
+        return msg_type
 
     def _on_qrz_enable(self) -> None:
         """Open QRZ Enable dialog for managing QRZ.com credentials."""
