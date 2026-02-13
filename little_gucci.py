@@ -2456,12 +2456,24 @@ class MainWindow(QtWidgets.QMainWindow):
         Returns:
             Valid grid square or fallback
         """
-        # If valid grid provided, use it
-        if grid and len(grid) >= 4:
+        prefix = f"[{rig_name}] {msg_format}: " if msg_format else f"[{rig_name}] "
+
+        # Case 1: Already have a precise grid (5+ chars) - use directly
+        if grid and len(grid) > 4:
             return grid
 
-        # Try QRZ lookup
-        prefix = f"[{rig_name}] {msg_format}: " if msg_format else f"[{rig_name}] "
+        # Case 2: Have a 4-char grid - try to upgrade via QRZ
+        if grid and len(grid) == 4:
+            qrz_grid = self._lookup_grid_for_callsign(callsign)
+            if qrz_grid and len(qrz_grid) > 4:
+                # Format as mixed case: first 4 upper + rest lower (e.g., EM83cv)
+                # This makes QRZ-upgraded grids visually distinguishable
+                qrz_grid = qrz_grid[:4].upper() + qrz_grid[4:].lower()
+                print(f"{prefix}Upgraded grid {grid} -> {qrz_grid} via QRZ for {callsign}")
+                return qrz_grid
+            return grid
+
+        # Try QRZ lookup for missing/invalid grid
         print(f"{prefix}Missing/invalid grid, attempting QRZ lookup for {callsign}")
 
         qrz_grid = self._lookup_grid_for_callsign(callsign)
@@ -2516,7 +2528,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except sqlite3.IntegrityError as e:
             if id_field in str(e) or "UNIQUE" in str(e):
                 id_val = data.get(id_field, "unknown")
-                print(f"{ConsoleColors.WARNING}[{rig_name}] WARNING: Duplicate {msg_type} ID {id_val} from {from_callsign} - skipping{ConsoleColors.RESET}")
+                print(f"{ConsoleColors.SUCCESS}[{rig_name}] Skipping {msg_type} from {from_callsign} — already received (ID: {id_val}){ConsoleColors.RESET}")
             else:
                 print(f"{ConsoleColors.WARNING}[{rig_name}] WARNING: Database constraint violation: {e}{ConsoleColors.RESET}")
         except sqlite3.Error as e:
@@ -2570,14 +2582,10 @@ class MainWindow(QtWidgets.QMainWindow):
             scope = field_map['scope']
             status_digits = digits[1:]  # Skip scope digit
 
-        # Extract grid from remainder, then try parameter grid, then QRZ
-        fcode_grid, grid_found = extract_grid_from_text(remainder, grid)
-        fcode_grid = self._resolve_grid(rig_name, fcode_grid, from_callsign, grid, format_code)
+        # F!304/F!301 messages don't contain grid data — resolve via callsign lookup
+        # _lookup_grid_for_callsign checks qrz_cache first, then QRZ API (caches result)
+        fcode_grid = self._lookup_grid_for_callsign(from_callsign) or ""
         grid_found = bool(fcode_grid and len(fcode_grid) >= 4)
-
-        # Remove grid from remainder if found in text
-        if grid_found and remainder:
-            remainder = re.sub(r'\b[A-Z]{2}\d{2}[A-Z0-9]{0,2}\b', '', remainder, count=1, flags=re.IGNORECASE).strip()
 
         # Build comments
         comment_parts = [format_code] + field_map['comment_parts']
