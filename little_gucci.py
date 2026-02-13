@@ -67,7 +67,7 @@ from id_utils import generate_time_based_id
 # Constants
 # =============================================================================
 
-VERSION = "3.0.2"
+VERSION = "3.0.3"
 WINDOW_TITLE = f"CommStat (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
@@ -514,7 +514,6 @@ DEFAULT_RSS_FEEDS: Dict[str, str] = {
     "Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
     "AP News": "https://feedx.net/rss/ap.xml",
     "BBC World": "http://feeds.bbci.co.uk/news/world/rss.xml",
-    "CNN Top": "http://rss.cnn.com/rss/cnn_topstories.rss",
     "Fox News": "https://moxie.foxnews.com/google-publisher/latest.xml",
     "NPR News": "https://feeds.npr.org/1001/rss.xml",
 }
@@ -2696,7 +2695,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
                     callsign_and_msg = message_part.split(':', 1)
                     from_callsign = callsign_and_msg[0].strip()
-                    message_value = callsign_and_msg[1].strip() if len(callsign_and_msg) > 1 else ""
+                    message_value = message_part  # Keep full message with sender prefix for consistent parsing
 
                     # Extract target group from message if present
                     target = ""
@@ -4757,6 +4756,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 return ("", None)
             alert_title = sanitize_ascii(fields[2].strip())
             alert_message = sanitize_ascii(fields[3].strip())
+            # Extract date for new format
+            date_only, _ = parse_message_datetime(utc)
         elif len(fields) >= 3:
             # Old format: COLOR, TITLE, MESSAGE (no alert_id, generate one)
             try:
@@ -4830,12 +4831,13 @@ class MainWindow(QtWidgets.QMainWindow):
         msg_target = target
         message_text = None
 
-        # Try to parse backbone format with msg_id: @GROUP MSG ,MSG_ID,MESSAGE,{^%}
-        backbone_pattern = re.match(r'^(@?\w+)\s+MSG\s+,([^,]+),(.+?)(?:,\{[^\}]+\})?$', message_value, re.IGNORECASE)
+        # Try to parse backbone format with msg_id: SENDER: @GROUP MSG ,MSG_ID,MESSAGE,{^%}
+        backbone_pattern = re.match(r'^(\w+):\s+(@?\w+)\s+MSG\s+,([^,]+),(.+?)(?:\s*,\{[^\}]+\})?$', message_value, re.IGNORECASE)
         if backbone_pattern:
-            msg_target = backbone_pattern.group(1).strip()
-            msg_id = backbone_pattern.group(2).strip()
-            message_text = backbone_pattern.group(3).strip()
+            # Group 1 is sender (already have from from_callsign parameter)
+            msg_target = backbone_pattern.group(2).strip()
+            msg_id = backbone_pattern.group(3).strip()
+            message_text = backbone_pattern.group(4).strip()
         else:
             # Try strict TCP MSG pattern: CALLSIGN: TARGET MSG message_text
             tcp_pattern = re.match(r'^(\w+):\s+(@?\w+)\s+MSG\s+(.+)$', message_value, re.IGNORECASE)
@@ -5262,6 +5264,9 @@ def main() -> None:
         sys.exit(1)
 
     app = QtWidgets.QApplication(sys.argv)
+
+    # Set tooltip colors to match Windows (tan background, black text)
+    app.setStyleSheet("QToolTip { background-color: #FFFFE1; color: black; border: 1px solid black; }")
 
     # Load bundled fonts
     from PyQt5.QtGui import QFontDatabase
