@@ -651,7 +651,7 @@ class ConfigManager:
         # Load toggle settings from config if it exists
         default_feed = list(DEFAULT_RSS_FEEDS.keys())[0]
         if not self.config_path.exists():
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': True}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': True, 'show_every_group': True, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': False}
             return
 
         config = ConfigParser()
@@ -668,7 +668,7 @@ class ConfigManager:
                 'apply_text_normalization': config.getboolean("DIRECTEDCONFIG", "apply_text_normalization", fallback=True),
             }
         else:
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': False, 'show_every_group': False, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': True}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': True, 'show_every_group': True, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': False}
 
     def get_color(self, key: str) -> str:
         """Get a color value by key."""
