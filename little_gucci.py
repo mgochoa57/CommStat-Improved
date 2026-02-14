@@ -2194,11 +2194,6 @@ class MainWindow(QtWidgets.QMainWindow):
             with urllib.request.urlopen(heartbeat_url, timeout=10) as response:
                 content = response.read().decode('utf-8')
 
-            # Extract content between <pre> tags if present
-            pre_match = re.search(r'<pre>(.*?)</pre>', content, re.DOTALL)
-            if pre_match:
-                content = pre_match.group(1)
-
             return content.strip() or None
         except Exception:
             return None
@@ -3261,6 +3256,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # Check if server returns "1" - everything is normal, no updates
             if content.strip() == '1':
+                return
+
+            # Check if server returns "0"
+            if content.strip() == '0':
+                print("Backbone server reply = 0")
                 return
 
             # Check for update commands first (strip whitespace for comparison)
@@ -4779,6 +4779,14 @@ class MainWindow(QtWidgets.QMainWindow):
             date_only, alert_id = parse_message_datetime(utc)
         else:
             return ("", None)
+
+        # Filter alerts: only save if directed to one of our active groups
+        if alert_target.startswith("@"):
+            group_name = alert_target[1:].upper()  # Remove @ and normalize
+            active_groups = self.db.get_active_groups()
+            if group_name not in active_groups:
+                # Skip alerts to inactive or non-member groups
+                return ("", None)
 
         # Build data dict for insertion
         data = {
