@@ -23,6 +23,7 @@ import http.server
 import socketserver
 import urllib.request
 import ssl
+import time
 import tempfile
 import webbrowser
 import xml.etree.ElementTree as ET
@@ -92,6 +93,11 @@ _PING = _BACKBONE + "/heartbeat-808585.php"
 
 # Internet connectivity check interval (30 minutes in ms)
 INTERNET_CHECK_INTERVAL = 30 * 60 * 1000
+
+# News feed animation timing
+NEWSFEED_TYPE_INTERVAL_MS = 60    # ms per character during type-on
+NEWSFEED_PAUSE_MS = 20000         # ms to hold when window is full
+NEWSFEED_SCROLL_DURATION_MS = 1000  # total ms for the scroll-off phase
 
 
 class ConsoleColors:
@@ -1253,20 +1259,20 @@ class DatabaseManager:
             return True
         return self._execute(op, False)
 
-    def get_user_settings(self) -> Tuple[str, str]:
-        """Get user callsign and state from controls table."""
+    def get_user_settings(self) -> Tuple[str, str, str]:
+        """Get user callsign, grid square, and state from controls table."""
         def op(cursor, conn):
-            cursor.execute("SELECT callsign, state FROM controls WHERE id = 1")
+            cursor.execute("SELECT callsign, gridsquare, state FROM controls WHERE id = 1")
             row = cursor.fetchone()
-            return (row[0] or "", row[1] or "") if row else ("", "")
-        return self._execute(op, ("", ""))
+            return (row[0] or "", row[1] or "", row[2] or "") if row else ("", "", "")
+        return self._execute(op, ("", "", ""))
 
-    def set_user_settings(self, callsign: str, state: str) -> bool:
-        """Save user callsign and state to controls table."""
+    def set_user_settings(self, callsign: str, grid: str, state: str) -> bool:
+        """Save user callsign, grid square, and state to controls table."""
         def op(cursor, conn):
             cursor.execute(
-                "UPDATE controls SET callsign = ?, state = ? WHERE id = 1",
-                (callsign, state)
+                "UPDATE controls SET callsign = ?, gridsquare = ?, state = ? WHERE id = 1",
+                (callsign, grid, state)
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -1754,22 +1760,6 @@ class MainWindow(QtWidgets.QMainWindow):
         menu_fg = self.config.get_color('menu_foreground')
         font = QtGui.QFont("Arial", 13, QtGui.QFont.Bold)
 
-        # Connected rigs label
-        self.label_connected_prefix = QtWidgets.QLabel(self.header_widget)
-        self.label_connected_prefix.setStyleSheet(f"color: {fg_color};")
-        self.label_connected_prefix.setText("Connected:")
-        self.label_connected_prefix.setFont(font)
-        self.header_layout.addWidget(self.label_connected_prefix)
-
-        # Connected rigs display
-        self.connected_rigs_label = QtWidgets.QLabel(self.header_widget)
-        self.connected_rigs_label.setStyleSheet(f"color: {fg_color};")
-        self.connected_rigs_label.setFont(QtGui.QFont("Arial", 13, QtGui.QFont.Bold))
-        self.header_layout.addWidget(self.connected_rigs_label)
-
-        # Spacer to push news feed to center
-        self.header_layout.addStretch()
-
         # News label
         self.label_newsfeed = QtWidgets.QLabel(self.header_widget)
         self.label_newsfeed.setStyleSheet(f"color: {fg_color};")
@@ -1794,6 +1784,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """)
         # Style the dropdown list view directly
         combo_view = QtWidgets.QListView()
+        combo_view.setFont(QtGui.QFont("Arial", 13))
         combo_view.setStyleSheet(f"""
             QListView {{
                 background-color: {menu_bg};
@@ -1810,6 +1801,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Populate with feed names
         for feed_name in DEFAULT_RSS_FEEDS.keys():
             self.feed_combo.addItem(feed_name)
+        self.feed_combo.addItem("Disable")
         # Set to saved selection
         saved_feed = self.config.get_selected_rss_feed()
         index = self.feed_combo.findText(saved_feed)
@@ -1821,7 +1813,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # News ticker (scrolling text)
         self.newsfeed_label = QtWidgets.QLabel(self.header_widget)
-        self.newsfeed_label.setFixedSize(550, 32)
+        self.newsfeed_label.setFixedSize(740, 32)
         self.newsfeed_label.setFont(QtGui.QFont("Arial", 13))
         self.newsfeed_label.setStyleSheet(
             f"background-color: {self.config.get_color('newsfeed_background')};"
@@ -2197,7 +2189,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # Get callsign: prefer first active JS8 connector callsign, fall back to user settings
             callsign = next((cs for cs in self.rig_callsigns.values() if cs), None)
             if not callsign:
-                callsign, _ = self.db.get_user_settings()
+                callsign, _, __ = self.db.get_user_settings()
             if not callsign:
                 callsign = "UNKNOWN"
 
@@ -3278,11 +3270,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.backbone_timer.start(180000)  # Then start 3 minute interval timer
             QTimer.singleShot(30000, start_backbone_heartbeat)
 
-        # News ticker animation timeline
-        self.newsfeed_timeline = QtCore.QTimeLine()
-        self.newsfeed_timeline.setCurveShape(QtCore.QTimeLine.LinearCurve)
-        self.newsfeed_timeline.frameChanged.connect(self._update_newsfeed_text)
-        self.newsfeed_timeline.finished.connect(self._next_headline)
+        # News ticker animation timer
+        self.newsfeed_timer = QTimer(self)
+        self.newsfeed_timer.timeout.connect(self._tick_newsfeed)
+        self._newsfeed_frame = 0
+        self._newsfeed_phase = 0  # 0 = type-on, 1 = scroll-off
+        self._scroll_start = 0.0
 
         # News ticker state
         self.newsfeed_text = ""
@@ -3297,7 +3290,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rss_timer.start(300000)  # 5 minutes
 
         # Initial RSS fetch
-        if self._internet_available:
+        if self.config.get_selected_rss_feed() == "Disable":
+            self.newsfeed_label.setText("      +++  News Feed Disabled  +++")
+        elif self._internet_available:
             self._start_rss_fetch()
 
     def _check_backbone(self) -> None:
@@ -3314,13 +3309,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_connected_rigs_display(self) -> None:
         """Update the connected rigs display with currently connected rig names."""
-        # Update header label (existing functionality)
         connected = self.tcp_pool.get_connected_rig_names()
-        if connected:
-            text = "  ".join(f"[{name}]" for name in connected)
-        else:
-            text = ""
-        self.connected_rigs_label.setText(text)
 
         # Update status bar widgets for each rig
         all_rigs = self.connector_manager.get_all_connectors()
@@ -3369,14 +3358,37 @@ class MainWindow(QtWidgets.QMainWindow):
                 label_status.setText(" Disconnected ")
                 label_status.setStyleSheet("background-color: #dd0000; color: white;")
 
-    def _update_newsfeed_text(self, frame: int) -> None:
-        """Update news feed display for current animation frame."""
-        if frame < self.newsfeed_chars:
-            start = 0
+    def _tick_newsfeed(self) -> None:
+        """Timer-driven tick for news feed animation."""
+        text = self.newsfeed_text
+        visible = self.newsfeed_chars
+
+        if self._newsfeed_phase == 0:
+            # Type-on: reveal characters one at a time
+            frame = self._newsfeed_frame
+            self.newsfeed_label.setText(text[0:frame])
+            self._newsfeed_frame += 1
+            if self._newsfeed_frame >= visible:
+                # Window is full — pause before scrolling
+                self.newsfeed_timer.stop()
+                QTimer.singleShot(NEWSFEED_PAUSE_MS, self._start_scroll_phase)
         else:
-            start = frame - self.newsfeed_chars
-        text = self.newsfeed_text[start:frame]
-        self.newsfeed_label.setText(text)
+            # Scroll-off: wall-clock-based so duration is accurate on Windows
+            elapsed = time.monotonic() - self._scroll_start
+            progress = min(1.0, elapsed / (NEWSFEED_SCROLL_DURATION_MS / 1000.0))
+            scroll_steps = len(text) - visible
+            offset = int(progress * scroll_steps)
+            frame = visible + offset
+            self.newsfeed_label.setText(text[frame - visible:frame])
+            if progress >= 1.0:
+                self.newsfeed_timer.stop()
+                self._next_headline()
+
+    def _start_scroll_phase(self) -> None:
+        """Begin the scroll-off phase after the pause."""
+        self._newsfeed_phase = 1
+        self._scroll_start = time.monotonic()
+        self.newsfeed_timer.start(16)  # ~60 fps; position derived from wall-clock time
 
     def _next_headline(self) -> None:
         """Called when news ticker animation completes - show next headline."""
@@ -3406,8 +3418,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _refresh_rss_feed(self) -> None:
         """Refresh RSS feed periodically."""
-        if self._internet_available:
-            feed_name = self.config.get_selected_rss_feed()
+        feed_name = self.config.get_selected_rss_feed()
+        if self._internet_available and feed_name != "Disable":
             feed_url = DEFAULT_RSS_FEEDS.get(feed_name, list(DEFAULT_RSS_FEEDS.values())[0])
             self.rss_fetcher.fetch_async(feed_url, callback=self._on_rss_fetched)
 
@@ -3429,19 +3441,23 @@ class MainWindow(QtWidgets.QMainWindow):
             # Build ticker text with headline
             ticker_text = f" {headline}"
 
-            # Calculate how many characters fit in the ticker width
+            # Calculate how many characters fit in the ticker width.
+            # averageCharWidth() overestimates for typical ASCII news text because
+            # it averages across all Unicode glyphs. Measure a representative
+            # lowercase+space sample instead for a more accurate fit.
             fm = self.newsfeed_label.fontMetrics()
-            self.newsfeed_chars = int(self.newsfeed_label.width() / fm.averageCharWidth())
+            sample = 'abcdefghijklmnopqrstuvwxyz '
+            avg_char_px = fm.horizontalAdvance(sample) / len(sample)
+            self.newsfeed_chars = int(self.newsfeed_label.width() / avg_char_px)
 
             # Add padding spaces
             padding = ' ' * self.newsfeed_chars
-            self.newsfeed_text = ticker_text + "      +++      " + padding
+            self.newsfeed_text = ticker_text + "      +++" + padding
 
             # Setup and start animation
-            text_length = len(self.newsfeed_text)
-            self.newsfeed_timeline.setDuration(15000)  # 15 seconds per headline
-            self.newsfeed_timeline.setFrameRange(0, text_length)
-            self.newsfeed_timeline.start()
+            self._newsfeed_frame = 0
+            self._newsfeed_phase = 0
+            self.newsfeed_timer.start(NEWSFEED_TYPE_INTERVAL_MS)
         except (IndexError, TypeError) as e:
             print(f"Error displaying headline: {e}")
             self.newsfeed_label.setText("  News feed error")
@@ -3452,8 +3468,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rss_fetcher.clear_cache()
         self.headlines = []
         self.headline_index = 0
-        self.newsfeed_timeline.stop()
-        if self._internet_available:
+        self.newsfeed_timer.stop()
+        if feed_name == "Disable":
+            self.newsfeed_label.setText("      +++  News Feed Disabled  +++")
+        elif self._internet_available:
             self._start_rss_fetch()
         else:
             self.newsfeed_label.setText("  No internet connection")
@@ -4698,8 +4716,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
 
     def _on_user_settings(self) -> None:
-        """Open User Settings dialog for editing default callsign and state."""
-        callsign, state = self.db.get_user_settings()
+        """Open User Settings dialog for editing default callsign, grid, and state."""
+        callsign, grid, state = self.db.get_user_settings()
 
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("User Settings")
@@ -4727,6 +4745,12 @@ class MainWindow(QtWidgets.QMainWindow):
         callsign_input.textChanged.connect(lambda t: callsign_input.setText(t.upper()) or callsign_input.setCursorPosition(len(t)))
         form_layout.addRow("Callsign:", callsign_input)
 
+        grid_input = QtWidgets.QLineEdit()
+        grid_input.setText(grid)
+        grid_input.setMaxLength(6)
+        grid_input.setPlaceholderText("Grid square (e.g. EM83cv)")
+        form_layout.addRow("Grid Square:", grid_input)
+
         state_input = QtWidgets.QLineEdit()
         state_input.setText(state)
         state_input.setMaxLength(6)
@@ -4750,8 +4774,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             new_callsign = callsign_input.text().strip().upper()
+            raw_grid = grid_input.text().strip()
+            if len(raw_grid) == 6:
+                new_grid = raw_grid[:2].upper() + raw_grid[2:4] + raw_grid[4:].lower()
+            else:
+                new_grid = raw_grid.upper()
             new_state = state_input.text().strip().upper()
-            if self.db.set_user_settings(new_callsign, new_state):
+            if self.db.set_user_settings(new_callsign, new_grid, new_state):
                 QtWidgets.QMessageBox.information(
                     self, "User Settings", "Settings saved."
                 )
