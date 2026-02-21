@@ -92,7 +92,7 @@ class Ui_FormAlert:
         """Initialize the UI components."""
         self.MainWindow = FormAlert
         FormAlert.setObjectName("FormAlert")
-        FormAlert.resize(900, 360)
+        FormAlert.resize(900, 404)
 
         # Set font
         font = QtGui.QFont()
@@ -114,27 +114,34 @@ class Ui_FormAlert:
         self.title_label.setStyleSheet("color: #333;")
         self.title_label.setObjectName("title_label")
 
-        # Rig dropdown
+        # Settings row label (left column, vertically centered in row)
+        self.settings_label = QtWidgets.QLabel(FormAlert)
+        self.settings_label.setGeometry(QtCore.QRect(58, 72, 120, 20))
+        self.settings_label.setFont(font)
+        self.settings_label.setText("Settings:")
+        self.settings_label.setObjectName("settings_label")
+
+        # Rig dropdown (label above control, aligned with other controls at x=190)
         self.rig_label = QtWidgets.QLabel(FormAlert)
-        self.rig_label.setGeometry(QtCore.QRect(58, 50, 120, 20))
+        self.rig_label.setGeometry(QtCore.QRect(190, 46, 150, 20))
         self.rig_label.setFont(font)
         self.rig_label.setText("Rig:")
         self.rig_label.setObjectName("rig_label")
 
         self.rig_combo = QtWidgets.QComboBox(FormAlert)
-        self.rig_combo.setGeometry(QtCore.QRect(190, 50, 150, 26))
+        self.rig_combo.setGeometry(QtCore.QRect(190, 72, 150, 26))
         self.rig_combo.setFont(font)
         self.rig_combo.setObjectName("rig_combo")
 
-        # Mode dropdown
+        # Mode dropdown (label above control)
         self.mode_label = QtWidgets.QLabel(FormAlert)
-        self.mode_label.setGeometry(QtCore.QRect(350, 50, 45, 26))
+        self.mode_label.setGeometry(QtCore.QRect(350, 46, 100, 20))
         self.mode_label.setFont(font)
         self.mode_label.setText("Mode:")
         self.mode_label.setObjectName("mode_label")
 
         self.mode_combo = QtWidgets.QComboBox(FormAlert)
-        self.mode_combo.setGeometry(QtCore.QRect(400, 50, 100, 26))
+        self.mode_combo.setGeometry(QtCore.QRect(350, 72, 100, 26))
         self.mode_combo.setFont(font)
         self.mode_combo.addItem("Slow", 3)
         self.mode_combo.addItem("Normal", 0)
@@ -142,41 +149,55 @@ class Ui_FormAlert:
         self.mode_combo.addItem("Turbo", 2)
         self.mode_combo.setObjectName("mode_combo")
 
-        # Frequency field
+        # Frequency field (label above control)
         self.freq_label = QtWidgets.QLabel(FormAlert)
-        self.freq_label.setGeometry(QtCore.QRect(510, 50, 40, 26))
+        self.freq_label.setGeometry(QtCore.QRect(460, 46, 80, 20))
         self.freq_label.setFont(font)
         self.freq_label.setText("Freq:")
         self.freq_label.setObjectName("freq_label")
 
         self.freq_field = QtWidgets.QLineEdit(FormAlert)
-        self.freq_field.setGeometry(QtCore.QRect(555, 50, 80, 26))
+        self.freq_field.setGeometry(QtCore.QRect(460, 72, 80, 26))
         self.freq_field.setFont(font)
         self.freq_field.setReadOnly(True)
         self.freq_field.setStyleSheet("background-color: #f0f0f0;")
         self.freq_field.setObjectName("freq_field")
 
+        # Delivery dropdown (label above control)
+        self.delivery_label = QtWidgets.QLabel(FormAlert)
+        self.delivery_label.setGeometry(QtCore.QRect(550, 46, 150, 20))
+        self.delivery_label.setFont(font)
+        self.delivery_label.setText("Delivery:")
+        self.delivery_label.setObjectName("delivery_label")
+
+        self.delivery_combo = QtWidgets.QComboBox(FormAlert)
+        self.delivery_combo.setGeometry(QtCore.QRect(550, 72, 150, 26))
+        self.delivery_combo.setFont(font)
+        self.delivery_combo.addItem("Maximum Reach")
+        self.delivery_combo.addItem("Limited Reach")
+        self.delivery_combo.setObjectName("delivery_combo")
+
         # Group dropdown
         self.group_label = QtWidgets.QLabel(FormAlert)
-        self.group_label.setGeometry(QtCore.QRect(58, 85, 120, 20))
+        self.group_label.setGeometry(QtCore.QRect(58, 107, 120, 20))
         self.group_label.setFont(font)
         self.group_label.setText("Group:")
         self.group_label.setObjectName("group_label")
 
         self.group_combo = QtWidgets.QComboBox(FormAlert)
-        self.group_combo.setGeometry(QtCore.QRect(190, 85, 150, 26))
+        self.group_combo.setGeometry(QtCore.QRect(190, 107, 150, 26))
         self.group_combo.setFont(font)
         self.group_combo.setObjectName("group_combo")
 
         # Callsign input (read-only, from JS8Call)
         self.callsign_label = QtWidgets.QLabel(FormAlert)
-        self.callsign_label.setGeometry(QtCore.QRect(58, 120, 120, 20))
+        self.callsign_label.setGeometry(QtCore.QRect(58, 142, 120, 20))
         self.callsign_label.setFont(font)
         self.callsign_label.setText("From Callsign:")
         self.callsign_label.setObjectName("callsign_label")
 
         self.callsign_field = QtWidgets.QLineEdit(FormAlert)
-        self.callsign_field.setGeometry(QtCore.QRect(190, 120, 100, 26))
+        self.callsign_field.setGeometry(QtCore.QRect(190, 142, 100, 26))
         self.callsign_field.setFont(font)
         self.callsign_field.setMaxLength(MAX_CALLSIGN_LENGTH)
         self.callsign_field.setReadOnly(True)
@@ -185,13 +206,13 @@ class Ui_FormAlert:
 
         # Color dropdown
         self.color_label = QtWidgets.QLabel(FormAlert)
-        self.color_label.setGeometry(QtCore.QRect(58, 155, 120, 20))
+        self.color_label.setGeometry(QtCore.QRect(58, 177, 120, 20))
         self.color_label.setFont(font)
         self.color_label.setText("Color:")
         self.color_label.setObjectName("color_label")
 
         self.color_combo = QtWidgets.QComboBox(FormAlert)
-        self.color_combo.setGeometry(QtCore.QRect(190, 155, 100, 26))
+        self.color_combo.setGeometry(QtCore.QRect(190, 177, 100, 26))
         self.color_combo.setFont(font)
         self.color_combo.setObjectName("color_combo")
 
@@ -206,7 +227,7 @@ class Ui_FormAlert:
 
         # Color sample boxes (80x28 each, with "Sample" text)
         sample_start_x = 310
-        sample_y = 152
+        sample_y = 174
         sample_width = 80
         sample_height = 28
         sample_spacing = 10
@@ -235,33 +256,33 @@ class Ui_FormAlert:
 
         # Title input
         self.title_input_label = QtWidgets.QLabel(FormAlert)
-        self.title_input_label.setGeometry(QtCore.QRect(58, 190, 120, 20))
+        self.title_input_label.setGeometry(QtCore.QRect(58, 212, 120, 20))
         self.title_input_label.setFont(font)
         self.title_input_label.setText("Title:")
         self.title_input_label.setObjectName("title_input_label")
 
         self.title_field = QtWidgets.QLineEdit(FormAlert)
-        self.title_field.setGeometry(QtCore.QRect(190, 190, 200, 26))
+        self.title_field.setGeometry(QtCore.QRect(190, 212, 200, 26))
         self.title_field.setFont(font)
         self.title_field.setMaxLength(MAX_TITLE_LENGTH)
         self.title_field.setObjectName("title_field")
 
         # Message input
         self.message_label = QtWidgets.QLabel(FormAlert)
-        self.message_label.setGeometry(QtCore.QRect(58, 225, 120, 20))
+        self.message_label.setGeometry(QtCore.QRect(58, 247, 120, 20))
         self.message_label.setFont(font)
         self.message_label.setText("Message:")
         self.message_label.setObjectName("message_label")
 
         self.message_field = QtWidgets.QLineEdit(FormAlert)
-        self.message_field.setGeometry(QtCore.QRect(190, 225, 530, 26))
+        self.message_field.setGeometry(QtCore.QRect(190, 247, 530, 26))
         self.message_field.setFont(font)
         self.message_field.setMaxLength(MAX_MESSAGE_LENGTH)
         self.message_field.setObjectName("message_field")
 
         # Character limit note
         self.note_label = QtWidgets.QLabel(FormAlert)
-        self.note_label.setGeometry(QtCore.QRect(190, 255, 530, 20))
+        self.note_label.setGeometry(QtCore.QRect(190, 277, 530, 20))
         note_font = QtGui.QFont()
         note_font.setFamily("Arial")
         note_font.setPointSize(10)
@@ -271,23 +292,31 @@ class Ui_FormAlert:
         self.note_label.setText("Title: 20 chars max. Message: 80 chars max.")
         self.note_label.setObjectName("note_label")
 
+        # Delivery legend
+        self.delivery_legend_label = QtWidgets.QLabel(FormAlert)
+        self.delivery_legend_label.setGeometry(QtCore.QRect(190, 299, 530, 20))
+        self.delivery_legend_label.setFont(note_font)
+        self.delivery_legend_label.setStyleSheet("color: #AA0000;")
+        self.delivery_legend_label.setText("Delivery: Maximum Reach = RF + Internet | Limited Reach = RF Only")
+        self.delivery_legend_label.setObjectName("delivery_legend_label")
+
         # Buttons
         self.save_button = QtWidgets.QPushButton(FormAlert)
-        self.save_button.setGeometry(QtCore.QRect(410, 290, 100, 32))
+        self.save_button.setGeometry(QtCore.QRect(410, 334, 100, 32))
         self.save_button.setText("Save Only")
         self.save_button.setObjectName("save_button")
         self.save_button.clicked.connect(self._save_only)
         self.save_button.setStyleSheet(self._button_style("#17a2b8"))
 
         self.transmit_button = QtWidgets.QPushButton(FormAlert)
-        self.transmit_button.setGeometry(QtCore.QRect(520, 290, 100, 32))
+        self.transmit_button.setGeometry(QtCore.QRect(520, 334, 100, 32))
         self.transmit_button.setText("Transmit")
         self.transmit_button.setObjectName("transmit_button")
         self.transmit_button.clicked.connect(self._transmit)
         self.transmit_button.setStyleSheet(self._button_style("#007bff"))
 
         self.cancel_button = QtWidgets.QPushButton(FormAlert)
-        self.cancel_button.setGeometry(QtCore.QRect(630, 290, 100, 32))
+        self.cancel_button.setGeometry(QtCore.QRect(630, 334, 100, 32))
         self.cancel_button.setText("Cancel")
         self.cancel_button.setObjectName("cancel_button")
         self.cancel_button.clicked.connect(self.MainWindow.close)
@@ -380,6 +409,15 @@ class Ui_FormAlert:
             if hasattr(self, 'freq_field'):
                 self.freq_field.setText("")
             return
+
+        is_internet = (rig_name == INTERNET_RIG)
+        if hasattr(self, 'delivery_combo'):
+            self.delivery_combo.blockSignals(True)
+            self.delivery_combo.clear()
+            self.delivery_combo.addItem("Maximum Reach")
+            if not is_internet:
+                self.delivery_combo.addItem("Limited Reach")
+            self.delivery_combo.blockSignals(False)
 
         if rig_name == INTERNET_RIG:
             callsign = self._get_internet_callsign()
@@ -673,9 +711,10 @@ class Ui_FormAlert:
 
         # Submit to backbone server if transmitted (has frequency)
         if frequency > 0:
-            # Format: CALLSIGN: @GROUP ,ALERT_ID,COLOR,TITLE,MESSAGE,{%%}
-            alert_data = f"{callsign}: {group} ,{self.alert_id},{color},{title},{message},{{%%}}"
-            self._submit_to_backbone_async(frequency, callsign, alert_data, datetime_str)
+            if self.delivery_combo.currentText() != "Limited Reach":
+                # Format: CALLSIGN: @GROUP ,ALERT_ID,COLOR,TITLE,MESSAGE,{%%}
+                alert_data = f"{callsign}: {group} ,{self.alert_id},{color},{title},{message},{{%%}}"
+                self._submit_to_backbone_async(frequency, callsign, alert_data, datetime_str)
 
     def _save_only(self) -> None:
         """Validate and save alert to database without transmitting."""

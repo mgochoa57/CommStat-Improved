@@ -331,6 +331,15 @@ class StatRepDialog(QDialog):
                 self.freq_field.setText("")
             return
 
+        is_internet = (rig_name == INTERNET_RIG)
+        if hasattr(self, 'delivery_combo'):
+            self.delivery_combo.blockSignals(True)
+            self.delivery_combo.clear()
+            self.delivery_combo.addItem("Maximum Reach")
+            if not is_internet:
+                self.delivery_combo.addItem("Limited Reach")
+            self.delivery_combo.blockSignals(False)
+
         if rig_name == INTERNET_RIG:
             callsign, grid, state = self._get_internet_user_settings()
             self.callsign = callsign
@@ -444,6 +453,10 @@ class StatRepDialog(QDialog):
             client.send_message("MODE.SET_SPEED", "", {"SPEED": speed_value})
             print(f"[StatRep] Set mode to {self.mode_combo.currentText()} (speed={speed_value})")
 
+    def _on_delivery_changed(self, delivery: str) -> None:
+        """Handle delivery dropdown change."""
+        pass
+
     def _on_callsign_received(self, rig_name: str, callsign: str) -> None:
         """Handle callsign received from JS8Call."""
         # Only update if this is the currently selected rig
@@ -500,18 +513,22 @@ class StatRepDialog(QDialog):
         title.setStyleSheet("color: #333; margin-bottom: 10px;")
         layout.addWidget(title)
 
-        # Rig selection
-        rig_layout = QtWidgets.QHBoxLayout()
+        # Rig / Mode / Freq / Delivery row (label above control)
+        rig_row = QtWidgets.QHBoxLayout()
+
+        rig_col = QtWidgets.QVBoxLayout()
         rig_label = QtWidgets.QLabel("Rig:")
-        rig_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
+        rig_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.rig_combo = QtWidgets.QComboBox()
         self.rig_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.rig_combo.setMinimumWidth(180)
         self.rig_combo.setMinimumHeight(28)
         self.rig_combo.currentTextChanged.connect(self._on_rig_changed)
-        rig_layout.addWidget(rig_label)
-        rig_layout.addWidget(self.rig_combo)
-        # Mode dropdown
+        rig_col.addWidget(rig_label)
+        rig_col.addWidget(self.rig_combo)
+        rig_row.addLayout(rig_col)
+
+        mode_col = QtWidgets.QVBoxLayout()
         mode_label = QtWidgets.QLabel("Mode:")
         mode_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.mode_combo = QtWidgets.QComboBox()
@@ -522,9 +539,11 @@ class StatRepDialog(QDialog):
         self.mode_combo.addItem("Fast", 1)
         self.mode_combo.addItem("Turbo", 2)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        rig_layout.addWidget(mode_label)
-        rig_layout.addWidget(self.mode_combo)
-        # Frequency display
+        mode_col.addWidget(mode_label)
+        mode_col.addWidget(self.mode_combo)
+        rig_row.addLayout(mode_col)
+
+        freq_col = QtWidgets.QVBoxLayout()
         freq_label = QtWidgets.QLabel("Freq:")
         freq_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.freq_field = QtWidgets.QLineEdit()
@@ -533,10 +552,25 @@ class StatRepDialog(QDialog):
         self.freq_field.setMaximumWidth(100)
         self.freq_field.setReadOnly(True)
         self.freq_field.setStyleSheet("background-color: #f0f0f0;")
-        rig_layout.addWidget(freq_label)
-        rig_layout.addWidget(self.freq_field)
-        rig_layout.addStretch()
-        layout.addLayout(rig_layout)
+        freq_col.addWidget(freq_label)
+        freq_col.addWidget(self.freq_field)
+        rig_row.addLayout(freq_col)
+
+        delivery_col = QtWidgets.QVBoxLayout()
+        delivery_label = QtWidgets.QLabel("Delivery:")
+        delivery_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        self.delivery_combo = QtWidgets.QComboBox()
+        self.delivery_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        self.delivery_combo.setMinimumHeight(28)
+        self.delivery_combo.addItem("Maximum Reach")
+        self.delivery_combo.addItem("Limited Reach")
+        self.delivery_combo.currentTextChanged.connect(self._on_delivery_changed)
+        delivery_col.addWidget(delivery_label)
+        delivery_col.addWidget(self.delivery_combo)
+        rig_row.addLayout(delivery_col)
+
+        rig_row.addStretch()
+        layout.addLayout(rig_row)
 
         # Header info (From, To, Grid, Scope) - all on one line
         header_layout = QtWidgets.QHBoxLayout()
@@ -545,7 +579,7 @@ class StatRepDialog(QDialog):
         # From (Callsign)
         from_layout = QtWidgets.QVBoxLayout()
         from_label = QtWidgets.QLabel("From:")
-        from_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
+        from_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.from_field = QtWidgets.QLineEdit(self.callsign)
         self.from_field.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.from_field.setMinimumHeight(28)
@@ -560,7 +594,7 @@ class StatRepDialog(QDialog):
         # If multiple groups exist, user must select one.
         to_layout = QtWidgets.QVBoxLayout()
         to_label = QtWidgets.QLabel("To:")
-        to_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
+        to_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.to_combo = QtWidgets.QComboBox()
         self.to_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.to_combo.setMinimumHeight(28)
@@ -581,7 +615,7 @@ class StatRepDialog(QDialog):
         # Grid
         grid_layout = QtWidgets.QVBoxLayout()
         grid_label = QtWidgets.QLabel("Grid:")
-        grid_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
+        grid_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.grid_field = QtWidgets.QLineEdit(self.grid)
         self.grid_field.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.grid_field.setMinimumHeight(28)
@@ -594,7 +628,7 @@ class StatRepDialog(QDialog):
         # Scope
         scope_layout = QtWidgets.QVBoxLayout()
         scope_label = QtWidgets.QLabel("Scope:")
-        scope_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
+        scope_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.scope_combo = QtWidgets.QComboBox()
         self.scope_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.scope_combo.setMinimumHeight(28)
@@ -611,6 +645,7 @@ class StatRepDialog(QDialog):
             "<b>Green</b> = Normal | "
             "<b>Yellow</b> = Limited | "
             "<b>Red</b> = Collapsed/None"
+            "<br>Delivery: Maximum Reach = RF + Internet | Limited Reach = RF Only"
         )
         legend.setAlignment(Qt.AlignCenter)
         legend.setFont(QtGui.QFont(FONT_FAMILY, 10))
@@ -1045,7 +1080,8 @@ class StatRepDialog(QDialog):
             self._save_to_database(frequency)
 
             # Submit to backbone server (asynchronous, non-blocking)
-            self._submit_to_backbone_async(frequency)
+            if self.delivery_combo.currentText() != "Limited Reach":
+                self._submit_to_backbone_async(frequency)
 
             # Print to terminal
             now = QDateTime.currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss")
