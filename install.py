@@ -61,11 +61,27 @@ def runsettings():
     print("\nInstallation complete. Run 'python commstat.py' to start the program.")
 
 
+def pip_supports_break_system_packages():
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "--version"],
+            capture_output=True, text=True
+        )
+        version_str = result.stdout.split()[1]
+        parts = version_str.split('.')
+        major, minor = int(parts[0]), int(parts[1])
+        return (major, minor) >= (22, 1)
+    except Exception:
+        return False
+
+
 def install(package):
     try:
         cmd = [sys.executable, "-m", "pip", "install"]
         if sys.platform == 'darwin' or sys.platform.startswith('linux'):
-            cmd.extend(["--break-system-packages", "--user"])
+            if pip_supports_break_system_packages():
+                cmd.append("--break-system-packages")
+            cmd.append("--user")
         cmd.append(package)
         subprocess.check_call(cmd)
 
