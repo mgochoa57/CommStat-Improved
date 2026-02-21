@@ -46,6 +46,13 @@ def create_from_template(target: str, template: str) -> None:
     if not os.path.exists(target):
         if os.path.exists(template):
             shutil.copy(template, target)
+            src_size = os.path.getsize(template)
+            dst_size = os.path.getsize(target)
+            if dst_size != src_size:
+                os.remove(target)
+                print(f"Error: {target} copy was incomplete ({dst_size} of {src_size} bytes). "
+                      f"Check available disk space and try again.")
+                sys.exit(1)
             print(f"Created {target} from template")
         else:
             print(f"Warning: {template} not found, cannot create {target}")
