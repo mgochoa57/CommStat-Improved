@@ -3737,7 +3737,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
                         if source_value == 3:
                             item.setToolTip("   Internet Only")
-                            color = QColor("#FF69B4")
+                            color = QColor("#FF00FF")
                             item.setBackground(color)
                             table.setItem(row_num, col_num, item)
                             continue
