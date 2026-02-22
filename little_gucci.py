@@ -4574,6 +4574,14 @@ class MainWindow(QtWidgets.QMainWindow):
         # Extract base callsign (remove /P, /M suffixes)
         from_callsign = from_callsign.split("/")[0]
 
+        # Detect Internet-Only markers and normalize
+        if "{&%3}" in message_value or "{%%3}" in message_value or "{^%3}" in message_value:
+            source = 3
+            message_value = (message_value
+                .replace("{&%3}", "{&%}")
+                .replace("{%%3}", "{%%}")
+                .replace("{^%3}", "{^%}"))
+
         # PRIORITY 1: Standard STATREP ({&%} or {F%})
         if "{&%}" in message_value or "{F%}" in message_value:
             return self._parse_standard_statrep(

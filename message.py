@@ -563,7 +563,8 @@ class Ui_FormMessage:
     def _build_message(self, message: str) -> str:
         """Build the message string for transmission."""
         group = "@" + self.group_combo.currentText()
-        return f"{group} MSG ,{self.msg_id},{message},{{^%}}"
+        marker = "{^%3}" if self.rig_combo.currentText() == INTERNET_RIG else "{^%}"
+        return f"{group} MSG ,{self.msg_id},{message},{marker}"
 
     def _submit_to_backbone_async(self, frequency: int, callsign: str, message_data: str, now: str) -> None:
         """Start background thread to submit message to backbone server.

@@ -635,7 +635,8 @@ class Ui_FormAlert:
     def _build_message(self, callsign: str, color: int, title: str, message: str) -> str:
         """Build the message string for transmission."""
         group = "@" + self.group_combo.currentText()
-        return f"{callsign}: {group} ,{self.alert_id},{color},{title},{message},{{%%}}"
+        marker = "{%%3}" if self.rig_combo.currentText() == INTERNET_RIG else "{%%}"
+        return f"{callsign}: {group} ,{self.alert_id},{color},{title},{message},{marker}"
 
     def _submit_to_backbone_async(self, frequency: int, callsign: str, alert_data: str, now: str) -> None:
         """Start background thread to submit alert to backbone server.

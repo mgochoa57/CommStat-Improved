@@ -878,7 +878,8 @@ class StatRepDialog(QDialog):
 
         # Format: CALLSIGN: @GROUP ,GRID,SCOPE,ID,STATUSES,REMARKS,{&%}
         group = f"@{self.to_combo.currentText()}"
-        message = f"{self.callsign.upper()}: {group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{{&%}}"
+        marker = "{&%3}" if self.rig_combo.currentText() == INTERNET_RIG else "{&%}"
+        message = f"{self.callsign.upper()}: {group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{marker}"
 
         return message
 
