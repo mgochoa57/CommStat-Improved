@@ -701,7 +701,7 @@ class Ui_FormAlert:
                 "INSERT INTO alerts "
                 "(datetime, date, freq, db, source, alert_id, from_callsign, target, color, title, message) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (datetime_str, date_only, frequency, db, 1, self.alert_id, callsign, group, color, title, message)
+                (datetime_str, date_only, frequency, db, 3 if self.rig_combo.currentText() == INTERNET_RIG else 1, self.alert_id, callsign, group, color, title, message)
             )
             conn.commit()
             freq_mhz = frequency / 1000000.0 if frequency else 0

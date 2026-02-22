@@ -625,7 +625,7 @@ class Ui_FormMessage:
                 "INSERT OR REPLACE INTO messages "
                 "(datetime, date, freq, db, source, msg_id, from_callsign, target, message) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (datetime_str, date_only, frequency, 30, 1, self.msg_id, callsign, "@" + self.group_combo.currentText(), message)
+                (datetime_str, date_only, frequency, 30, 3 if self.rig_combo.currentText() == INTERNET_RIG else 1, self.msg_id, callsign, "@" + self.group_combo.currentText(), message)
             )
             conn.commit()
             freq_mhz = frequency / 1000000.0 if frequency else 0

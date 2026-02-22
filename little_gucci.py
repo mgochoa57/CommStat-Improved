@@ -1900,6 +1900,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 padding: 4px;
                 border: 1px solid {title_bg};
             }}
+            QToolTip {{
+                background-color: #FFFFE1;
+                color: black;
+                border: 1px solid black;
+            }}
         """)
 
         # Explicitly style the horizontal header
@@ -3031,6 +3036,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 padding: 4px;
                 border: 1px solid {title_bg};
             }}
+            QToolTip {{
+                background-color: #FFFFE1;
+                color: black;
+                border: 1px solid black;
+            }}
         """)
 
         # Explicitly style the horizontal header
@@ -3721,6 +3731,13 @@ class MainWindow(QtWidgets.QMainWindow):
                         if source_value == 2:
                             item.setToolTip("   Internet")
                             color = QColor("#9400ff")
+                            item.setBackground(color)
+                            table.setItem(row_num, col_num, item)
+                            continue
+
+                        if source_value == 3:
+                            item.setToolTip("   Internet Only")
+                            color = QColor("#FF69B4")
                             item.setBackground(color)
                             table.setItem(row_num, col_num, item)
                             continue

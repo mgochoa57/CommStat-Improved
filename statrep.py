@@ -911,7 +911,7 @@ class StatRepDialog(QDialog):
                     date_only,
                     frequency,
                     30,  # db (SNR): set to 30 for manual entries
-                    1,  # source: 1=Radio, 2=Internet
+                    3 if self.rig_combo.currentText() == INTERNET_RIG else 1,  # source: 1=Radio, 3=Internet
                     self.statrep_id,
                     self.callsign.upper(),
                     '@' + self.to_combo.currentText().upper(),
