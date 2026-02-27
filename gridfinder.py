@@ -13,30 +13,31 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer, QEvent
 from PyQt5.QtGui import QFont, QBrush, QColor, QPalette
+from theme_manager import theme
 
 class AppTheme:
+    # Semantic/functional colors — these do NOT follow system theme
     COLORS = {
-        'primary': '#4CAF50',  # Green for inputs
-        'primary_hover': '#66BB6A',  # Lighter green for hover
-        'container_bg': '#F8F7F2',  # Light gray for containers
-        'content_bg': '#FFFFFF',  # White for content areas
-        'border': '#666666',  # Darker gray for borders
-        'flash_red': '#FF0000',  # Red for alerts
-        'text': '#000000',  # Black for input text
-        'text_table': '#000000',  # Black for table text
-        'placeholder': '#E0E0E0',  # Light gray for placeholder text
+        'primary': '#4CAF50',       # Green for search inputs
+        'primary_hover': '#66BB6A', # Lighter green for hover
+        'flash_red': '#FF0000',     # Red for validation alerts
+        'focus_border': '#388E3C',  # Focus ring on green inputs
+        'text_on_primary': '#000000',       # Text on green background
+        'placeholder_on_primary': '#E0E0E0', # Placeholder on green bg
     }
 
     @staticmethod
-    def get_stylesheet():
+    def input_style(valid=True):
+        """QSS for green search inputs. Border turns red when invalid."""
+        border_color = theme.color('mid') if valid else AppTheme.COLORS['flash_red']
         return f"""
             QLineEdit {{
                 background-color: {AppTheme.COLORS['primary']};
-                color: {AppTheme.COLORS['text']};
-                font-family: Arial, sans-serif;
+                color: {AppTheme.COLORS['text_on_primary']};
+                font-family: {theme.font_family}, sans-serif;
                 font-size: 11pt;
                 font-weight: bold;
-                border: 3px solid {AppTheme.COLORS['border']};
+                border: 3px solid {border_color};
                 padding: 2px 8px;
                 border-radius: 5px;
             }}
@@ -44,29 +45,12 @@ class AppTheme:
                 background-color: {AppTheme.COLORS['primary_hover']};
             }}
             QLineEdit:focus {{
-                border: 3px solid #388E3C;
+                border: 3px solid {AppTheme.COLORS['focus_border']};
                 background-color: {AppTheme.COLORS['primary']};
             }}
             QLineEdit::placeholder {{
-                color: {AppTheme.COLORS['placeholder']};
+                color: {AppTheme.COLORS['placeholder_on_primary']};
                 font-weight: normal;
-            }}
-            QTableWidget {{
-                font-family: Arial, sans-serif;
-                font-size: 11pt;
-                background-color: {AppTheme.COLORS['content_bg']};
-                color: {AppTheme.COLORS['text_table']};
-                border: 1px solid {AppTheme.COLORS['border']};
-                border-radius: 5px;
-            }}
-            QTableWidget::item {{
-                padding: 2px;
-            }}
-            QHeaderView::section {{
-                background-color: {AppTheme.COLORS['container_bg']};
-                color: {AppTheme.COLORS['text_table']};
-                border: 1px solid {AppTheme.COLORS['border']};
-                padding: 4px;
             }}
         """
 
@@ -77,7 +61,7 @@ class GridFinderApp(QMainWindow):
         self.setGeometry(200, 200, 500, 400)
         self.setMinimumSize(500, 400)
         palette = self.palette()
-        palette.setColor(QPalette.Window, QColor(AppTheme.COLORS['container_bg']))
+        palette.setColor(QPalette.Window, QColor(theme.color('window')))
         self.setPalette(palette)
         print("Applied application palette")  # Debug
         self.data = self.load_data()
@@ -129,9 +113,9 @@ class GridFinderApp(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.central_widget.setStyleSheet(f"""
-            border: 1px solid {AppTheme.COLORS['border']};
+            border: 1px solid {theme.color('mid')};
             border-radius: 4px;
-            background-color: {AppTheme.COLORS['container_bg']};
+            background-color: {theme.color('window')};
         """)
         layout = QVBoxLayout()
         layout.setSpacing(10)
@@ -152,29 +136,7 @@ class GridFinderApp(QMainWindow):
         self.city_input.setPlaceholderText("Enter City")
         self.city_input.setReadOnly(False)
         self.city_input.setEnabled(True)
-        self.city_input.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {AppTheme.COLORS['primary']};
-                color: {AppTheme.COLORS['text']};
-                font-family: Arial, sans-serif;
-                font-size: 11pt;
-                font-weight: bold;
-                border: 3px solid {AppTheme.COLORS['border']};
-                padding: 2px 8px;
-                border-radius: 5px;
-            }}
-            QLineEdit:hover {{
-                background-color: {AppTheme.COLORS['primary_hover']};
-            }}
-            QLineEdit:focus {{
-                border: 3px solid #388E3C;
-                background-color: {AppTheme.COLORS['primary']};
-            }}
-            QLineEdit::placeholder {{
-                color: {AppTheme.COLORS['placeholder']};
-                font-weight: normal;
-            }}
-        """)
+        self.city_input.setStyleSheet(AppTheme.input_style(valid=True))
         self.city_input.setToolTip("Enter city name (partial, case-insensitive)")
         self.city_input.textChanged.connect(self.on_text_changed)
         self.city_input.textChanged.connect(self.validate_inputs)
@@ -189,29 +151,7 @@ class GridFinderApp(QMainWindow):
         self.state_input.setPlaceholderText("State")
         self.state_input.setReadOnly(False)
         self.state_input.setEnabled(True)
-        self.state_input.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {AppTheme.COLORS['primary']};
-                color: {AppTheme.COLORS['text']};
-                font-family: Arial, sans-serif;
-                font-size: 11pt;
-                font-weight: bold;
-                border: 3px solid {AppTheme.COLORS['border']};
-                padding: 2px 8px;
-                border-radius: 5px;
-            }}
-            QLineEdit:hover {{
-                background-color: {AppTheme.COLORS['primary_hover']};
-            }}
-            QLineEdit:focus {{
-                border: 3px solid #388E3C;
-                background-color: {AppTheme.COLORS['primary']};
-            }}
-            QLineEdit::placeholder {{
-                color: {AppTheme.COLORS['placeholder']};
-                font-weight: normal;
-            }}
-        """)
+        self.state_input.setStyleSheet(AppTheme.input_style(valid=True))
         self.state_input.setToolTip("Enter 2-letter state code (case-insensitive)")
         self.state_input.textChanged.connect(self.on_text_changed)
         self.state_input.textChanged.connect(self.validate_inputs)
@@ -222,29 +162,7 @@ class GridFinderApp(QMainWindow):
         self.grid_input.setPlaceholderText("Grid")
         self.grid_input.setReadOnly(False)
         self.grid_input.setEnabled(True)
-        self.grid_input.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {AppTheme.COLORS['primary']};
-                color: {AppTheme.COLORS['text']};
-                font-family: Arial, sans-serif;
-                font-size: 11pt;
-                font-weight: bold;
-                border: 3px solid {AppTheme.COLORS['border']};
-                padding: 2px 8px;
-                border-radius: 5px;
-            }}
-            QLineEdit:hover {{
-                background-color: {AppTheme.COLORS['primary_hover']};
-            }}
-            QLineEdit:focus {{
-                border: 3px solid #388E3C;
-                background-color: {AppTheme.COLORS['primary']};
-            }}
-            QLineEdit::placeholder {{
-                color: {AppTheme.COLORS['placeholder']};
-                font-weight: normal;
-            }}
-        """)
+        self.grid_input.setStyleSheet(AppTheme.input_style(valid=True))
         self.grid_input.setToolTip("Enter grid code (partial or full, up to 6 characters, case-insensitive)")
         self.grid_input.textChanged.connect(self.on_text_changed)
         self.grid_input.textChanged.connect(self.validate_inputs)
@@ -262,20 +180,20 @@ class GridFinderApp(QMainWindow):
         self.results.setSortingEnabled(True)
         self.results.setStyleSheet(f"""
             QTableWidget {{
-                font-family: Arial, sans-serif;
+                font-family: {theme.font_family}, sans-serif;
                 font-size: 11pt;
-                background-color: {AppTheme.COLORS['content_bg']};
-                color: {AppTheme.COLORS['text_table']};
-                border: 1px solid {AppTheme.COLORS['border']};
+                background-color: {theme.color('base')};
+                color: {theme.color('text')};
+                border: 1px solid {theme.color('mid')};
                 border-radius: 5px;
             }}
             QTableWidget::item {{
                 padding: 2px;
             }}
             QHeaderView::section {{
-                background-color: {AppTheme.COLORS['container_bg']};
-                color: {AppTheme.COLORS['text_table']};
-                border: 1px solid {AppTheme.COLORS['border']};
+                background-color: {theme.color('window')};
+                color: {theme.color('windowtext')};
+                border: 1px solid {theme.color('mid')};
                 padding: 4px;
             }}
         """)
@@ -289,12 +207,12 @@ class GridFinderApp(QMainWindow):
         self.statusBar = QStatusBar()
         self.statusBar.setStyleSheet(f"""
             QStatusBar {{
-                background: #D6E4FF;
-                border: 1px solid {AppTheme.COLORS['border']};
-                font-family: Arial, sans-serif;
+                background: {theme.color('window')};
+                border: 1px solid {theme.color('mid')};
+                font-family: {theme.font_family}, sans-serif;
                 font-size: 11pt;
                 font-weight: bold;
-                color: {AppTheme.COLORS['text_table']};
+                color: {theme.color('windowtext')};
             }}
         """)
         self.statusBar.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -314,9 +232,9 @@ class GridFinderApp(QMainWindow):
     def show_styled_message(self, text, timeout, color):
         self.statusBar.setStyleSheet(f"""
             QStatusBar {{
-                background: #D6E4FF;
-                border: 1px solid {AppTheme.COLORS['border']};
-                font-family: Arial, sans-serif;
+                background: {theme.color('window')};
+                border: 1px solid {theme.color('mid')};
+                font-family: {theme.font_family}, sans-serif;
                 font-size: 11pt;
                 font-weight: bold;
                 color: {color};
@@ -355,56 +273,8 @@ class GridFinderApp(QMainWindow):
 
     def validate_inputs(self):
         def set_input_style(input_widget, valid, tooltip=""):
-            if valid:
-                input_widget.setStyleSheet(f"""
-                    QLineEdit {{
-                        background-color: {AppTheme.COLORS['primary']};
-                        color: {AppTheme.COLORS['text']};
-                        font-family: Arial, sans-serif;
-                        font-size: 11pt;
-                        font-weight: bold;
-                        border: 3px solid {AppTheme.COLORS['border']};
-                        padding: 2px 8px;
-                        border-radius: 5px;
-                    }}
-                    QLineEdit:hover {{
-                        background-color: {AppTheme.COLORS['primary_hover']};
-                    }}
-                    QLineEdit:focus {{
-                        border: 3px solid #388E3C;
-                        background-color: {AppTheme.COLORS['primary']};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {AppTheme.COLORS['placeholder']};
-                        font-weight: normal;
-                    }}
-                """)
-                input_widget.setToolTip(tooltip)
-            else:
-                input_widget.setStyleSheet(f"""
-                    QLineEdit {{
-                        background-color: {AppTheme.COLORS['primary']};
-                        color: {AppTheme.COLORS['text']};
-                        font-family: Arial, sans-serif;
-                        font-size: 11pt;
-                        font-weight: bold;
-                        border: 3px solid {AppTheme.COLORS['flash_red']};
-                        padding: 2px 8px;
-                        border-radius: 5px;
-                    }}
-                    QLineEdit:hover {{
-                        background-color: {AppTheme.COLORS['primary_hover']};
-                    }}
-                    QLineEdit:focus {{
-                        border: 3px solid #388E3C;
-                        background-color: {AppTheme.COLORS['primary']};
-                    }}
-                    QLineEdit::placeholder {{
-                        color: {AppTheme.COLORS['placeholder']};
-                        font-weight: normal;
-                    }}
-                """)
-                input_widget.setToolTip(tooltip)
+            input_widget.setStyleSheet(AppTheme.input_style(valid=valid))
+            input_widget.setToolTip(tooltip)
 
         state_text = self.state_input.text()
         if state_text and len(state_text) != 2:
@@ -485,8 +355,7 @@ class GridFinderApp(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')  # Ensure consistent rendering across platforms
-    app.setFont(QFont('Arial', 11))
+    app.setFont(QFont(theme.font_family, theme.font_size))
     window = GridFinderApp()
     window.show()
     sys.exit(app.exec_())

@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QDateTime, Qt
 from PyQt5.QtWidgets import QMessageBox, QDialog, QComboBox
+from theme_manager import theme
 
 if TYPE_CHECKING:
     from js8_tcp_client import TCPConnectionPool
@@ -92,12 +93,11 @@ STATUS_COLORS = {
 }
 
 # Styling
-FONT_FAMILY = "Arial"
-FONT_SIZE = 12
+FONT_FAMILY = theme.font_family
+FONT_SIZE = theme.font_size
 WINDOW_WIDTH = 700
 WINDOW_HEIGHT = 580
 INTERNET_RIG = "INTERNET ONLY"
-DATA_BACKGROUND = "#FFF5E1"   # matches little_gucci.py 'data_background'
 
 
 # =============================================================================
@@ -288,36 +288,43 @@ class StatRepDialog(QDialog):
         thread.start()
 
     def _load_rigs(self) -> None:
-        """Load enabled connectors into the rig dropdown, plus Internet option."""
+        """Load connected rigs into the rig dropdown, plus Internet option.
+
+        Auto-selects only if exactly 1 rig is connected.
+        If multiple rigs are connected, user must select one.
+        """
         self.rig_combo.blockSignals(True)
         self.rig_combo.clear()
 
-        enabled_connectors = self.connector_manager.get_all_connectors(enabled_only=True) if self.connector_manager else []
-        connected_rigs = self.tcp_pool.get_connected_rig_names() if self.tcp_pool else []
-        enabled_count = len(enabled_connectors)
+        # Get connected rigs
+        connected_rigs = self.tcp_pool.get_connected_rig_names()
 
-        if enabled_count == 0:
-            # No enabled connectors — Internet is the only/preselected option
-            self.rig_combo.addItem(INTERNET_RIG)
-        elif enabled_count == 1:
-            # 1 enabled connector — preselect it; Internet still available
-            rig_name = enabled_connectors[0]['rig_name']
-            label = rig_name if rig_name in connected_rigs else f"{rig_name} (disconnected)"
-            self.rig_combo.addItem(label)
+        if not connected_rigs:
+            # No connected rigs - show all configured rigs as disconnected
+            all_rigs = self.tcp_pool.get_all_rig_names()
+            if all_rigs:
+                self.rig_combo.addItem("")  # Empty first item
+                for rig_name in all_rigs:
+                    self.rig_combo.addItem(f"{rig_name} (disconnected)")
+                self.rig_combo.addItem(INTERNET_RIG)
+            else:
+                self.rig_combo.addItem(INTERNET_RIG)
+        elif len(connected_rigs) == 1:
+            # Exactly 1 connected rig - auto-select it
+            self.rig_combo.addItem(connected_rigs[0])
             self.rig_combo.addItem(INTERNET_RIG)
         else:
-            # Multiple enabled connectors — require selection; Internet at bottom
-            self.rig_combo.addItem("")  # empty first
-            for c in enabled_connectors:
-                rig_name = c['rig_name']
-                label = rig_name if rig_name in connected_rigs else f"{rig_name} (disconnected)"
-                self.rig_combo.addItem(label)
+            # Multiple connected rigs - require user selection
+            self.rig_combo.addItem("")  # Empty first item
+            for rig_name in connected_rigs:
+                self.rig_combo.addItem(rig_name)
             self.rig_combo.addItem(INTERNET_RIG)
 
         self.rig_combo.blockSignals(False)
 
+        # Trigger rig changed to load callsign/grid (only if a rig is selected)
         current_text = self.rig_combo.currentText()
-        if current_text:
+        if current_text and "(disconnected)" not in current_text:
             self._on_rig_changed(current_text)
 
     def _on_rig_changed(self, rig_name: str) -> None:
@@ -457,10 +464,6 @@ class StatRepDialog(QDialog):
             client.send_message("MODE.SET_SPEED", "", {"SPEED": speed_value})
             print(f"[StatRep] Set mode to {self.mode_combo.currentText()} (speed={speed_value})")
 
-    def _on_delivery_changed(self, delivery: str) -> None:
-        """Handle delivery dropdown change."""
-        pass
-
     def _on_callsign_received(self, rig_name: str, callsign: str) -> None:
         """Handle callsign received from JS8Call."""
         # Only update if this is the currently selected rig
@@ -516,13 +519,41 @@ class StatRepDialog(QDialog):
 
     def _setup_ui(self) -> None:
         """Build the user interface."""
+        # Safety-net stylesheet: Ensures dialog has proper background/foreground on all platforms
+        # Uses theme manager colors to respect system theme while preventing black backgrounds
         self.setStyleSheet(f"""
-            QDialog {{ background-color: {DATA_BACKGROUND}; }}
-            QLabel {{ color: #333333; }}
-            QLineEdit {{ background-color: white; color: #333333; border: 1px solid #cccccc; border-radius: 4px; padding: 2px 4px; }}
-            QComboBox {{ background-color: white; color: #333333; border: 1px solid #cccccc; border-radius: 4px; padding: 2px 4px; }}
-            QComboBox:disabled {{ background-color: #e9ecef; color: #999999; border: 1px solid #cccccc; }}
-            QComboBox QAbstractItemView {{ background-color: white; color: #333333; selection-background-color: #0078d7; selection-color: white; }}
+            QDialog {{ 
+                background-color: {theme.color('base')}; 
+                color: {theme.color('text')};
+            }}
+            QLabel {{ 
+                color: {theme.color('text')}; 
+            }}
+            QLineEdit {{ 
+                background-color: {theme.color('base')}; 
+                color: {theme.color('text')}; 
+                border: 1px solid {theme.color('mid')}; 
+                border-radius: 4px; 
+                padding: 2px 4px; 
+            }}
+            QComboBox {{ 
+                background-color: {theme.color('base')}; 
+                color: {theme.color('text')}; 
+                border: 1px solid {theme.color('mid')}; 
+                border-radius: 4px; 
+                padding: 2px 4px; 
+            }}
+            QComboBox:disabled {{ 
+                background-color: {theme.color('mid')}; 
+                color: {theme.color('text')}; 
+                border: 1px solid {theme.color('mid')}; 
+            }}
+            QComboBox QAbstractItemView {{ 
+                background-color: {theme.color('base')}; 
+                color: {theme.color('text')}; 
+                selection-background-color: {theme.color('highlight')}; 
+                selection-color: {theme.color('highlightedtext')}; 
+            }}
         """)
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -534,25 +565,21 @@ class StatRepDialog(QDialog):
         title.setAlignment(Qt.AlignCenter)
         title_font = QtGui.QFont(FONT_FAMILY, 16, QtGui.QFont.Bold)
         title.setFont(title_font)
-        title.setStyleSheet("color: #333; margin-bottom: 10px;")
+        title.setStyleSheet(theme.dialog_title_style())
         layout.addWidget(title)
 
-        # Rig / Mode / Freq / Delivery row (label above control)
-        rig_row = QtWidgets.QHBoxLayout()
-
-        rig_col = QtWidgets.QVBoxLayout()
+        # Rig selection
+        rig_layout = QtWidgets.QHBoxLayout()
         rig_label = QtWidgets.QLabel("Rig:")
-        rig_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        rig_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.rig_combo = QtWidgets.QComboBox()
         self.rig_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.rig_combo.setMinimumWidth(180)
         self.rig_combo.setMinimumHeight(28)
         self.rig_combo.currentTextChanged.connect(self._on_rig_changed)
-        rig_col.addWidget(rig_label)
-        rig_col.addWidget(self.rig_combo)
-        rig_row.addLayout(rig_col)
-
-        mode_col = QtWidgets.QVBoxLayout()
+        rig_layout.addWidget(rig_label)
+        rig_layout.addWidget(self.rig_combo)
+        # Mode dropdown
         mode_label = QtWidgets.QLabel("Mode:")
         mode_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.mode_combo = QtWidgets.QComboBox()
@@ -563,11 +590,9 @@ class StatRepDialog(QDialog):
         self.mode_combo.addItem("Fast", 1)
         self.mode_combo.addItem("Turbo", 2)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        mode_col.addWidget(mode_label)
-        mode_col.addWidget(self.mode_combo)
-        rig_row.addLayout(mode_col)
-
-        freq_col = QtWidgets.QVBoxLayout()
+        rig_layout.addWidget(mode_label)
+        rig_layout.addWidget(self.mode_combo)
+        # Frequency display
         freq_label = QtWidgets.QLabel("Freq:")
         freq_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.freq_field = QtWidgets.QLineEdit()
@@ -575,26 +600,11 @@ class StatRepDialog(QDialog):
         self.freq_field.setMinimumHeight(28)
         self.freq_field.setMaximumWidth(100)
         self.freq_field.setReadOnly(True)
-        self.freq_field.setStyleSheet("background-color: #f0f0f0;")
-        freq_col.addWidget(freq_label)
-        freq_col.addWidget(self.freq_field)
-        rig_row.addLayout(freq_col)
-
-        delivery_col = QtWidgets.QVBoxLayout()
-        delivery_label = QtWidgets.QLabel("Delivery:")
-        delivery_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.delivery_combo = QtWidgets.QComboBox()
-        self.delivery_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.delivery_combo.setMinimumHeight(28)
-        self.delivery_combo.addItem("Maximum Reach")
-        self.delivery_combo.addItem("Limited Reach")
-        self.delivery_combo.currentTextChanged.connect(self._on_delivery_changed)
-        delivery_col.addWidget(delivery_label)
-        delivery_col.addWidget(self.delivery_combo)
-        rig_row.addLayout(delivery_col)
-
-        rig_row.addStretch()
-        layout.addLayout(rig_row)
+        self.freq_field.setStyleSheet(theme.input_readonly_style())
+        rig_layout.addWidget(freq_label)
+        rig_layout.addWidget(self.freq_field)
+        rig_layout.addStretch()
+        layout.addLayout(rig_layout)
 
         # Header info (From, To, Grid, Scope) - all on one line
         header_layout = QtWidgets.QHBoxLayout()
@@ -603,7 +613,7 @@ class StatRepDialog(QDialog):
         # From (Callsign)
         from_layout = QtWidgets.QVBoxLayout()
         from_label = QtWidgets.QLabel("From:")
-        from_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        from_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.from_field = QtWidgets.QLineEdit(self.callsign)
         self.from_field.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.from_field.setMinimumHeight(28)
@@ -618,7 +628,7 @@ class StatRepDialog(QDialog):
         # If multiple groups exist, user must select one.
         to_layout = QtWidgets.QVBoxLayout()
         to_label = QtWidgets.QLabel("To:")
-        to_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        to_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.to_combo = QtWidgets.QComboBox()
         self.to_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.to_combo.setMinimumHeight(28)
@@ -639,7 +649,7 @@ class StatRepDialog(QDialog):
         # Grid
         grid_layout = QtWidgets.QVBoxLayout()
         grid_label = QtWidgets.QLabel("Grid:")
-        grid_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        grid_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.grid_field = QtWidgets.QLineEdit(self.grid)
         self.grid_field.setMaxLength(6)
         self.grid_field.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
@@ -652,7 +662,7 @@ class StatRepDialog(QDialog):
         # Scope
         scope_layout = QtWidgets.QVBoxLayout()
         scope_label = QtWidgets.QLabel("Scope:")
-        scope_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        scope_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.scope_combo = QtWidgets.QComboBox()
         self.scope_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.scope_combo.setMinimumHeight(28)
@@ -666,15 +676,14 @@ class StatRepDialog(QDialog):
 
         # Legend
         legend = QtWidgets.QLabel(
-            "<b>Maximum Reach</b> = RF + Internet | <b>Limited Reach</b> = RF Only"
-            "<br><b>Green</b> = Normal | "
+            "<b>Green</b> = Normal | "
             "<b>Yellow</b> = Limited | "
             "<b>Red</b> = Collapsed/None"
         )
         legend.setAlignment(Qt.AlignCenter)
         legend.setFont(QtGui.QFont(FONT_FAMILY, 10))
         legend.setStyleSheet(
-            "background-color: #f8f9fa; padding: 8px; border-radius: 4px; margin: 5px 0;"
+            f"background-color: {theme.color('alternatebase')}; padding: 8px; border-radius: 4px; margin: 5px 0;"
         )
         layout.addWidget(legend)
 
@@ -709,6 +718,7 @@ class StatRepDialog(QDialog):
         self.remarks_field.setMinimumHeight(36)
         self.remarks_field.setMaxLength(60)
         self.remarks_field.setPlaceholderText("Optional - max 60 characters")
+        make_uppercase(self.remarks_field)
         self.remarks_field.setText(self._get_default_remarks())
         remarks_layout.addWidget(remarks_label)
         remarks_layout.addWidget(self.remarks_field)
@@ -763,38 +773,62 @@ class StatRepDialog(QDialog):
             lambda text, c=combo: self._update_combo_color(c, text)
         )
 
+        # Preserve the original palette so we can restore it when clearing styles
+        try:
+            combo._orig_palette = QtGui.QPalette(combo.palette())
+        except Exception:
+            combo._orig_palette = None
+
+        # Ensure the combo uses the application's structural combo style by default
+        try:
+            combo.setStyleSheet(theme.combo_style())
+        except Exception:
+            pass
+
         return combo
 
     def _update_combo_color(self, combo: QComboBox, text: str) -> None:
         """Update combo box background color based on selection."""
-        color = STATUS_COLORS.get(text, "#ffffff")
-        if text in ("Green", "Yellow", "Red", "Unknown"):
+        # Use the semantic STATUS_COLORS mapping for selected items.
+        # Apply comprehensive styling including all subcontrols to ensure
+        # the color overrides platform/system theme styling.
+        color = STATUS_COLORS.get(text, "")
+        if text in ("Green", "Yellow", "Red", "Unknown") and color:
             text_color = "#000" if text == "Yellow" else "#fff"
-            combo.setStyleSheet(
-                f"background-color: {color}; color: {text_color}; font-weight: bold;"
-            )
+            # Style the main combo box and all its subcontrols
+            combo.setStyleSheet(f"""
+                QComboBox {{
+                    background-color: {color};
+                    color: {text_color};
+                    font-weight: bold;
+                    border: 1px solid {color};
+                    padding: 2px 5px;
+                    border-radius: 4px;
+                }}
+                QComboBox::drop-down {{
+                    background-color: {color};
+                    border: none;
+                }}
+                QComboBox::down-arrow {{
+                    image: none;
+                    border-left: 4px solid transparent;
+                    border-right: 4px solid transparent;
+                    border-top: 5px solid {text_color};
+                    width: 0px;
+                    height: 0px;
+                }}
+            """)
         else:
-            combo.setStyleSheet("")
+            # Revert to structural combo styling from theme manager so the
+            # app follows the system theme for non-status selections.
+            try:
+                combo.setStyleSheet(theme.combo_style())
+            except Exception:
+                combo.setStyleSheet("")
 
     def _button_style(self, color: str) -> str:
         """Generate button stylesheet."""
-        return f"""
-            QPushButton {{
-                background-color: {color};
-                color: white;
-                border: none;
-                padding: 8px 12px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 12px;
-            }}
-            QPushButton:hover {{
-                opacity: 0.9;
-            }}
-            QPushButton:pressed {{
-                opacity: 0.8;
-            }}
-        """
+        return theme.button_style(color)
 
     def _show_error(self, message: str) -> None:
         """Display an error message box."""
@@ -916,8 +950,7 @@ class StatRepDialog(QDialog):
 
         # Format: CALLSIGN: @GROUP ,GRID,SCOPE,ID,STATUSES,REMARKS,{&%}
         group = f"@{self.to_combo.currentText()}"
-        marker = "{&%3}" if self.rig_combo.currentText() == INTERNET_RIG else "{&%}"
-        message = f"{self.callsign.upper()}: {group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{marker}"
+        message = f"{self.callsign.upper()}: {group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{{&%}}"
 
         return message
 
@@ -950,7 +983,7 @@ class StatRepDialog(QDialog):
                     date_only,
                     frequency,
                     30,  # db (SNR): set to 30 for manual entries
-                    3 if self.rig_combo.currentText() == INTERNET_RIG else 1,  # source: 1=Radio, 3=Internet
+                    1,  # source: 1=Radio, 2=Internet
                     self.statrep_id,
                     self.callsign.upper(),
                     '@' + self.to_combo.currentText().upper(),
@@ -1119,8 +1152,7 @@ class StatRepDialog(QDialog):
             self._save_to_database(frequency)
 
             # Submit to backbone server (asynchronous, non-blocking)
-            if self.delivery_combo.currentText() != "Limited Reach":
-                self._submit_to_backbone_async(frequency)
+            self._submit_to_backbone_async(frequency)
 
             # Print to terminal
             now = QDateTime.currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss")

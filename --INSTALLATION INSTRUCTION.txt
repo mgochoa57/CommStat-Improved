@@ -1,9 +1,41 @@
 COMMSTAT-IMPROVED INSTALLATION INSTRUCTIONS
 ============================================
 
-For current installation instructions, please visit:
+WINDOWS
+-------
+1. Install Python 3.10 or later from https://python.org
+   - Check "Add Python to PATH" during installation
+   - If you don't know how to do this, ask Claude (https://claude.ai),
+     ChatGPT, Grok, Gemini, or your grandson.
 
-    https://commstat-improved.com/
+2. Open Command Prompt and navigate to the CommStat-Improved folder
 
-The website is always up to date with the latest installation
-guides for Windows, Linux, and Mac.
+3. Run the installer:
+   python install.py
+
+4. Run CommStat:
+   python commstat.py
+
+
+LINUX
+-----
+1. Run the Linux installer (installs everything):
+   chmod +x linuxinstall.sh
+   ./linuxinstall.sh
+   - If you don't know how to do this, ask Claude (https://claude.ai),
+     ChatGPT, Grok, Gemini, or your grandson.
+
+2. Run CommStat:
+   python3 commstat.py
+
+
+MAC
+---
+Coming soon.
+
+
+NOTES
+-----
+- JS8Call must be installed and running for full functionality
+- Configure your JS8Call connections via Menu > JS8 CONNECTORS
+- QRZ lookups require a QRZ XML subscription (Menu > QRZ ENABLE)

@@ -46,13 +46,6 @@ def create_from_template(target: str, template: str) -> None:
     if not os.path.exists(target):
         if os.path.exists(template):
             shutil.copy(template, target)
-            src_size = os.path.getsize(template)
-            dst_size = os.path.getsize(target)
-            if dst_size != src_size:
-                os.remove(target)
-                print(f"Error: {target} copy was incomplete ({dst_size} of {src_size} bytes). "
-                      f"Check available disk space and try again.")
-                sys.exit(1)
             print(f"Created {target} from template")
         else:
             print(f"Warning: {template} not found, cannot create {target}")
@@ -66,20 +59,6 @@ def setup_files():
 def runsettings():
     setup_files()
     print("\nInstallation complete. Run 'python commstat.py' to start the program.")
-
-
-def pip_supports_break_system_packages():
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "--version"],
-            capture_output=True, text=True
-        )
-        version_str = result.stdout.split()[1]
-        parts = version_str.split('.')
-        major, minor = int(parts[0]), int(parts[1])
-        return (major, minor) >= (22, 1)
-    except Exception:
-        return False
 
 
 def install(package):

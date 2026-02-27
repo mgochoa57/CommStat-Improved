@@ -39,7 +39,7 @@ echo "(You may be prompted for your sudo password)"
 echo ""
 
 sudo apt update
-sudo apt install -y python3-pyqt5 python3-pyqt5.qtwebengine libenchant-2-dev python3-tk
+sudo apt install -y python3-pyqt5 python3-pyqt5.qtwebengine libenchant-2-dev qt5ct
 
 echo ""
 echo "Running Python installer..."
@@ -50,13 +50,5 @@ python3 install.py
 echo ""
 echo "=============================================="
 echo "Installation complete!"
-echo "https://commstat-improved.com/"
-echo ""
-# Raspberry Pi-specific reminder
-if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "armv7l" ]]; then
-    echo "Raspberry Pi detected!"
-    echo "Note: JS8Call must be installed separately."
-    echo "Download the ARM build from https://js8call-improved.com/"
-    echo "CommStat connects to JS8Call on localhost:2442."
-fi
+echo "Run CommStat with: python3 commstat.py"
 echo "=============================================="

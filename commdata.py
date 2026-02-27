@@ -18,6 +18,7 @@ import pandas as pd
 import io
 import re
 import maidenhead as mh
+from theme_manager import theme
 
 
 start = ""
@@ -28,7 +29,7 @@ statelist = ['AP', 'AO', 'AO', 'BO', 'CN', 'CM', 'CO', 'DN', 'DM', 'DL', 'DO', '
 class UI(QMainWindow):
     def __init__(self):
         super(UI, self).__init__()
-        self.setStyleSheet('font-size: 12px')
+        self.setStyleSheet(f'font-family: {theme.font_family}; font-size: {theme.font_size}pt;')
 
         #load the ui file
         uic.loadUi("commdata.ui", self)

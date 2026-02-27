@@ -11,6 +11,7 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt
 import html
 import brevity1
+from theme_manager import theme
 
 class StatRepDialog(QDialog):
     def __init__(self, srid):
@@ -22,7 +23,7 @@ class StatRepDialog(QDialog):
         self.setWindowTitle(f"CommStat - StatRep Details (sr_id: {self.srid})")
         self.setMinimumSize(560, 600)
         self.resize(650, 600)
-        self.setStyleSheet("background-color: rgb(255, 255, 255);")
+        self.setStyleSheet(f"background-color: {theme.color('window')}; color: {theme.color('windowtext')};")
         if os.path.exists("radiation-32.png"):
             self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
         # Main layout
@@ -36,19 +37,19 @@ class StatRepDialog(QDialog):
         # General Information section
         general_frame = QFrame()
         general_frame.setFrameStyle(QFrame.Box | QFrame.Plain)
-        general_frame.setStyleSheet("border: 1px solid rgb(255, 255, 255);")
+        general_frame.setStyleSheet(f"border: 1px solid {theme.color('mid')};")
         general_layout = QVBoxLayout(general_frame)
         general_header = QLabel("General Information")
-        general_header.setFont(QFont("Arial", 11, QFont.Bold))
-        general_header.setStyleSheet("color: rgb(0, 0, 0); background-color: rgb(255, 255, 255);")
+        general_header.setFont(QFont(theme.font_family, 11, QFont.Bold))
+        general_header.setStyleSheet(f"color: {theme.color('windowtext')}; background-color: {theme.color('window')};")
         general_header.setAlignment(Qt.AlignCenter)
         general_layout.addWidget(general_header)
         form_layout = QGridLayout()
         form_layout.setHorizontalSpacing(10)
         form_layout.setVerticalSpacing(10)
-        font = QFont("Arial", 11)
-        font_bold = QFont("Arial", 11, QFont.Bold)
-        label_style = "color: rgb(0, 0, 0); background-color: rgb(255, 255, 255);"
+        font = QFont(theme.font_family, 11)
+        font_bold = QFont(theme.font_family, 11, QFont.Bold)
+        label_style = f"color: {theme.color('windowtext')}; background-color: {theme.color('window')};"
         self.datetime_label = QLabel()
         self.datetime_label.setFont(font)
         self.datetime_label.setStyleSheet(label_style)
@@ -99,7 +100,7 @@ class StatRepDialog(QDialog):
         # Situational Status section (no title)
         situational_frame = QFrame()
         situational_frame.setFrameStyle(QFrame.Box | QFrame.Plain)
-        situational_frame.setStyleSheet("border: 1px solid rgb(255, 255, 255);")
+        situational_frame.setStyleSheet(f"border: 1px solid {theme.color('mid')};")
         situational_layout = QVBoxLayout(situational_frame)
         grid_layout = QGridLayout()
         grid_layout.setHorizontalSpacing(10)
@@ -138,15 +139,15 @@ class StatRepDialog(QDialog):
         # Remarks section
         remarks_frame = QFrame()
         remarks_frame.setFrameStyle(QFrame.Box | QFrame.Plain)
-        remarks_frame.setStyleSheet("border: 1px solid rgb(255, 255, 255);")
+        remarks_frame.setStyleSheet(f"border: 1px solid {theme.color('mid')};")
         remarks_layout = QVBoxLayout(remarks_frame)
         remarks_form_layout = QFormLayout()
         remarks_form_layout.setLabelAlignment(Qt.AlignRight)
         remarks_form_layout.setFormAlignment(Qt.AlignHCenter | Qt.AlignTop)
         remarks_form_layout.setSpacing(10)
         self.remarks_label = QLabel()
-        self.remarks_label.setFont(QFont("Arial", 11))
-        self.remarks_label.setStyleSheet("color: rgb(0, 0, 0); background-color: rgb(240, 240, 240);")
+        self.remarks_label.setFont(QFont(theme.font_family, 11))
+        self.remarks_label.setStyleSheet(f"color: {theme.color('text')}; background-color: {theme.color('alternatebase')};")
         self.remarks_label.setWordWrap(True)
         remarks_label = QLabel("Remarks:")
         remarks_label.setFont(font_bold)
@@ -157,15 +158,15 @@ class StatRepDialog(QDialog):
         # Brevity Decode section
         brevity_frame = QFrame()
         brevity_frame.setFrameStyle(QFrame.Box | QFrame.Plain)
-        brevity_frame.setStyleSheet("border: 1px solid rgb(255, 255, 255);")
+        brevity_frame.setStyleSheet(f"border: 1px solid {theme.color('mid')};")
         brevity_layout = QVBoxLayout(brevity_frame)
         brevity_form_layout = QFormLayout()
         brevity_form_layout.setLabelAlignment(Qt.AlignRight)
         brevity_form_layout.setFormAlignment(Qt.AlignHCenter | Qt.AlignTop)
         brevity_form_layout.setSpacing(10)
         self.brevity_text = QTextEdit()
-        self.brevity_text.setFont(QFont("Arial", 11))
-        self.brevity_text.setStyleSheet("color: rgb(0, 0, 0); background-color: rgb(240, 240, 240);")
+        self.brevity_text.setFont(QFont(theme.font_family, 11))
+        self.brevity_text.setStyleSheet(f"color: {theme.color('text')}; background-color: {theme.color('alternatebase')};")
         # Removed setAcceptRichText(False) to allow HTML rendering
         self.brevity_text.setPlaceholderText("Brevity codes decoded here...")
         brevity_label = QLabel("Brevity Decode:")
@@ -178,10 +179,10 @@ class StatRepDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
         self.view_html_button = QPushButton("View/Save HTML")
-        self.view_html_button.setFont(QFont("Arial", 11))
+        self.view_html_button.setFont(QFont(theme.font_family, 11))
         self.view_html_button.setStyleSheet(
-            "QPushButton { border: 1px solid rgb(100, 100, 100); background-color: rgb(0, 0, 255); color: rgb(255, 255, 255); padding: 5px; }"
-            "QPushButton:hover { background-color: rgb(0, 0, 200); }"
+            f"QPushButton {{ border: 1px solid {theme.color('mid')}; background-color: {theme.color('highlight')}; color: {theme.color('highlightedtext')}; padding: 5px; }}"
+            f"QPushButton:hover {{ background-color: {theme.color('dark')}; }}"
         )
         self.view_html_button.clicked.connect(self.viewHTML)
         button_layout.addWidget(self.view_html_button)

@@ -91,14 +91,9 @@ def launch_main_app() -> None:
         print(f"Error: {MAIN_APP} not found.")
         sys.exit(1)
 
-    # Fix Linux menu bar issues by disabling global menu integration
-    env = os.environ.copy()
-    if sys.platform.startswith('linux'):
-        env['QT_QPA_PLATFORMTHEME'] = ''  # Disable platform theme that steals menu bar
-
     python = sys.executable
     args = [python, str(MAIN_APP)] + sys.argv[1:]  # Pass through any command line args
-    subprocess.run(args, cwd=str(SCRIPT_DIR), env=env)
+    subprocess.run(args, cwd=str(SCRIPT_DIR))
 
 
 def main() -> None:

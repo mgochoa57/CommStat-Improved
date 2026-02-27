@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
 
 from connector_manager import ConnectorManager, MAX_CONNECTORS
 from js8_tcp_client import TCPConnectionPool
+from theme_manager import theme
 
 
 # UI Constants
@@ -75,8 +76,8 @@ class JS8ConnectorsDialog(QDialog):
 
         # Set font
         font = QtGui.QFont()
-        font.setFamily(FONT_FAMILY)
-        font.setPointSize(FONT_SIZE)
+        font.setFamily(theme.font_family)
+        font.setPointSize(theme.font_size)
         self.setFont(font)
 
     def _setup_ui(self) -> None:
@@ -178,8 +179,8 @@ class JS8ConnectorsDialog(QDialog):
             f"<i><span style='color: #AA0000;'>Note:</span> Each connector requires a unique port</i>"
         )
         info_text.setWordWrap(True)
-        info_text.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        info_text.setStyleSheet("color: #000000;")
+        info_text.setFont(QtGui.QFont(theme.font_family, theme.font_size))
+        info_text.setStyleSheet(f"color: {theme.color('windowtext')};")
         info_layout.addWidget(info_text)
 
         layout.addWidget(info_group)
