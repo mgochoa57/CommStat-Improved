@@ -4078,11 +4078,10 @@ class MainWindow(QtWidgets.QMainWindow):
             # Refresh only the relevant UI component
             if data_type == "statrep":
                 self._load_statrep_data()
-                self._save_map_position(callback=self._load_map)
+                if not self.config.get_show_alerts():
+                    self._save_map_position(callback=self._load_map)
             elif data_type == "message":
                 self._load_message_data()
-            elif data_type == "checkin":
-                self._save_map_position(callback=self._load_map)
             elif data_type == "alert":
                 self._trigger_show_alerts()
 
@@ -4644,7 +4643,7 @@ class MainWindow(QtWidgets.QMainWindow):
             utc: UTC timestamp string.
 
         Returns:
-            "statrep", "message", "alert", "checkin", or empty string
+            "statrep", "message", "alert", or empty string
         """
         # Preprocess message value
         value = self._preprocess_message_value(value, from_call)
