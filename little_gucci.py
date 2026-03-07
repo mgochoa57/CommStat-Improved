@@ -68,7 +68,7 @@ from id_utils import generate_time_based_id
 # Constants
 # =============================================================================
 
-VERSION = "3.0.6"
+VERSION = "3.0.7"
 WINDOW_TITLE = f"CommStat (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
@@ -2815,7 +2815,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._load_message_data()
 
         if 'alert' in data_types:
-            # Alerts are shown in the live feed, so refresh it
+            self._trigger_show_alerts()
             self._load_live_feed()
 
     @QtCore.pyqtSlot(int)
