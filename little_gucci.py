@@ -68,7 +68,7 @@ from id_utils import generate_time_based_id
 # Constants
 # =============================================================================
 
-VERSION = "3.0.7"
+VERSION = "3.0.7a"
 WINDOW_TITLE = f"CommStat (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
@@ -79,7 +79,7 @@ DATABASE_FILE = "traffic.db3"
 DEFAULT_FILTER_START = "2023-01-01"
 
 # Group settings
-MAX_GROUP_NAME_LENGTH = 15
+MAX_GROUP_NAME_LENGTH = 8
 
 # Map and layout dimensions
 MAP_WIDTH = 604
