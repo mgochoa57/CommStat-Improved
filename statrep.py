@@ -180,9 +180,8 @@ class StatRepDialog(QDialog):
         # Status combo boxes
         self.status_combos: Dict[str, QComboBox] = {}
 
-        # Load config and generate ID
+        # Load config
         self._load_config()
-        self._generate_statrep_id()
 
         # Build UI
         self._setup_ui()
@@ -500,10 +499,7 @@ class StatRepDialog(QDialog):
     def _on_grid_field_changed(self, text: str) -> None:
         """Handle user editing the Grid field."""
         raw = text.strip()
-        if len(raw) == 6:
-            formatted = raw[:2].upper() + raw[2:4] + raw[4:].lower()
-        else:
-            formatted = raw.upper()
+        formatted = raw.upper()
         self.grid = formatted
         if text != formatted:
             pos = self.grid_field.cursorPosition()
@@ -1021,6 +1017,7 @@ class StatRepDialog(QDialog):
 
     def _on_save_only(self) -> None:
         """Validate and save without transmitting."""
+        self._generate_statrep_id()
         if not self._validate():
             return
 
@@ -1049,6 +1046,7 @@ class StatRepDialog(QDialog):
 
     def _on_transmit(self) -> None:
         """Validate, check for selected call, get frequency, transmit, and save."""
+        self._generate_statrep_id()
         if not self._validate():
             return
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2025 Manuel Ochoa
+# Copyright (c) 2025, 2026 Manuel Ochoa
 # This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
@@ -23,6 +23,7 @@ import http.server
 import socketserver
 import urllib.request
 import ssl
+import time
 import tempfile
 import webbrowser
 import xml.etree.ElementTree as ET
@@ -68,7 +69,7 @@ from id_utils import generate_time_based_id
 # Constants
 # =============================================================================
 
-VERSION = "3.0.4"
+VERSION = "3.0.7"
 WINDOW_TITLE = f"CommStat (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
@@ -93,6 +94,11 @@ _PING = _BACKBONE + "/heartbeat-808585.php"
 
 # Internet connectivity check interval (30 minutes in ms)
 INTERNET_CHECK_INTERVAL = 30 * 60 * 1000
+
+# News feed animation timing
+NEWSFEED_TYPE_INTERVAL_MS = 60    # ms per character during type-on
+NEWSFEED_PAUSE_MS = 20000         # ms to hold when window is full
+NEWSFEED_SCROLL_DURATION_MS = 1000  # total ms for the scroll-off phase
 
 
 class ConsoleColors:
@@ -658,7 +664,6 @@ class ConfigManager:
 
     def get_color(self, key: str) -> str:
         """Get a color value by key.
-
         Structural colors are provided by the system theme via ThemeManager.
         Semantic colors (newsfeed, condition indicators) come from DEFAULT_COLORS.
         """
@@ -1250,6 +1255,25 @@ class DatabaseManager:
             return True
         return self._execute(op, False)
 
+    def get_user_settings(self) -> Tuple[str, str, str]:
+        """Get user callsign, grid square, and state from controls table."""
+        def op(cursor, conn):
+            cursor.execute("SELECT callsign, gridsquare, state FROM controls WHERE id = 1")
+            row = cursor.fetchone()
+            return (row[0] or "", row[1] or "", row[2] or "") if row else ("", "", "")
+        return self._execute(op, ("", "", ""))
+
+    def set_user_settings(self, callsign: str, grid: str, state: str) -> bool:
+        """Save user callsign, grid square, and state to controls table."""
+        def op(cursor, conn):
+            cursor.execute(
+                "UPDATE controls SET callsign = ?, gridsquare = ?, state = ? WHERE id = 1",
+                (callsign, grid, state)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        return self._execute(op, False)
+
     def set_qrz_active(self, is_active: bool) -> bool:
         """Toggle QRZ active status."""
         def op(cursor, conn):
@@ -1505,19 +1529,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.menubar.setStyleSheet(theme.menu_style())
 
         # Create the main menu
-        self.menu = QtWidgets.QMenu("Menu", self.menubar)
+        self.menu = QtWidgets.QMenu("Config", self.menubar)
         self.menubar.addMenu(self.menu)
 
         # Define menu actions: (name, text, handler)
         menu_items = [
-            ("statrep", "Status Report", self._on_statrep),
-            ("group_alert", "Group Alert", self._on_group_alert),
-            ("send_message", "Group Message", self._on_send_message),
-            ("js8email", "JS8 Email", self._on_js8email),
-            ("js8sms", "JS8 SMS", self._on_js8sms),
-            None,  # Separator
             ("js8_connectors", "JS8 Connectors", self._on_js8_connectors),
-            ("qrz_enable", "QRZ Enable", self._on_qrz_enable),
+            ("qrz_enable", "QRZ Settings", self._on_qrz_enable),
+            ("user_settings", "User Settings", self._on_user_settings),
             None,  # Separator
         ]
 
@@ -1533,11 +1552,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.menu.addAction(action)
                 self.actions[name] = action
 
-        # Create the Groups menu (with checkable group items)
-        self.groups_menu = QtWidgets.QMenu("Groups", self.menubar)
-        self.menubar.addMenu(self.groups_menu)
+        # Groups section inside Config menu
+        groups_header = QtWidgets.QAction("GROUPS", self)
+        groups_header.setEnabled(False)
+        self.menu.addAction(groups_header)
+        self.groups_menu = self.menu
 
-        # Add Manage Groups option at top
+        # Add Manage Groups option
         manage_groups_action = QtWidgets.QAction("Manage Groups", self)
         manage_groups_action.triggered.connect(self._on_manage_groups)
         self.groups_menu.addAction(manage_groups_action)
@@ -1553,6 +1574,23 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Populate group checkboxes (will be called after menu setup)
         # Deferred to after db initialization in __init__
+
+        # Create the Transmit menu
+        self.transmit_menu = QtWidgets.QMenu("Transmit", self.menubar)
+        self.menubar.addMenu(self.transmit_menu)
+
+        transmit_items = [
+            ("statrep", "Status Report", self._on_statrep),
+            ("group_alert", "Group Alert", self._on_group_alert),
+            ("send_message", "Group Message", self._on_send_message),
+            ("js8email", "JS8 Email", self._on_js8email),
+            ("js8sms", "JS8 SMS", self._on_js8sms),
+        ]
+        for name, text, handler in transmit_items:
+            action = QtWidgets.QAction(text, self)
+            action.triggered.connect(handler)
+            self.transmit_menu.addAction(action)
+            self.actions[name] = action
 
         # Create the Filter menu
         self.filter_menu = QtWidgets.QMenu("Filter", self.menubar)
@@ -1625,9 +1663,6 @@ class MainWindow(QtWidgets.QMainWindow):
         statrep_messages_label.setEnabled(False)  # Disabled as a section title
         self.filter_menu.addAction(statrep_messages_label)
 
-        self.apply_text_normalization_checkbox = create_menu_checkbox(
-            self.filter_menu, "Apply Text Normalization",
-            self.config.get_apply_text_normalization(), self._on_toggle_text_normalization)
         self.show_all_groups_checkbox = create_menu_checkbox(
             self.filter_menu, "Show All My Groups",
             self.config.get_show_all_groups(), self._on_toggle_show_all_groups)
@@ -1701,22 +1736,6 @@ class MainWindow(QtWidgets.QMainWindow):
         fg_color = self.config.get_color('program_foreground')
         font = QtGui.QFont(theme.font_family, 13, QtGui.QFont.Bold)
 
-        # Connected rigs label
-        self.label_connected_prefix = QtWidgets.QLabel(self.header_widget)
-        self.label_connected_prefix.setStyleSheet(f"color: {fg_color};")
-        self.label_connected_prefix.setText("Connected:")
-        self.label_connected_prefix.setFont(font)
-        self.header_layout.addWidget(self.label_connected_prefix)
-
-        # Connected rigs display
-        self.connected_rigs_label = QtWidgets.QLabel(self.header_widget)
-        self.connected_rigs_label.setStyleSheet(f"color: {fg_color};")
-        self.connected_rigs_label.setFont(QtGui.QFont(theme.font_family, 13, QtGui.QFont.Bold))
-        self.header_layout.addWidget(self.connected_rigs_label)
-
-        # Spacer to push news feed to center
-        self.header_layout.addStretch()
-
         # News label
         self.label_newsfeed = QtWidgets.QLabel(self.header_widget)
         self.label_newsfeed.setStyleSheet(f"color: {fg_color};")
@@ -1736,6 +1755,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Populate with feed names
         for feed_name in DEFAULT_RSS_FEEDS.keys():
             self.feed_combo.addItem(feed_name)
+        self.feed_combo.addItem("Disable")
         # Set to saved selection
         saved_feed = self.config.get_selected_rss_feed()
         index = self.feed_combo.findText(saved_feed)
@@ -1747,7 +1767,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # News ticker (scrolling text)
         self.newsfeed_label = QtWidgets.QLabel(self.header_widget)
-        self.newsfeed_label.setFixedSize(550, 32)
+        self.newsfeed_label.setFixedSize(740, 32)
         self.newsfeed_label.setFont(QtGui.QFont(theme.font_family, 13))
         self.newsfeed_label.setStyleSheet(
             f"background-color: {self.config.get_color('newsfeed_background')};"
@@ -1763,7 +1783,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.last20_button.clicked.connect(self._on_last20_clicked)
         self.header_layout.addWidget(self.last20_button)
 
-        # Spacer to push time to right
+        # Equal stretches on both sides to center "What's New" between Last 20 and Time
+        self.header_layout.addStretch()
+
+        # What's New hyperlink
+        self.whats_new_label = QtWidgets.QLabel(self.header_widget)
+        self.whats_new_label.setText('<a href="https://commstat-improved.com/new-features.php" style="color: white; text-decoration: underline;">What\'s New</a>')
+        self.whats_new_label.setFont(QtGui.QFont(theme.font_family, 13))
+        self.whats_new_label.setOpenExternalLinks(True)
+        self.header_layout.addWidget(self.whats_new_label)
+
         self.header_layout.addStretch()
 
         # Time label
@@ -1855,7 +1884,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.map_disabled_label.setFixedSize(MAP_WIDTH, MAP_HEIGHT)
         self.map_disabled_label.setAlignment(Qt.AlignCenter)
         self.map_disabled_label.setCursor(QtGui.QCursor(Qt.PointingHandCursor))
-        self.map_disabled_label.clicked.connect(self._on_slideshow_click)
 
         # Use feed colors for background
         bg_color = self.config.get_color('feed_background')
@@ -1867,10 +1895,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Add to same layout position as map
         self.main_layout.addWidget(self.map_disabled_label, 4, 0, 2, 1, Qt.AlignLeft | Qt.AlignTop)
 
-        # Image slideshow state: list of (image_path, click_url) tuples
-        self.slideshow_items: List[Tuple[str, Optional[str]]] = []
+        # Image slideshow state
+        self.slideshow_items: List[str] = []
         self.slideshow_index: int = 0
-        self.ping_message: Optional[str] = None  # Message from ping to display
 
         # Timer for slideshow
         self.slideshow_timer = QtCore.QTimer(self)
@@ -2086,8 +2113,12 @@ class MainWindow(QtWidgets.QMainWindow):
             Extracted content string, or None on error.
         """
         try:
-            # Get callsign (first available from rig_callsigns)
-            callsign = next((cs for cs in self.rig_callsigns.values() if cs), "UNKNOWN")
+            # Get callsign: prefer first active JS8 connector callsign, fall back to user settings
+            callsign = next((cs for cs in self.rig_callsigns.values() if cs), None)
+            if not callsign:
+                callsign, _, __ = self.db.get_user_settings()
+            if not callsign:
+                callsign = "UNKNOWN"
 
             # Get db_version, build_number, and data_id from controls table
             db_version = 0
@@ -2378,7 +2409,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Case 2: Have a 4-char grid - try to upgrade via QRZ
         if grid and len(grid) == 4:
             qrz_grid = self._lookup_grid_for_callsign(callsign)
-            if qrz_grid and len(qrz_grid) > 4:
+            if qrz_grid and len(qrz_grid) > 4 and qrz_grid[:4].upper() == grid.upper():
                 # Format as mixed case: first 4 upper + rest lower (e.g., EM83cv)
                 # This makes QRZ-upgraded grids visually distinguishable
                 qrz_grid = qrz_grid[:4].upper() + qrz_grid[4:].lower()
@@ -2442,6 +2473,14 @@ class MainWindow(QtWidgets.QMainWindow):
             if id_field in str(e) or "UNIQUE" in str(e):
                 id_val = data.get(id_field, "unknown")
                 print(f"{ConsoleColors.SUCCESS}[{rig_name}] Skipping {msg_type} from {from_callsign} — already received (ID: {id_val}){ConsoleColors.RESET}")
+                # Backfill global_id if backbone returned a real ID for a locally-stored record (global_id=0)
+                incoming_global_id = data.get('global_id', 0)
+                if incoming_global_id:
+                    cursor.execute(
+                        f"UPDATE {table} SET global_id = ? WHERE {id_field} = ? AND (global_id IS NULL OR global_id = 0)",
+                        (incoming_global_id, id_val)
+                    )
+                    conn.commit()
             else:
                 print(f"{ConsoleColors.WARNING}[{rig_name}] WARNING: Database constraint violation: {e}{ConsoleColors.RESET}")
         except sqlite3.Error as e:
@@ -2463,7 +2502,8 @@ class MainWindow(QtWidgets.QMainWindow):
         snr: int,
         utc: str,
         format_code: str,  # "F!304" or "F!301"
-        source: int = 1  # 1=Radio (TCP), 2=Internet (backbone)
+        source: int = 1,  # 1=Radio (TCP), 2=Internet (backbone)
+        global_id: int = 0
     ) -> str:
         """
         Process F!304 or F!301 STATREP format messages.
@@ -2540,7 +2580,8 @@ class MainWindow(QtWidgets.QMainWindow):
             'crime': "4",
             'civil': "4",
             'political': "4",
-            'comments': comments
+            'comments': comments,
+            'global_id': global_id
         }
 
         return self._insert_message_data(
@@ -2629,7 +2670,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
                     # Parse using unified parser (source=2 for Internet)
                     msg_type, _ = self._parse_commstat_message(
-                        "BACKBONE", from_callsign, message_value, target, "", freq, db, utc, source=2
+                        "BACKBONE", from_callsign, message_value, target, "", freq, db, utc, source=2, global_id=data_id
                     )
 
                     if msg_type:
@@ -2679,13 +2720,15 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         if 'statrep' in data_types:
             self._load_statrep_data()
-            self._save_map_position(callback=self._load_map)
+            alert_after_map = self._trigger_show_alerts if 'alert' in data_types else None
+            self._save_map_position(callback=lambda: self._load_map(callback=alert_after_map))
 
         if 'message' in data_types:
             self._load_message_data()
 
         if 'alert' in data_types:
-            # Alerts are shown in the live feed, so refresh it
+            if 'statrep' not in data_types:
+                self._trigger_show_alerts()
             self._load_live_feed()
 
     @QtCore.pyqtSlot(int)
@@ -2708,419 +2751,55 @@ class MainWindow(QtWidgets.QMainWindow):
             # commstat.py will apply the update on next launch
             self.close()
 
-    def _parse_backbone_sections(self, content: str) -> dict:
-        """Parse backbone reply content into hierarchical sections.
-
-        Args:
-            content: Raw backbone reply (already extracted from <pre> tags).
-
-        Returns:
-            Dict with keys: 'global', 'group', 'callsign'
-            Each value is the raw text for that section (or None)
-        """
-        import re
-        sections = {'global': None, 'group': None, 'callsign': None}
-
-        # Check if content has section markers
-        if '::GLOBAL::' not in content and '::GROUP::' not in content and '::CALLSIGN::' not in content:
-            # Legacy format - no sections, return None for all
-            return sections
-
-        # Split by section markers and extract content
-        # Pattern captures section name and everything until next section or end
-        pattern = r'::(GLOBAL|GROUP|CALLSIGN)::\s*(.*?)(?=::(?:GLOBAL|GROUP|CALLSIGN)::|$)'
-        matches = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
-
-        for section_name, section_content in matches:
-            key = section_name.lower()
-            if key in sections:
-                sections[key] = section_content.strip()
-
-        return sections
-
     def _debug(self, message: str) -> None:
         """Print debug message if debug mode is enabled."""
         if self.debug_mode:
             print(f"[Backbone] {message}")
 
-    def _is_backbone_date_valid(self, section_text: str) -> bool:
-        """Check if backbone section's date is in the future.
-
-        Args:
-            section_text: Raw section content (first line should be Date:)
-
-        Returns:
-            True if date is in the future, False otherwise.
-        """
-        import re
-        from datetime import datetime
-
-        lines = section_text.strip().split('\n')
-        if not lines:
-            return False
-
-        # Look for Date: line (should be first line)
-        # Supports: YYYY-MM-DD, YYYY-MM-DD HH:MM, YYYY-MM-DD HH:MM:SS
-        date_line = lines[0].strip()
-        self._debug(f"First line of section: '{date_line}'")
-        match = re.match(
-            r'Date:\s*(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2})(?::(\d{2}))?)?',
-            date_line, re.IGNORECASE
-        )
-        if not match:
-            self._debug("Date regex did not match")
-            return False
-
-        date_str = match.group(1)
-        time_str = match.group(2) or "23:59"  # Default to end of day if no time
-        seconds_str = match.group(3) or "00"
-
-        try:
-            expiry = datetime.strptime(
-                f"{date_str} {time_str}:{seconds_str}",
-                "%Y-%m-%d %H:%M:%S"
-            )
-            now = datetime.now()
-            is_valid = expiry > now
-            self._debug(f"Date check: {expiry} > {now} = {is_valid}")
-            return is_valid
-        except ValueError as e:
-            self._debug(f"Date parse error: {e}")
-            return False
-
-    def _matches_user_groups(self, section_text: str) -> bool:
-        """Check if user has any matching active groups.
-
-        Args:
-            section_text: Raw section content.
-
-        Returns:
-            True if user has at least one matching group.
-        """
-        import re
-
-        # Look for "Group List:" line
-        match = re.search(r'Group List:\s*(.+)', section_text, re.IGNORECASE)
-        if not match:
-            return False
-
-        target_groups = [g.strip().upper() for g in match.group(1).split(',')]
-        user_groups = [g.upper() for g in self.db.get_active_groups()]
-
-        return bool(set(target_groups) & set(user_groups))
-
-    def _matches_user_callsign(self, section_text: str) -> bool:
-        """Check if user's callsign matches any in list.
-
-        Args:
-            section_text: Raw section content.
-
-        Returns:
-            True if any connected rig's callsign is in the list.
-        """
-        import re
-
-        # Look for "Callsign List:" line
-        match = re.search(r'Callsign List:\s*(.+)', section_text, re.IGNORECASE)
-        if not match:
-            return False
-
-        target_calls = [c.strip().upper() for c in match.group(1).split(',')]
-        user_calls = [c.upper() for c in self.rig_callsigns.values() if c]
-
-        return bool(set(target_calls) & set(user_calls))
-
-    def _extract_section_message(self, section_text: str) -> Optional[str]:
-        """Extract MESSAGE START/END block from section.
-
-        Args:
-            section_text: Raw section content.
-
-        Returns:
-            Message content or None if no message block found.
-        """
-        import re
-        msg_match = re.search(r'MESSAGE START\s*\n(.*?)\nMESSAGE END', section_text, re.DOTALL)
-        return msg_match.group(1) if msg_match else None
-
-    def _extract_section_urls(self, section_text: str) -> List[Tuple[str, Optional[str]]]:
-        """Extract and download image URLs from section.
-
-        Args:
-            section_text: Raw section content.
-
-        Returns:
-            List of (temp_image_path, click_url) tuples.
-        """
-        import re
-        items = []
-        lines = section_text.strip().split('\n')
-
-        for line in lines:
-            # Skip metadata lines
-            line_lower = line.lower().strip()
-            if (line_lower.startswith('date:') or
-                line_lower.startswith('group list:') or
-                line_lower.startswith('callsign list:') or
-                line_lower in ('message start', 'message end')):
-                continue
-
-            # Find all URLs in the line
-            urls = re.findall(r'https?://[^\s]+', line)
-            if not urls:
-                continue
-
-            image_url = urls[0]
-            click_url = urls[1] if len(urls) > 1 else None
-
-            # Download image to temp file
-            try:
-                temp_path = self._download_image(image_url)
-                if temp_path:
-                    items.append((temp_path, click_url))
-            except Exception as e:
-                self._debug(f"Failed to download {image_url}: {e}")
-
-        return items
-
-    def _process_backbone_section(
-        self,
-        section_text: str,
-        section_type: str
-    ) -> Optional[Tuple[str, any]]:
-        """Process a single backbone reply section.
-
-        Args:
-            section_text: Raw text of the section.
-            section_type: 'global', 'group', or 'callsign'.
-
-        Returns:
-            Tuple of (action, data) where:
-            - action is 'message' or 'heartbeat'
-            - data is message text or list of image tuples
-            Returns None if section doesn't apply.
-        """
-        if not section_text:
-            return None
-
-        # Check date validity
-        if not self._is_backbone_date_valid(section_text):
-            self._debug(f"{section_type.upper()} section: date expired, skipping")
-            return None
-
-        # For group/callsign sections, check targeting
-        if section_type == 'group':
-            if not self._matches_user_groups(section_text):
-                self._debug("GROUP section: no matching groups, skipping")
-                return None
-            self._debug("GROUP section: user group matched")
-
-        elif section_type == 'callsign':
-            if not self._matches_user_callsign(section_text):
-                self._debug("CALLSIGN section: no matching callsign, skipping")
-                return None
-            self._debug("CALLSIGN section: user callsign matched")
-
-        # Look for message block
-        message = self._extract_section_message(section_text)
-        if message:
-            self._debug(f"{section_type.upper()} section: showing message")
-            return ('message', message)
-
-        # Look for image URLs
-        urls = self._extract_section_urls(section_text)
-        if urls:
-            self._debug(f"{section_type.upper()} section: loaded {len(urls)} images")
-            return ('heartbeat', urls)
-
-        return None
-
-    def _fetch_backbone_reply(self) -> List[Tuple[str, Optional[str]]]:
-        """Fetch and process backbone reply with hierarchical sections.
-
-        Backbone reply format supports three sections processed in order:
-        - ::GLOBAL:: - Applies to all users
-        - ::GROUP:: - Applies to users with matching active groups
-        - ::CALLSIGN:: - Applies to users with matching callsign
-
-        Each section has:
-        - Date: YYYY-MM-DD [HH:MM] (if in past, skip section)
-        - Group List: or Callsign List: (for targeting)
-        - MESSAGE START/END block OR image URLs
-
-        Returns empty list if showing a message or no content matched.
-        """
-        from datetime import datetime
-        self.ping_message = None  # Reset message
-
-        try:
-            content = self._fetch_backbone_content()
-            if not content:
-                return []
-
-            # Parse into sections
-            sections = self._parse_backbone_sections(content)
-
-            # Check if we have any sections (new format)
-            has_sections = any(sections.values())
-
-            if has_sections:
-                # Process in priority order: GLOBAL → GROUP → CALLSIGN
-                for section_type in ['global', 'group', 'callsign']:
-                    section_text = sections.get(section_type)
-                    if not section_text:
-                        continue
-
-                    result = self._process_backbone_section(section_text, section_type)
-                    if result:
-                        action, data = result
-                        if action == 'message':
-                            self.ping_message = data
-                            return []  # No images when showing message
-                        elif action == 'heartbeat':
-                            return data  # List of (image_path, click_url) tuples
-
-                # No sections matched
-                self._debug("No sections matched user criteria")
-                return []
-
-            else:
-                # Legacy format - process as before (single date + content)
-                lines = [line.strip() for line in content.split('\n') if line.strip()]
-                if not lines:
-                    return []
-
-                # Check for expiration date
-                first_line = lines[0]
-                date_match = re.match(r'date:\s*(\d{4}-\d{2}-\d{2})', first_line, re.IGNORECASE)
-                if date_match:
-                    expiry_date = datetime.strptime(date_match.group(1), '%Y-%m-%d').date()
-                    if expiry_date < datetime.now().date():
-                        self._debug(f"Legacy format: date {expiry_date} expired")
-                        return []
-                    lines = lines[1:]
-
-                # Skip Force command (legacy)
-                if lines and lines[0].lower().startswith("force"):
-                    lines = lines[1:]
-
-                # Check for message
-                content = '\n'.join(lines)
-                msg_match = re.search(r'MESSAGE START\s*\n(.*?)\nMESSAGE END', content, re.DOTALL)
-                if msg_match:
-                    self.ping_message = msg_match.group(1)
-                    return []
-
-                # Extract URLs
-                items = []
-                for line in lines:
-                    if line in ("MESSAGE START", "MESSAGE END"):
-                        continue
-                    urls = re.findall(r'https?://[^\s]+', line)
-                    if urls:
-                        image_url = urls[0]
-                        click_url = urls[1] if len(urls) > 1 else None
-                        try:
-                            temp_path = self._download_image(image_url)
-                            if temp_path:
-                                items.append((temp_path, click_url))
-                        except Exception as e:
-                            self._debug(f"Failed to download {image_url}: {e}")
-
-                return items
-
-        except Exception as e:
-            self._debug(f"Failed to fetch backbone reply: {e}")
-
-        return []
-
-    def _download_image(self, url: str) -> Optional[str]:
-        """Download an image from URL to a temp file, return the path."""
-        try:
-            # Get file extension from URL
-            ext = os.path.splitext(url)[1] or '.png'
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-
-            with urllib.request.urlopen(url, timeout=10) as response:
-                temp_file.write(response.read())
-            temp_file.close()
-            return temp_file.name
-        except Exception as e:
-            self._debug(f"Failed to download image {url}: {e}")
-            return None
-
     def _load_slideshow_images(self) -> None:
-        """Load images with priority: URL > my_images > images > 00-default.png."""
+        """Load images with priority: my_images > images > 00-default.png."""
         self.slideshow_items = []
         self.slideshow_index = 0
         valid_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.bmp')
 
-        # Priority 1: Fetch backbone reply
-        remote_items = self._fetch_backbone_reply()
-
-        if remote_items:
-            # Use backbone images only
-            self.slideshow_items.extend(remote_items)
-            return
-
-        # Priority 2: Check my_images folder
+        # Priority 1: Check my_images folder
         my_images_folder = os.path.join(os.getcwd(), "my_images")
         if os.path.isdir(my_images_folder):
             files = sorted(os.listdir(my_images_folder))
             for filename in files:
                 if filename.lower().endswith(valid_extensions):
                     image_path = os.path.join(my_images_folder, filename)
-                    self.slideshow_items.append((image_path, None))
+                    self.slideshow_items.append(image_path)
 
         if self.slideshow_items:
             return
 
-        # Priority 3: Check images folder
+        # Priority 2: Check images folder
         images_folder = os.path.join(os.getcwd(), "images")
         if os.path.isdir(images_folder):
             files = sorted(os.listdir(images_folder))
             for filename in files:
                 if filename.lower().endswith(valid_extensions):
                     image_path = os.path.join(images_folder, filename)
-                    self.slideshow_items.append((image_path, None))
+                    self.slideshow_items.append(image_path)
 
         if self.slideshow_items:
             return
 
-        # Priority 4: Use default image
+        # Priority 3: Use default image
         default_image = os.path.join(os.getcwd(), "00-default.png")
         if os.path.isfile(default_image):
-            self.slideshow_items.append((default_image, None))
+            self.slideshow_items.append(default_image)
 
     def _start_slideshow(self) -> None:
-        """Start the image slideshow or display backbone message."""
+        """Start the image slideshow."""
         self._load_slideshow_images()
-
-        # Check if we have a message to display
-        if self.ping_message:
-            self._display_ping_message()
-            self.slideshow_timer.start()  # Keep timer running to check for changes
-        elif self.slideshow_items:
+        if self.slideshow_items:
             self._show_current_image()
             self.slideshow_timer.start()
         else:
-            # No images and no message - show "Map Disabled"
             self.map_disabled_label.setPixmap(QtGui.QPixmap())
             self.map_disabled_label.setText("Map Disabled")
-
-    @QtCore.pyqtSlot()
-    def _display_ping_message(self) -> None:
-        """Display the backbone message centered in the label."""
-        if not self.ping_message:
-            return
-
-        # Clear any existing pixmap
-        self.map_disabled_label.setPixmap(QtGui.QPixmap())
-
-        # Set text with center alignment (both horizontal and vertical)
-        self.map_disabled_label.setText(self.ping_message)
-        self.map_disabled_label.setAlignment(Qt.AlignCenter)
-        self.map_disabled_label.setWordWrap(True)
 
     def _stop_slideshow(self) -> None:
         """Stop the image slideshow."""
@@ -3131,7 +2810,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.slideshow_items:
             return
 
-        image_path, _ = self.slideshow_items[self.slideshow_index]
+        image_path = self.slideshow_items[self.slideshow_index]
         pixmap = QtGui.QPixmap(image_path)
 
         # Scale to fit while maintaining aspect ratio
@@ -3144,12 +2823,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.map_disabled_label.setText("")
 
     def _show_next_image(self) -> None:
-        """Advance to the next image in the slideshow or refresh message."""
-        # If showing a message, just keep displaying it (backbone_timer handles updates)
-        if self.ping_message:
-            return
-
-        # Otherwise advance to next image
+        """Advance to the next image in the slideshow."""
         if not self.slideshow_items:
             return
 
@@ -3157,22 +2831,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._show_current_image()
 
     def _check_backbone_content_async(self) -> None:
-        """Background thread to check backbone reply for message changes.
-
-        Handles both new hierarchical format and legacy format.
-        """
-        import re
-        from datetime import datetime
-        # Backbone check runs silently
+        """Background thread to check backbone for updates."""
         try:
             content = self._fetch_backbone_content()
             if not content:
                 return
 
-            # Reset fail counter on success
             self._backbone_fail_count = 0
 
-            # Check if server returns "1" - everything is normal, no updates
             if content.strip() == '1':
                 return
 
@@ -3180,8 +2846,6 @@ class MainWindow(QtWidgets.QMainWindow):
             if content.strip() == '0':
                 print("Backbone server reply = 0")
                 return
-
-            # Check for update commands first (strip whitespace for comparison)
             content_stripped = content.strip()
 
             if content_stripped.startswith('db_update'):
@@ -3191,85 +2855,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._handle_program_update(content_stripped)
                 return
 
-            # Check for ID-prefixed data messages (from other users via backbone)
-            # Format: ID: datetime freq db unknown callsign: message
-            # Example: 113:  2026-02-06 18:32:32    14.118000    0    30    N0DDK: @MAGNET ,EM83CV,3,T31,321311111331,GA,{&%}
             if re.search(r'^\d+:\s+\d{4}-\d{2}-\d{2}', content_stripped, re.MULTILINE):
-                if self._handle_backbone_data_messages(content_stripped):
-                    return  # Data messages were processed
-
-            # Parse into sections
-            sections = self._parse_backbone_sections(content_stripped)
-            has_sections = any(sections.values())
-
-            new_message = None
-
-            if has_sections:
-                # Process hierarchical format
-                for section_type in ['global', 'group', 'callsign']:
-                    section_text = sections.get(section_type)
-                    if not section_text:
-                        continue
-
-                    # Check date validity
-                    if not self._is_backbone_date_valid(section_text):
-                        continue
-
-                    # Check targeting for group/callsign sections
-                    if section_type == 'group' and not self._matches_user_groups(section_text):
-                        continue
-                    if section_type == 'callsign' and not self._matches_user_callsign(section_text):
-                        continue
-
-                    # Extract message from this section
-                    new_message = self._extract_section_message(section_text)
-                    break  # Stop at first matching section
-
-            else:
-                # Legacy format
-                lines = [line.strip() for line in content_stripped.split('\n') if line.strip()]
-                if not lines:
-                    return
-
-                # Check for expiration date
-                first_line = lines[0]
-                date_match = re.match(r'date:\s*(\d{4}-\d{2}-\d{2})', first_line, re.IGNORECASE)
-                if date_match:
-                    expiry_date = datetime.strptime(date_match.group(1), '%Y-%m-%d').date()
-                    if expiry_date < datetime.now().date():
-                        # Date has passed - clear any message
-                        if self.ping_message:
-                            self.ping_message = None
-                            QtCore.QMetaObject.invokeMethod(
-                                self, "_reload_slideshow",
-                                QtCore.Qt.QueuedConnection
-                            )
-                        return
-                    lines = lines[1:]
-
-                # Skip Force command (legacy)
-                if lines and lines[0].lower().startswith("force"):
-                    lines = lines[1:]
-
-                # Check for message
-                legacy_content = '\n'.join(lines)
-                msg_match = re.search(r'MESSAGE START\s*\n(.*?)\nMESSAGE END', legacy_content, re.DOTALL)
-                if msg_match:
-                    new_message = msg_match.group(1)
-
-            # Update display if message changed
-            if new_message != self.ping_message:
-                self.ping_message = new_message
-                if new_message:
-                    QtCore.QMetaObject.invokeMethod(
-                        self, "_display_ping_message",
-                        QtCore.Qt.QueuedConnection
-                    )
-                else:
-                    QtCore.QMetaObject.invokeMethod(
-                        self, "_reload_slideshow",
-                        QtCore.Qt.QueuedConnection
-                    )
+                self._handle_backbone_data_messages(content_stripped)
 
         except Exception as e:
             self._backbone_fail_count += 1
@@ -3280,25 +2867,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot()
     def _reload_slideshow(self) -> None:
-        """Reload the slideshow (called from background thread via signal)."""
+        """Reload the slideshow."""
         self._load_slideshow_images()
-        if self.ping_message:
-            self._display_ping_message()
-        elif self.slideshow_items:
+        if self.slideshow_items:
             self.slideshow_index = 0
             self._show_current_image()
         else:
             self.map_disabled_label.setPixmap(QtGui.QPixmap())
             self.map_disabled_label.setText("Map Disabled")
-
-    def _on_slideshow_click(self) -> None:
-        """Handle click on slideshow image - open associated URL if any."""
-        if not self.slideshow_items:
-            return
-
-        _, click_url = self.slideshow_items[self.slideshow_index]
-        if click_url:
-            webbrowser.open(click_url)
 
     def _setup_live_feed(self) -> None:
         """Create the live feed text area."""
@@ -3403,7 +2979,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._populate_table(self.message_table, data)
 
-    def _load_map(self) -> None:
+    def _load_map(self, callback=None) -> None:
         """Generate and display the folium map with StatRep pins."""
         filters = self.config.filter_settings
         groups, show_all = self._get_filtered_groups()
@@ -3516,6 +3092,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.map_widget.setHtml(map_data.getvalue().decode())
         self.map_loaded = True
 
+        if callback:
+            callback()
+
     def _save_map_position(self, callback=None) -> None:
         """Save current map center and zoom via JavaScript."""
         if not self.map_loaded:
@@ -3608,11 +3187,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.backbone_timer.start(180000)  # Then start 3 minute interval timer
             QTimer.singleShot(30000, start_backbone_heartbeat)
 
-        # News ticker animation timeline
-        self.newsfeed_timeline = QtCore.QTimeLine()
-        self.newsfeed_timeline.setCurveShape(QtCore.QTimeLine.LinearCurve)
-        self.newsfeed_timeline.frameChanged.connect(self._update_newsfeed_text)
-        self.newsfeed_timeline.finished.connect(self._next_headline)
+        # News ticker animation timer
+        self.newsfeed_timer = QTimer(self)
+        self.newsfeed_timer.timeout.connect(self._tick_newsfeed)
+        self._newsfeed_frame = 0
+        self._newsfeed_phase = 0  # 0 = type-on, 1 = scroll-off
+        self._scroll_start = 0.0
 
         # News ticker state
         self.newsfeed_text = ""
@@ -3627,7 +3207,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rss_timer.start(300000)  # 5 minutes
 
         # Initial RSS fetch
-        if self._internet_available:
+        if self.config.get_selected_rss_feed() == "Disable":
+            self.newsfeed_label.setText("      +++  News Feed Disabled  +++")
+        elif self._internet_available:
             self._start_rss_fetch()
 
     def _check_backbone(self) -> None:
@@ -3644,13 +3226,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_connected_rigs_display(self) -> None:
         """Update the connected rigs display with currently connected rig names."""
-        # Update header label (existing functionality)
         connected = self.tcp_pool.get_connected_rig_names()
-        if connected:
-            text = "  ".join(f"[{name}]" for name in connected)
-        else:
-            text = ""
-        self.connected_rigs_label.setText(text)
 
         # Update status bar widgets for each rig
         all_rigs = self.connector_manager.get_all_connectors()
@@ -3699,14 +3275,37 @@ class MainWindow(QtWidgets.QMainWindow):
                 label_status.setText(" Disconnected ")
                 label_status.setStyleSheet("background-color: #dd0000; color: white;")
 
-    def _update_newsfeed_text(self, frame: int) -> None:
-        """Update news feed display for current animation frame."""
-        if frame < self.newsfeed_chars:
-            start = 0
+    def _tick_newsfeed(self) -> None:
+        """Timer-driven tick for news feed animation."""
+        text = self.newsfeed_text
+        visible = self.newsfeed_chars
+
+        if self._newsfeed_phase == 0:
+            # Type-on: reveal characters one at a time
+            frame = self._newsfeed_frame
+            self.newsfeed_label.setText(text[0:frame])
+            self._newsfeed_frame += 1
+            if self._newsfeed_frame >= visible:
+                # Window is full — pause before scrolling
+                self.newsfeed_timer.stop()
+                QTimer.singleShot(NEWSFEED_PAUSE_MS, self._start_scroll_phase)
         else:
-            start = frame - self.newsfeed_chars
-        text = self.newsfeed_text[start:frame]
-        self.newsfeed_label.setText(text)
+            # Scroll-off: wall-clock-based so duration is accurate on Windows
+            elapsed = time.monotonic() - self._scroll_start
+            progress = min(1.0, elapsed / (NEWSFEED_SCROLL_DURATION_MS / 1000.0))
+            scroll_steps = len(text) - visible
+            offset = int(progress * scroll_steps)
+            frame = visible + offset
+            self.newsfeed_label.setText(text[frame - visible:frame])
+            if progress >= 1.0:
+                self.newsfeed_timer.stop()
+                self._next_headline()
+
+    def _start_scroll_phase(self) -> None:
+        """Begin the scroll-off phase after the pause."""
+        self._newsfeed_phase = 1
+        self._scroll_start = time.monotonic()
+        self.newsfeed_timer.start(16)  # ~60 fps; position derived from wall-clock time
 
     def _next_headline(self) -> None:
         """Called when news ticker animation completes - show next headline."""
@@ -3736,8 +3335,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _refresh_rss_feed(self) -> None:
         """Refresh RSS feed periodically."""
-        if self._internet_available:
-            feed_name = self.config.get_selected_rss_feed()
+        feed_name = self.config.get_selected_rss_feed()
+        if self._internet_available and feed_name != "Disable":
             feed_url = DEFAULT_RSS_FEEDS.get(feed_name, list(DEFAULT_RSS_FEEDS.values())[0])
             self.rss_fetcher.fetch_async(feed_url, callback=self._on_rss_fetched)
 
@@ -3759,19 +3358,23 @@ class MainWindow(QtWidgets.QMainWindow):
             # Build ticker text with headline
             ticker_text = f" {headline}"
 
-            # Calculate how many characters fit in the ticker width
+            # Calculate how many characters fit in the ticker width.
+            # averageCharWidth() overestimates for typical ASCII news text because
+            # it averages across all Unicode glyphs. Measure a representative
+            # lowercase+space sample instead for a more accurate fit.
             fm = self.newsfeed_label.fontMetrics()
-            self.newsfeed_chars = int(self.newsfeed_label.width() / fm.averageCharWidth())
+            sample = 'abcdefghijklmnopqrstuvwxyz '
+            avg_char_px = fm.horizontalAdvance(sample) / len(sample)
+            self.newsfeed_chars = int(self.newsfeed_label.width() / avg_char_px)
 
             # Add padding spaces
             padding = ' ' * self.newsfeed_chars
-            self.newsfeed_text = ticker_text + "      +++      " + padding
+            self.newsfeed_text = ticker_text + "      +++" + padding
 
             # Setup and start animation
-            text_length = len(self.newsfeed_text)
-            self.newsfeed_timeline.setDuration(15000)  # 15 seconds per headline
-            self.newsfeed_timeline.setFrameRange(0, text_length)
-            self.newsfeed_timeline.start()
+            self._newsfeed_frame = 0
+            self._newsfeed_phase = 0
+            self.newsfeed_timer.start(NEWSFEED_TYPE_INTERVAL_MS)
         except (IndexError, TypeError) as e:
             print(f"Error displaying headline: {e}")
             self.newsfeed_label.setText("  News feed error")
@@ -3782,8 +3385,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rss_fetcher.clear_cache()
         self.headlines = []
         self.headline_index = 0
-        self.newsfeed_timeline.stop()
-        if self._internet_available:
+        self.newsfeed_timer.stop()
+        if feed_name == "Disable":
+            self.newsfeed_label.setText("      +++  News Feed Disabled  +++")
+        elif self._internet_available:
             self._start_rss_fetch()
         else:
             self.newsfeed_label.setText("  No internet connection")
@@ -3905,7 +3510,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._start_slideshow()
         else:
             self._stop_slideshow()
-            self.ping_message = None  # Clear any message
             self.map_disabled_label.hide()
             self.alert_display.hide()
             self.map_widget.show()
@@ -4023,6 +3627,13 @@ class MainWindow(QtWidgets.QMainWindow):
                         if source_value == 2:
                             item.setToolTip("   Internet")
                             color = QColor("#9400ff")
+                            item.setBackground(color)
+                            table.setItem(row_num, col_num, item)
+                            continue
+
+                        if source_value == 3:
+                            item.setToolTip("   Internet Only")
+                            color = QColor("#FF00FF")
                             item.setBackground(color)
                             table.setItem(row_num, col_num, item)
                             continue
@@ -4179,11 +3790,11 @@ class MainWindow(QtWidgets.QMainWindow):
         """Populate the Groups menu with checkable group items."""
         # Remove existing group actions (keep Manage Groups, Show Groups, separator, and title)
         actions = self.groups_menu.actions()
-        for action in actions[4:]:  # Skip Manage Groups, Show Groups, separator, and title
+        for action in actions[9:]:  # Skip Config items, GROUPS header, Manage Groups, Show Groups, separator, and title
             self.groups_menu.removeAction(action)
 
         # Add section title if not already present
-        if len(self.groups_menu.actions()) == 3:
+        if len(self.groups_menu.actions()) == 8:
             title_action = QtWidgets.QAction("ACTIVE GROUPS", self)
             title_action.setEnabled(False)
             self.groups_menu.addAction(title_action)
@@ -4363,11 +3974,10 @@ class MainWindow(QtWidgets.QMainWindow):
             # Refresh only the relevant UI component
             if data_type == "statrep":
                 self._load_statrep_data()
-                self._save_map_position(callback=self._load_map)
+                if not self.config.get_show_alerts():
+                    self._save_map_position(callback=self._load_map)
             elif data_type == "message":
                 self._load_message_data()
-            elif data_type == "checkin":
-                self._save_map_position(callback=self._load_map)
             elif data_type == "alert":
                 self._trigger_show_alerts()
 
@@ -4459,6 +4069,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # Strip slash suffix from callsign in message (W3BFO/P: → W3BFO:)
         value = re.sub(r'^(\w+)/\w+:', r'\1:', value)
 
+        # Strip non-ASCII characters (e.g., JS8Call EOL diamond ♦) so the
+        # backbone regex can correctly match and discard the {^%} terminator
+        value = re.sub(r'[^ -~]', '', value).strip()
+
         return value
 
     def _parse_standard_statrep(
@@ -4471,7 +4085,8 @@ class MainWindow(QtWidgets.QMainWindow):
         freq: int,
         snr: int,
         utc: str,
-        source: int
+        source: int,
+        global_id: int = 0
     ) -> tuple:
         """
         Parse standard STATREP message format.
@@ -4584,7 +4199,8 @@ class MainWindow(QtWidgets.QMainWindow):
             'crime': sr_fields[9],
             'civil': sr_fields[10],
             'political': sr_fields[11],
-            'comments': comments
+            'comments': comments,
+            'global_id': global_id
         }
 
         fwd_marker = " (FORWARDED)" if is_forwarded else ""
@@ -4766,7 +4382,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return ("", None)
 
         # Clean up message text
-        message_text = sanitize_ascii(message_text.strip())
+        message_text = message_text.strip()
 
         # Extract date and generate msg_id if not extracted from message
         date_only, generated_msg_id = parse_message_datetime(utc)
@@ -4785,6 +4401,11 @@ class MainWindow(QtWidgets.QMainWindow):
             # Direct message - check if target is one of our callsigns
             target_call = msg_target.upper()
             user_callsigns = [c.upper() for c in self.rig_callsigns.values() if c]
+            if not user_callsigns:
+                # No JS8 connectors active — fall back to user settings callsign
+                settings_callsign, _, __ = self.db.get_user_settings()
+                if settings_callsign:
+                    user_callsigns = [settings_callsign.upper()]
             if target_call not in user_callsigns:
                 # Skip messages not to our callsigns
                 return ("", None)
@@ -4820,7 +4441,8 @@ class MainWindow(QtWidgets.QMainWindow):
         freq: int,
         snr: int,
         utc: str,
-        source: int  # 1=Radio, 2=Internet
+        source: int,  # 1=Radio, 2=Internet
+        global_id: int = 0
     ) -> tuple:
         """
         Parse and validate CommStat message in any format.
@@ -4855,16 +4477,24 @@ class MainWindow(QtWidgets.QMainWindow):
         # Extract base callsign (remove /P, /M suffixes)
         from_callsign = from_callsign.split("/")[0]
 
+        # Detect Internet-Only markers and normalize
+        if "{&%3}" in message_value or "{%%3}" in message_value or "{^%3}" in message_value:
+            source = 3
+            message_value = (message_value
+                .replace("{&%3}", "{&%}")
+                .replace("{%%3}", "{%%}")
+                .replace("{^%3}", "{^%}"))
+
         # PRIORITY 1: Standard STATREP ({&%} or {F%})
         if "{&%}" in message_value or "{F%}" in message_value:
             return self._parse_standard_statrep(
-                rig_name, message_value, from_callsign, target, grid, freq, snr, utc, source
+                rig_name, message_value, from_callsign, target, grid, freq, snr, utc, source, global_id
             )
 
         # PRIORITY 2: F!304 STATREP
         if "F!304" in message_value:
             result = self._process_fcode_statrep(
-                rig_name, message_value, from_callsign, target, grid, freq, snr, utc, "F!304", source
+                rig_name, message_value, from_callsign, target, grid, freq, snr, utc, "F!304", source, global_id
             )
             if result:
                 return (result, None)
@@ -4872,7 +4502,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # PRIORITY 3: F!301 STATREP
         if "F!301" in message_value:
             result = self._process_fcode_statrep(
-                rig_name, message_value, from_callsign, target, grid, freq, snr, utc, "F!301", source
+                rig_name, message_value, from_callsign, target, grid, freq, snr, utc, "F!301", source, global_id
             )
             if result:
                 return (result, None)
@@ -4917,7 +4547,7 @@ class MainWindow(QtWidgets.QMainWindow):
             utc: UTC timestamp string.
 
         Returns:
-            "statrep", "message", "alert", "checkin", or empty string
+            "statrep", "message", "alert", or empty string
         """
         # Preprocess message value
         value = self._preprocess_message_value(value, from_call)
@@ -5022,6 +4652,79 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.warning(
                     self, "Error",
                     "Failed to save QRZ settings."
+                )
+
+    def _on_user_settings(self) -> None:
+        """Open User Settings dialog for editing default callsign, grid, and state."""
+        callsign, grid, state = self.db.get_user_settings()
+
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("User Settings")
+        dialog.setFixedWidth(400)
+        layout = QtWidgets.QVBoxLayout(dialog)
+
+        # Info message
+        info_label = QtWidgets.QLabel(
+            "These settings are used when INTERNET ONLY is selected as the Rig."
+        )
+        info_label.setStyleSheet("color: #000000;")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        layout.addSpacing(10)
+
+        # Form fields
+        form_layout = QtWidgets.QFormLayout()
+
+        callsign_input = QtWidgets.QLineEdit()
+        callsign_input.setText(callsign)
+        callsign_input.setMaxLength(12)
+        callsign_input.setPlaceholderText("Your callsign")
+        callsign_input.textChanged.connect(lambda t: callsign_input.setText(t.upper()) or callsign_input.setCursorPosition(len(t)))
+        form_layout.addRow("Callsign:", callsign_input)
+
+        grid_input = QtWidgets.QLineEdit()
+        grid_input.setText(grid)
+        grid_input.setMaxLength(6)
+        grid_input.setPlaceholderText("Grid square (e.g. EM83cv)")
+        form_layout.addRow("Grid Square:", grid_input)
+
+        state_input = QtWidgets.QLineEdit()
+        state_input.setText(state)
+        state_input.setMaxLength(6)
+        state_input.setPlaceholderText("State/region code")
+        state_input.textChanged.connect(lambda t: state_input.setText(t.upper()) or state_input.setCursorPosition(len(t)))
+        form_layout.addRow("State:", state_input)
+
+        layout.addLayout(form_layout)
+        layout.addSpacing(20)
+
+        # Buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        save_btn = QtWidgets.QPushButton("Save")
+        cancel_btn = QtWidgets.QPushButton("Cancel")
+        save_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+        button_layout.addStretch()
+        button_layout.addWidget(save_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            new_callsign = callsign_input.text().strip().upper()
+            raw_grid = grid_input.text().strip()
+            if len(raw_grid) == 6:
+                new_grid = raw_grid[:2].upper() + raw_grid[2:4] + raw_grid[4:].lower()
+            else:
+                new_grid = raw_grid.upper()
+            new_state = state_input.text().strip().upper()
+            if self.db.set_user_settings(new_callsign, new_grid, new_state):
+                QtWidgets.QMessageBox.information(
+                    self, "User Settings", "Settings saved."
+                )
+            else:
+                QtWidgets.QMessageBox.warning(
+                    self, "Error", "Failed to save settings."
                 )
 
     def _show_image_dialog(
@@ -5176,17 +4879,27 @@ def main() -> None:
                 if i + 2 < len(sys.argv) and sys.argv[i + 2].isdigit():
                     demo_duration = int(sys.argv[i + 2])
 
-    # Check for pending update - refuse to run if update.zip exists
-    update_zip = Path(__file__).parent / "updates" / "update.zip"
-    if update_zip.exists():
-        app = QtWidgets.QApplication(sys.argv)
-        QtWidgets.QMessageBox.critical(
-            None,
-            "Update Pending",
-            "An update is waiting to be applied.\n\n"
-            "Please run commstat.py to apply the update and launch the application."
-        )
-        sys.exit(1)
+    # cross-platform theme environment variables (e.g. QT_QPA_PLATFORMTHEME) should be set before creating the QApplication instance 
+    try:  
+        # Import local theme manager helper that sets env vars (e.g. QT_QPA_PLATFORMTHEME)  
+        from theme_manager import prepare_platform_env_defaults  
+        prepare_platform_env_defaults()  
+    except Exception:  
+        # If theme helpers are missing or fail, continue with defaults  
+        pass
+    
+    # Replace commstat.py with commstat-copy.py if the copy exists
+    _script_dir = Path(__file__).parent
+    _copy = _script_dir / "commstat-copy.py"
+    _launcher = _script_dir / "commstat.py"
+    if _copy.exists():
+        try:
+            if _launcher.exists():
+                _launcher.unlink()
+            _copy.rename(_launcher)
+            print("Launcher updated: commstat-copy.py → commstat.py")
+        except Exception as e:
+            print(f"Warning: Could not replace launcher: {e}")
 
     QtWidgets.QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QtWidgets.QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)

@@ -6,7 +6,7 @@
 commstat.py - CommStat Launcher
 
 Checks for pending updates before launching the main application.
-If an update zip file is present, extracts it to overwrite program files.
+If an update zip file is present, asks the user before extracting it to overwrite program files.
 """
 
 import os
@@ -14,6 +14,8 @@ import sys
 import zipfile
 import subprocess
 import shutil
+import tkinter as tk
+from tkinter import messagebox
 from pathlib import Path
 
 # Constants
@@ -35,7 +37,20 @@ def apply_update() -> bool:
     if not UPDATE_ZIP.exists():
         return False
 
-    print("Update found. Applying...")
+    # Ask user before applying
+    root = tk.Tk()
+    root.withdraw()
+    answer = messagebox.askyesno(
+        "Update Available",
+        "A CommStat update is available. Would you like to install it now?"
+    )
+    root.destroy()
+
+    if not answer:
+        print("Update skipped by user.")
+        return False
+
+    print("Applying update...")
 
     try:
         with zipfile.ZipFile(UPDATE_ZIP, 'r') as zf:

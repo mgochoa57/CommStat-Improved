@@ -149,7 +149,7 @@ class UI(QMainWindow):
         # Import from CSV - use INSERT OR IGNORE to avoid overwriting existing records
         # source column: 1=Radio, 2=Internet
         # Note: CSV 'date' column maps to 'db' (SNR) in new schema
-        test = cur.execute("INSERT OR IGNORE INTO statrep SELECT NULL, datetime, freq, date, source, callsign, target, grid, sr_id, scope, map, power, water, med, telecom, travel, internet, fuel, food, crime, civil, political, comments FROM statrep_temp")
+        test = cur.execute("INSERT OR IGNORE INTO statrep(global_id, datetime, freq, db, source, from_callsign, target, grid, sr_id, scope, map, power, water, med, telecom, travel, internet, fuel, food, crime, civil, political, comments) SELECT 0, datetime, freq, date, source, callsign, target, grid, sr_id, scope, map, power, water, med, telecom, travel, internet, fuel, food, crime, civil, political, comments FROM statrep_temp")
         conn.commit()
         #cur.execute("INSERT OR REPLACE INTO statrep SELECT * FROM statrep_temp")
         #print(test)
