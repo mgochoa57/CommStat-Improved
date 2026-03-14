@@ -3773,9 +3773,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     table.setItem(row_num, col_num, item)
                     continue
 
-                # Truncate datetime column (remove seconds) - column 1 for both tables
+                # Format datetime column as "Mon DD HH:MM" - column 1 for both tables
                 if (is_message_table or is_statrep_table) and col_num == 1:
-                    if len(display_value) >= 16:
+                    try:
+                        dt = datetime.strptime(display_value[:19], "%Y-%m-%d %H:%M:%S")
+                        display_value = dt.strftime("%b-%d  %H:%M")
+                    except (ValueError, TypeError):
                         display_value = display_value[:16]
 
                 # Format frequency column (column 2) - convert Hz to MHz
