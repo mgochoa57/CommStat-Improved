@@ -1700,6 +1700,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.actions[key] = action
 
         # Tools menu items
+        create_action(self.tools_menu, "Brevity Code Generator", "brevity_generator", self._on_brevity_generator)
         create_action(self.tools_menu, "Band Conditions", "band_conditions", self._on_band_conditions)
         create_action(self.tools_menu, "Solar Flux", "solar_flux", self._on_solar_flux)
         create_action(self.tools_menu, "World Map", "world_map", self._on_world_map)
@@ -4822,6 +4823,14 @@ class MainWindow(QtWidgets.QMainWindow):
         QTimer.singleShot(100, update_ui)
 
         dialog.exec_()
+
+    def _on_brevity_generator(self) -> None:
+        """Launch the Brevity Code Generator in a separate process."""
+        brevity_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brevity1.py")
+        if os.path.exists(brevity_path):
+            subprocess.Popen([sys.executable, brevity_path])
+        else:
+            QtWidgets.QMessageBox.critical(self, "CommStat Error", "Could not find brevity1.py")
 
     def _on_band_conditions(self) -> None:
         """Show Band Conditions dialog with N0NBH solar-terrestrial data."""
