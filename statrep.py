@@ -716,7 +716,18 @@ class StatRepDialog(QDialog):
         self.remarks_field.setPlaceholderText("Optional - max 60 characters")
         make_uppercase(self.remarks_field)
         self.remarks_field.setText(self._get_default_remarks())
-        remarks_layout.addWidget(remarks_label)
+        # Add Create Brevity button next to Remarks label
+        remarks_header = QtWidgets.QHBoxLayout()
+        remarks_header.addWidget(remarks_label)
+        
+        btn_brevity = QtWidgets.QPushButton("Create Brevity")
+        btn_brevity.setStyleSheet(self._button_style("#28a745"))
+        btn_brevity.clicked.connect(self._launch_brevity)
+        
+        remarks_header.addWidget(btn_brevity)
+        remarks_header.addStretch()
+        
+        remarks_layout.addLayout(remarks_header)
         remarks_layout.addWidget(self.remarks_field)
         layout.addLayout(remarks_layout)
 
@@ -825,6 +836,16 @@ class StatRepDialog(QDialog):
     def _button_style(self, color: str) -> str:
         """Generate button stylesheet."""
         return theme.button_style(color)
+
+    def _launch_brevity(self) -> None:
+        """Launch the Brevity Code tool in a separate process."""
+        import subprocess
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        brevity_path = os.path.join(script_dir, "brevity1.py")
+        if os.path.exists(brevity_path):
+            subprocess.Popen([sys.executable, brevity_path])
+        else:
+            self._show_error("Could not find brevity1.py")
 
     def _show_error(self, message: str) -> None:
         """Display an error message box."""
