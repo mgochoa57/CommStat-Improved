@@ -508,7 +508,7 @@ class ConsoleColors:
 # These colors can be customized via config.ini in the future
 DEFAULT_COLORS: Dict[str, str] = {
     # Main window colors
-    'program_background': '#A52A2A',   # Brown/maroon
+    'program_background': '#A52A2A',	# Maroon
     'program_foreground': '#FFFFFF',
     'menu_background': '#3050CC',       # Blue
     'menu_foreground': '#FFFFFF',
@@ -519,14 +519,14 @@ DEFAULT_COLORS: Dict[str, str] = {
     'newsfeed_foreground': '#00FF00',   # Green text
     # Clock display colors
     'time_background': '#282864',       # Navy blue
-    'time_foreground': '#88CCFF',       # Light blue
+    'time_foreground': '#AACCEE',       # Light blue was #88CCFF
     # StatRep condition indicator colors (traffic light system)
     'condition_green': '#108010',       # Good/normal status
     'condition_yellow': '#FFFF77',      # Caution/degraded status
     'condition_red': '#BB0000',         # Critical/emergency status
     'condition_gray': '#808080',        # Unknown/no data
     # Data table colors
-    'data_background': '#FFF5E1',
+    'data_background': '#F8F6F4',	# Cream was #FFF5E1
     'data_foreground': '#000000',
     # Live feed display colors
     'feed_background': '#000000',
@@ -1763,7 +1763,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # QRZ Lookup
         self.tools_menu.addSeparator()
-        create_action(self.tools_menu, "Brevity Manager", "brevity_generator", self._on_brevity_generator)
+        create_action(self.tools_menu, "Grid Finder", "grid_finder", self._on_grid_finder)
         create_action(self.tools_menu, "QRZ Lookup", "qrz_lookup", self._on_qrz_lookup)
 
         # Menubar items
@@ -3287,6 +3287,20 @@ class MainWindow(QtWidgets.QMainWindow):
                 parent=self
             )
             dlg.exec_()
+
+    def _on_grid_finder(self) -> None:
+        """Launch Grid Finder in a separate process."""
+        gridfinder_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gridfinder.py")
+        if os.path.exists(gridfinder_path):
+            subprocess.Popen([
+                sys.executable, gridfinder_path,
+                self.config.get_color('panel_background'),
+                self.config.get_color('panel_foreground'),
+                self.config.get_color('data_background'),
+                self.config.get_color('data_foreground'),
+            ])
+        else:
+            QtWidgets.QMessageBox.critical(self, "CommStat Error", "Could not find gridfinder.py")
 
     def _on_brevity_generator(self) -> None:
         """Launch the Brevity Code Generator in a separate process."""
