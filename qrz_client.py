@@ -87,6 +87,27 @@ def load_qrz_credentials() -> Tuple[Optional[str], Optional[str]]:
     return username, password
 
 
+def get_qrz_cached(callsign: str) -> Optional[Dict]:
+    """Return cached QRZ data for *callsign* without creating a full client.
+
+    Returns a dict (same shape as QRZClient._get_cached) or None on miss/expiry.
+    """
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM qrz WHERE callsign = ?", (callsign.upper(),))
+            row = cursor.fetchone()
+            if row:
+                cached_date = datetime.fromisoformat(row["insert_date"])
+                age_days = (datetime.now(timezone.utc) - cached_date).days
+                if age_days < CACHE_DAYS:
+                    return dict(row)
+    except Exception:
+        pass
+    return None
+
+
 class QRZClient:
     """
     QRZ.com XML API client with local caching.
@@ -115,35 +136,92 @@ class QRZClient:
         return active
 
     def _init_cache_table(self) -> None:
-        """Create the QRZ cache table if it doesn't exist."""
+        """Create the QRZ cache table if it doesn't exist, migrating from qrz_cache if present."""
         try:
             with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 cursor = conn.cursor()
+                # One-time migration: drop old table if it exists
+                cursor.execute("DROP TABLE IF EXISTS qrz_cache")
                 cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS qrz_cache (
-                        callsign TEXT PRIMARY KEY,
-                        fname TEXT,
-                        name TEXT,
-                        addr1 TEXT,
-                        addr2 TEXT,
-                        city TEXT,
-                        state TEXT,
-                        zip TEXT,
-                        country TEXT,
-                        lat REAL,
-                        lon REAL,
-                        grid TEXT,
-                        county TEXT,
-                        license_class TEXT,
-                        email TEXT,
-                        qsl_mgr TEXT,
-                        eqsl TEXT,
-                        lotw TEXT,
-                        image_url TEXT,
-                        bio_url TEXT,
-                        cached_date TEXT
+                    CREATE TABLE IF NOT EXISTS qrz (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        callsign    TEXT UNIQUE,
+                        active      INTEGER,
+                        name        TEXT,
+                        address     TEXT,
+                        city        TEXT,
+                        county      TEXT,
+                        state       TEXT,
+                        zip         TEXT,
+                        country     TEXT,
+                        ccode       TEXT,
+                        lat         REAL,
+                        lon         REAL,
+                        grid        TEXT,
+                        fips        TEXT,
+                        effdate     TEXT,
+                        expdate     TEXT,
+                        class       TEXT,
+                        email       TEXT,
+                        image       TEXT,
+                        areacode    TEXT,
+                        timezone    TEXT,
+                        born        INTEGER,
+                        moddate     TEXT,
+                        insert_date TEXT DEFAULT (datetime('now'))
                     )
                 """)
+                # Migration: add moddate to existing installs
+                try:
+                    cursor.execute("ALTER TABLE qrz ADD COLUMN moddate TEXT")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
+                # Migration: combine fname into name and drop fname column
+                cols = [row[1] for row in cursor.execute("PRAGMA table_info(qrz)").fetchall()]
+                if "fname" in cols:
+                    cursor.execute("""
+                        UPDATE qrz SET name = TRIM(
+                            COALESCE(NULLIF(fname, ''), '') || ' ' || COALESCE(NULLIF(name, ''), '')
+                        )
+                    """)
+                    cursor.execute("""
+                        CREATE TABLE qrz_new (
+                            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                            callsign    TEXT UNIQUE,
+                            active      INTEGER,
+                            name        TEXT,
+                            address     TEXT,
+                            city        TEXT,
+                            county      TEXT,
+                            state       TEXT,
+                            zip         TEXT,
+                            country     TEXT,
+                            ccode       TEXT,
+                            lat         REAL,
+                            lon         REAL,
+                            grid        TEXT,
+                            fips        TEXT,
+                            effdate     TEXT,
+                            expdate     TEXT,
+                            class       TEXT,
+                            email       TEXT,
+                            image       TEXT,
+                            areacode    TEXT,
+                            timezone    TEXT,
+                            born        INTEGER,
+                            moddate     TEXT,
+                            insert_date TEXT DEFAULT (datetime('now'))
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO qrz_new
+                            SELECT id, callsign, active, name, address, city, county, state,
+                                   zip, country, ccode, lat, lon, grid, fips, effdate, expdate,
+                                   class, email, image, areacode, timezone, born, moddate, insert_date
+                            FROM qrz
+                    """)
+                    cursor.execute("DROP TABLE qrz")
+                    cursor.execute("ALTER TABLE qrz_new RENAME TO qrz")
                 conn.commit()
         except sqlite3.Error as e:
             debug_print(f"Error creating QRZ cache table: {e}")
@@ -163,14 +241,14 @@ class QRZClient:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT * FROM qrz_cache WHERE callsign = ?",
+                    "SELECT * FROM qrz WHERE callsign = ?",
                     (callsign.upper(),)
                 )
                 row = cursor.fetchone()
 
                 if row:
                     # Check if cache is still valid
-                    cached_date = datetime.fromisoformat(row["cached_date"])
+                    cached_date = datetime.fromisoformat(row["insert_date"])
                     age_days = (datetime.now(timezone.utc) - cached_date).days
 
                     if age_days < CACHE_DAYS:
@@ -178,7 +256,7 @@ class QRZClient:
                     else:
                         # Cache expired, delete it
                         cursor.execute(
-                            "DELETE FROM qrz_cache WHERE callsign = ?",
+                            "DELETE FROM qrz WHERE callsign = ?",
                             (callsign.upper(),)
                         )
                         conn.commit()
@@ -193,38 +271,60 @@ class QRZClient:
         Save callsign data to cache.
 
         Args:
-            data: Callsign data dict from QRZ
+            data: Callsign data dict from QRZ XML API
         """
+        # Compute active flag from expiration date
+        expdate_str = data.get("expdate")
+        if expdate_str:
+            try:
+                active = 1 if expdate_str >= datetime.now(timezone.utc).strftime("%Y-%m-%d") else 0
+            except Exception:
+                active = None
+        else:
+            active = None
+
+        # Combine fname + name into a single full name, apply normalization
+        fname     = (data.get("fname")   or "").strip()
+        name      = (data.get("name")    or "").strip()
+        full_name = " ".join(x for x in (fname, name) if x).title()
+        address   = (data.get("addr1")   or "").strip().title()
+        city      = (data.get("addr2")   or "").strip().title()   # QRZ uses addr2 for city
+        county    = (data.get("county")  or "").strip().title()
+        email     = (data.get("email")   or "").strip().lower()
+
         try:
             with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT OR REPLACE INTO qrz_cache (
-                        callsign, fname, name, addr1, addr2, city, state, zip,
-                        country, lat, lon, grid, county, license_class, email,
-                        qsl_mgr, eqsl, lotw, image_url, bio_url, cached_date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO qrz (
+                        callsign, active, name, address, city, county, state, zip,
+                        country, ccode, lat, lon, grid, fips, effdate, expdate,
+                        class, email, image, areacode, timezone, born, moddate, insert_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     data.get("call", "").upper(),
-                    data.get("fname"),
-                    data.get("name"),
-                    data.get("addr1"),
-                    data.get("addr2"),
-                    data.get("addr2"),  # QRZ uses addr2 for city sometimes
+                    active,
+                    full_name,
+                    address,
+                    city,
+                    county,
                     data.get("state"),
                     data.get("zip"),
                     data.get("country"),
+                    data.get("ccode"),
                     data.get("lat"),
                     data.get("lon"),
                     data.get("grid"),
-                    data.get("county"),
-                    data.get("class"),
-                    data.get("email"),
-                    data.get("qslmgr"),
-                    data.get("eqsl"),
-                    data.get("lotw"),
+                    data.get("fips"),
+                    data.get("efdate"),      # API sends efdate (one f), stored as effdate
+                    data.get("expdate"),
+                    data.get("class"),       # dict key access — "class" is valid here
+                    email,
                     data.get("image"),
-                    data.get("bio"),
+                    data.get("areacode"),
+                    data.get("timezone"),
+                    data.get("born"),
+                    data.get("moddate"),
                     datetime.now(timezone.utc).isoformat()
                 ))
                 conn.commit()
@@ -468,19 +568,24 @@ if __name__ == "__main__":
             # Display key fields
             fields = [
                 ("call", "Callsign"),
-                ("fname", "First Name"),
-                ("name", "Last Name"),
+                ("name", "Name"),
                 ("addr1", "Address"),
                 ("addr2", "City"),
                 ("state", "State"),
                 ("country", "Country"),
+                ("ccode", "Country Code"),
                 ("grid", "Grid"),
                 ("lat", "Latitude"),
                 ("lon", "Longitude"),
+                ("county", "County"),
+                ("fips", "FIPS"),
+                ("efdate", "Eff. Date"),
+                ("expdate", "Exp. Date"),
                 ("class", "License Class"),
                 ("email", "Email"),
-                ("eqsl", "eQSL"),
-                ("lotw", "LoTW"),
+                ("areacode", "Area Code"),
+                ("timezone", "Timezone"),
+                ("born", "Born"),
             ]
 
             for key, label in fields:

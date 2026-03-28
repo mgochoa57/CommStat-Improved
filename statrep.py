@@ -337,24 +337,17 @@ class StatRepDialog(QDialog):
 
         enabled_connectors = self.connector_manager.get_all_connectors(enabled_only=True) if self.connector_manager else []
         connected_rigs = self.tcp_pool.get_connected_rig_names() if self.tcp_pool else []
-        enabled_count = len(enabled_connectors)
+        available_connectors = [c for c in enabled_connectors if c['rig_name'] in connected_rigs]
+        available_count = len(available_connectors)
 
-        if enabled_count == 0:
-            # No enabled connectors — Internet is the only/preselected option
-            self.rig_combo.addItem(INTERNET_RIG)
-        elif enabled_count == 1:
-            # 1 enabled connector — preselect it; Internet still available
-            rig_name = enabled_connectors[0]['rig_name']
-            label = rig_name if rig_name in connected_rigs else f"{rig_name} (disconnected)"
-            self.rig_combo.addItem(label)
+        if available_count == 0:
+            # No available connectors — Internet is the only/preselected option
             self.rig_combo.addItem(INTERNET_RIG)
         else:
-            # Multiple enabled connectors — require selection; Internet at bottom
+            # Connectors available — require explicit selection; Internet at bottom
             self.rig_combo.addItem("")  # empty first
-            for c in enabled_connectors:
-                rig_name = c['rig_name']
-                label = rig_name if rig_name in connected_rigs else f"{rig_name} (disconnected)"
-                self.rig_combo.addItem(label)
+            for c in available_connectors:
+                self.rig_combo.addItem(c['rig_name'])
             self.rig_combo.addItem(INTERNET_RIG)
 
         self.rig_combo.blockSignals(False)
@@ -553,8 +546,9 @@ class StatRepDialog(QDialog):
 
     def _generate_statrep_id(self) -> None:
         """Generate a time-based StatRep ID from current UTC time."""
-        from id_utils import generate_time_based_id
-        self.statrep_id = generate_time_based_id()
+        if not self.statrep_id:
+            from id_utils import generate_time_based_id
+            self.statrep_id = generate_time_based_id()
 
     def _setup_ui(self) -> None:
         """Build the user interface."""
@@ -921,6 +915,43 @@ class StatRepDialog(QDialog):
             values[name] = self.status_combos[name].currentData() or ""
         return values
 
+    def prefill(self, data: dict) -> None:
+        """Pre-populate fields from a previously received statrep for forwarding."""
+        _MAP = [
+            ("map",       "status"),
+            ("power",     "power"),
+            ("water",     "water"),
+            ("med",       "medical"),
+            ("telecom",   "comms"),
+            ("travel",    "travel"),
+            ("internet",  "internet"),
+            ("fuel",      "fuel"),
+            ("food",      "food"),
+            ("crime",     "crime"),
+            ("civil",     "civil"),
+            ("political", "political"),
+        ]
+        for db_key, combo_key in _MAP:
+            code = data.get(db_key, "")
+            if code:
+                combo = self.status_combos[combo_key]
+                idx = combo.findData(code)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+
+        if data.get("grid"):
+            self.grid_field.setText(data["grid"])
+
+        comments = (data.get("comments") or "").replace("||", "\n")
+        self.remarks_field.setText(comments[:self.remarks_field.maxLength()])
+        self.remarks_expanded.setPlainText(comments)
+
+        if data.get("sr_id"):
+            self.statrep_id = data["sr_id"]
+
+        if data.get("origin_callsign"):
+            self._forward_origin = data["origin_callsign"]
+
     def _set_all_status(self, status_name: str) -> None:
         """Set all status dropdowns to the specified status."""
         for _, name in STATUS_CATEGORIES:
@@ -941,13 +972,14 @@ class StatRepDialog(QDialog):
         """Build the StatRep message string for transmission."""
         values = self._get_status_values()
         scope_code = self.scope_combo.currentData()
-        remarks = self._get_remarks_text().upper()
+        raw_remarks = self._get_remarks_text()
+        remarks = raw_remarks if self._is_internet_only() else raw_remarks.upper()
 
         # Replace newlines with || for storage/transmission
         remarks = remarks.replace('\r\n', NEWLINE_PLACEHOLDER).replace('\n', NEWLINE_PLACEHOLDER).replace('\r', NEWLINE_PLACEHOLDER)
 
         # Clean remarks - only alphanumeric, spaces, hyphens, asterisks, and pipe chars
-        remarks = re.sub(r"[^A-Za-z0-9*\-\s|]+", " ", remarks)
+        remarks = re.sub(r"[^A-Za-z0-9*\-\s|.?!'/:()#@+=&]+", " ", remarks)
 
         # Build status string (all 12 values concatenated)
         status_str = "".join([
@@ -971,8 +1003,12 @@ class StatRepDialog(QDialog):
 
         # Format: CALLSIGN: @GROUP ,GRID,SCOPE,ID,STATUSES,REMARKS,{&%}
         group = f"@{self.to_combo.currentText()}"
-        marker = "{&%3}" if self.rig_combo.currentText() == INTERNET_RIG else "{&%}"
-        message = f"{self.callsign.upper()}: {group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{marker}"
+        if getattr(self, "_forward_origin", None):
+            marker = "{F%}"
+            message = f"{self.callsign.upper()}: {group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{self._forward_origin},{marker}"
+        else:
+            marker = "{&%3}" if self.rig_combo.currentText() == INTERNET_RIG else "{&%}"
+            message = f"{self.callsign.upper()}: {group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{marker}"
 
         return message
 
@@ -988,7 +1024,7 @@ class StatRepDialog(QDialog):
 
         # Replace newlines with || for storage
         remarks = remarks.replace('\r\n', NEWLINE_PLACEHOLDER).replace('\n', NEWLINE_PLACEHOLDER).replace('\r', NEWLINE_PLACEHOLDER)
-        remarks = re.sub(r"[^A-Za-z0-9*\-\s|]+", " ", remarks)
+        remarks = re.sub(r"[^A-Za-z0-9*\-\s|.?!'/:()#@+=&]+", " ", remarks)
 
         now = QDateTime.currentDateTimeUtc()
         date = now.toString("yyyy-MM-dd HH:mm:ss")

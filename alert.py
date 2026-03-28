@@ -386,24 +386,17 @@ class Ui_FormAlert:
 
         enabled_connectors = self.connector_manager.get_all_connectors(enabled_only=True) if self.connector_manager else []
         connected_rigs = self.tcp_pool.get_connected_rig_names() if self.tcp_pool else []
-        enabled_count = len(enabled_connectors)
+        available_connectors = [c for c in enabled_connectors if c['rig_name'] in connected_rigs]
+        available_count = len(available_connectors)
 
-        if enabled_count == 0:
-            # No enabled connectors — Internet is the only/preselected option
-            self.rig_combo.addItem(INTERNET_RIG)
-        elif enabled_count == 1:
-            # 1 enabled connector — preselect it; Internet still available
-            rig_name = enabled_connectors[0]['rig_name']
-            label = rig_name if rig_name in connected_rigs else f"{rig_name} (disconnected)"
-            self.rig_combo.addItem(label)
+        if available_count == 0:
+            # No available connectors — Internet is the only/preselected option
             self.rig_combo.addItem(INTERNET_RIG)
         else:
-            # Multiple enabled connectors — require selection; Internet at bottom
+            # Connectors available — require explicit selection; Internet at bottom
             self.rig_combo.addItem("")  # empty first
-            for c in enabled_connectors:
-                rig_name = c['rig_name']
-                label = rig_name if rig_name in connected_rigs else f"{rig_name} (disconnected)"
-                self.rig_combo.addItem(label)
+            for c in available_connectors:
+                self.rig_combo.addItem(c['rig_name'])
             self.rig_combo.addItem(INTERNET_RIG)
 
         self.rig_combo.blockSignals(False)

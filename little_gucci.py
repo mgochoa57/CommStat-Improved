@@ -113,14 +113,6 @@ SOLAR_IMAGE_DIALOGS = [
 ]
 
 
-class ConsoleColors:
-    """ANSI color codes for console output."""
-    SUCCESS = "\033[92m"  # Green
-    WARNING = "\033[93m"  # Yellow
-    ERROR = "\033[91m"    # Red
-    RESET = "\033[0m"
-
-
 def hz_to_mhz(freq_hz: float, offset: float = 0) -> float:
     """Convert frequency in Hz to MHz, optionally subtracting an offset first."""
     return (freq_hz - offset) / 1000000 if freq_hz else 0.0
@@ -504,6 +496,14 @@ STATREP_HEADERS = [
     "Crime", "Civil", "Pol", "Remarks"
 ]
 
+class ConsoleColors:
+    """ANSI color codes for console output."""
+    SUCCESS = "\033[92m"  # Green
+    WARNING = "\033[93m"  # Yellow
+    ERROR = "\033[91m"    # Red
+    RESET = "\033[0m"
+
+
 # Default color scheme for UI elements
 # These colors can be customized via config.ini in the future
 DEFAULT_COLORS: Dict[str, str] = {
@@ -525,15 +525,15 @@ DEFAULT_COLORS: Dict[str, str] = {
     'condition_yellow': '#FFFF77',      # Caution/degraded status
     'condition_red': '#BB0000',         # Critical/emergency status
     'condition_gray': '#808080',        # Unknown/no data
-    # Panel colors for secondary UI elements (dropdown menus, sub-panels)
-    'panel_background': '#E1EBFF',
-    'panel_foreground': '#000000',
     # Data table colors
     'data_background': '#FFF5E1',
     'data_foreground': '#000000',
     # Live feed display colors
     'feed_background': '#000000',
     'feed_foreground': '#FFFFFF',
+    # Panel colors for secondary UI elements (dropdown menus, sub-panels)
+    'panel_background': '#DDDDDD',
+    'panel_foreground': '#000000',
 }
 
 # Default RSS news feeds
@@ -547,7 +547,7 @@ DEFAULT_RSS_FEEDS: Dict[str, str] = {
 
 
 # =============================================================================
-# Helper Functions
+# Helper Functionsn
 # =============================================================================
 
 def create_insecure_ssl_context():
@@ -1761,6 +1761,11 @@ class MainWindow(QtWidgets.QMainWindow):
                     self._show_image_dialog(title=t, image_url=u, link_html=l, loading_text=lt, error_prefix=ep)
             )
 
+        # QRZ Lookup
+        self.tools_menu.addSeparator()
+        create_action(self.tools_menu, "Brevity Manager", "brevity_generator", self._on_brevity_generator)
+        create_action(self.tools_menu, "QRZ Lookup", "qrz_lookup", self._on_qrz_lookup)
+
         # Menubar items
         create_action(self.menubar, "About", "about", self._on_about)
         create_action(self.menubar, "Exit", "exit", qApp.quit)
@@ -2622,7 +2627,7 @@ class MainWindow(QtWidgets.QMainWindow):
             status_digits = digits[1:]  # Skip scope digit
 
         # F!304/F!301 messages don't contain grid data — resolve via callsign lookup
-        # _lookup_grid_for_callsign checks qrz_cache first, then QRZ API (caches result)
+        # _lookup_grid_for_callsign checks qrz table first, then QRZ API (caches result)
         fcode_grid = self._lookup_grid_for_callsign(from_callsign) or ""
         grid_found = bool(fcode_grid and len(fcode_grid) >= 4)
 
@@ -2718,6 +2723,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 # Track the highest ID we've seen
                 if data_id > last_data_id:
                     last_data_id = data_id
+
+                # Handle delete directive
+                delete_match = re.match(r'^::STATREP-DELETE::(\d+)$', data)
+                if delete_match:
+                    gid = int(delete_match.group(1))
+                    self.db._execute(
+                        lambda cursor, conn, g=gid: (
+                            cursor.execute("DELETE FROM statrep WHERE global_id = ?", (g,)),
+                            conn.commit()
+                        ),
+                        None
+                    )
+                    continue
 
                 # Parse the data line: date time freq_hz unused snr callsign: message
                 # Example: 2026-02-06 18:32:32    14118000    0    30    N0DDK: @MAGNET ,EM83CV,3,T31,321311111331,GA,{&%}
@@ -3033,6 +3051,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.message_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.message_table.setFixedHeight(MAP_HEIGHT)
 
+        # Connect click handler
+        self.message_table.itemClicked.connect(self._on_message_click)
+
         # Add to layout (row 4, column 1)
         self.main_layout.addWidget(self.message_table, 4, 1, 1, 1)
 
@@ -3225,11 +3246,69 @@ class MainWindow(QtWidgets.QMainWindow):
         self._populate_table(self.statrep_table, data, status_colors)
 
     def _on_statrep_click(self, item: QTableWidgetItem) -> None:
-        """Handle click on StatRep table row."""
+        """Handle click on StatRep table row — open detail view."""
         row = item.row()
-        sr_id = self.statrep_table.item(row, 5)  # Column 5 is the ID
-        if sr_id:
-            print(f"StatRep clicked: ID = {sr_id.text()}")
+        callsign_item = self.statrep_table.item(row, 3)  # from_callsign column
+        sr_id_item = self.statrep_table.item(row, 5)     # sr_id column
+        if callsign_item and sr_id_item:
+            callsign = callsign_item.text().strip()
+            sr_id = sr_id_item.text().strip()
+            from qrz_lookup import StatRepDetailDialog
+            dlg = StatRepDetailDialog(
+                sr_id, callsign, self._internet_available,
+                backbone_url=_BACKBONE,
+                panel_background=self.config.get_color('panel_background'),
+                panel_foreground=self.config.get_color('panel_foreground'),
+                title_bar_background=self.config.get_color('title_bar_background'),
+                title_bar_foreground=self.config.get_color('title_bar_foreground'),
+                data_background=self.config.get_color('data_background'),
+                tcp_pool=self.tcp_pool,
+                connector_manager=self.connector_manager,
+                backbone_debug=self.backbone_debug,
+                parent=self
+            )
+            if dlg.exec_() == 1:  # QDialog.Accepted
+                self._load_statrep_data()
+
+    def _on_message_click(self, item: QTableWidgetItem) -> None:
+        """Handle click on Message table row — open detail view."""
+        row = item.row()
+        callsign_item = self.message_table.item(row, 3)  # from_callsign column
+        message_item = self.message_table.item(row, 6)   # message column
+        if callsign_item:
+            callsign = callsign_item.text().strip()
+            message_text = message_item.text() if message_item else ""
+            from qrz_lookup import MessageDetailDialog
+            dlg = MessageDetailDialog(
+                callsign, message_text, self._internet_available,
+                panel_background=self.config.get_color('panel_background'),
+                panel_foreground=self.config.get_color('panel_foreground'),
+                data_background=self.config.get_color('data_background'),
+                parent=self
+            )
+            dlg.exec_()
+
+    def _on_brevity_generator(self) -> None:
+        """Launch the Brevity Code Generator in a separate process."""
+        brevity_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brevity.py")
+        if os.path.exists(brevity_path):
+            subprocess.Popen([
+                sys.executable, brevity_path,
+                self.config.get_color('panel_background'),
+                self.config.get_color('panel_foreground'),
+            ])
+        else:
+            QtWidgets.QMessageBox.critical(self, "CommStat Error", "Could not find brevity.py")
+
+    def _on_qrz_lookup(self) -> None:
+        """Open standalone QRZ Lookup dialog (Tools menu)."""
+        from qrz_lookup import QRZLookupDialog
+        dlg = QRZLookupDialog(
+            panel_background=self.config.get_color('panel_background'),
+            panel_foreground=self.config.get_color('panel_foreground'),
+            parent=self
+        )
+        dlg.exec_()
 
     def _setup_timers(self) -> None:
         """Setup timers for clock, data refresh, and news feed animation."""
@@ -4235,8 +4314,7 @@ class MainWindow(QtWidgets.QMainWindow):
             origin_call = fields[-1].strip() if len(fields) > 4 else ""
             # Comments are between SRCODE and origin
             comments_raw = ",".join(fields[4:-1]).strip() if len(fields) > 5 else ""
-            apply_norm, abbrevs = self._get_normalization_settings()
-            comments = format_statrep_comments(comments_raw, abbrevs, apply_norm)
+            comments = sanitize_ascii(comments_raw)
             # Append forwarded info
             if origin_call:
                 fwd_suffix = f" FORWARDED BY: {from_callsign}"
@@ -4246,8 +4324,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             # Standard statrep comments
             comments_raw = ",".join([f for f in fields[4:] if f.strip()]).strip() if len(fields) > 4 else ""
-            apply_norm, abbrevs = self._get_normalization_settings()
-            comments = format_statrep_comments(comments_raw, abbrevs, apply_norm)
+            comments = sanitize_ascii(comments_raw)
 
         # Map scope
         SCOPE_MAP = {
