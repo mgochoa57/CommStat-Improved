@@ -461,13 +461,9 @@ class ThemeManager:
 
     def input_readonly_style(self) -> str:
         """Return QSS for read-only input fields."""
-        if self.legacy_ui:
-            # Original hardcoded value used in statrep, alert, message, etc.
-            return "background-color: #f0f0f0;"
-
-        # Linux: palette-derived
         bg = self.color('base')
-        return f"background-color: {bg};"
+        fg = self.color('text')
+        return f"background-color: {bg}; color: {fg};"
 
     def dialog_title_style(self) -> str:
         """Return QSS for dialog title labels (standard margin)."""
