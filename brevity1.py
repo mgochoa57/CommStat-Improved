@@ -478,7 +478,7 @@ def populate_combo(combo, data, key, max_length=100, group_order=None, emergency
                 font = QFont()
                 font.setBold(True)
                 item.setFont(font)
-                item.setForeground(QColor("#00008B"))
+                item.setForeground(QColor(theme.group_header_color()))
                 
                 group_data = data[group]
                 codes_in_group = []
@@ -568,7 +568,7 @@ def update_menus(emergency_code, primary_code=None):
                     font = QFont()
                     font.setBold(True)
                     item.setFont(font)
-                    item.setForeground(QColor("#00008B"))
+                    item.setForeground(QColor(theme.group_header_color()))
                     
                     for code in sorted(group.get("items", [])):
                         if code in positions["public_reaction"]:
@@ -612,7 +612,7 @@ def update_menus(emergency_code, primary_code=None):
                     font = QFont()
                     font.setBold(True)
                     item.setFont(font)
-                    item.setForeground(QColor("#00008B"))
+                    item.setForeground(QColor(theme.group_header_color()))
                     
                     response_dict = positions["station_response"]
                     for code in sorted(group.get("items", [])):
@@ -660,7 +660,7 @@ def update_menus(emergency_code, primary_code=None):
                         font = QFont()
                         font.setBold(True)
                         item.setFont(font)
-                        item.setForeground(QColor("#00008B"))
+                        item.setForeground(QColor(theme.group_header_color()))
                         
                         for code in sorted(positions["status_codes"][group_name].get("items", [])):
                             if code in codes:
@@ -1026,26 +1026,14 @@ if __name__ == "__main__":
                 padding: 4px;
                 font-size: 10pt;
             }}
-            QComboBox[hasSelection="false"] {{
-                background-color: #6c757d;
-                color: white;
+            QComboBox {{
+                background-color: {theme.color('base')};
+                color: {theme.color('text')};
                 border: 1px solid {theme.color('mid')};
                 padding: 4px;
                 font-weight: bold;
                 font-size: 10pt;
                 min-width: 200px;
-            }}
-            QComboBox[hasSelection="true"] {{
-                background-color: #28a745;
-                color: white;
-                border: 1px solid {theme.color('mid')};
-                padding: 4px;
-                font-weight: bold;
-                font-size: 10pt;
-                min-width: 200px;
-            }}
-            QComboBox::drop-down {{
-                border: none;
             }}
             {theme.combo_list_style()}
             QTextEdit {{
@@ -1309,12 +1297,18 @@ if __name__ == "__main__":
         narrative_check.stateChanged.connect(toggle_narrative)
         
         def update_combo_bg(combo, text):
-            if not text or text.startswith("Select ") or text.startswith("No "):
-                combo.setProperty("hasSelection", "false")
+            # Only update the style if the text actually changed to a valid/invalid state
+            # to avoid redundant layout passes.
+            is_neutral = not text or text.startswith("Select ") or text.startswith("No ")
+            
+            combo.blockSignals(True)  # Safety lock to protect cascading logic
+            if is_neutral:
+                # Revert to base structural style (inherits system arrow)
+                combo.setStyleSheet("")
             else:
-                combo.setProperty("hasSelection", "true")
-            combo.style().unpolish(combo)
-            combo.style().polish(combo)
+                # Apply selection color while preserving the system arrow
+                combo.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
+            combo.blockSignals(False)  # Release lock
 
         # Connect combo box signals
         list_combo.currentTextChanged.connect(lambda text: handle_menu_select("list", text) if text != "Select Emergency List" else None)
