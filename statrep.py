@@ -95,8 +95,8 @@ STATUS_COLORS = {
 # Styling
 FONT_FAMILY = theme.font_family
 FONT_SIZE = theme.font_size
-WINDOW_WIDTH = 700
-WINDOW_HEIGHT = 580
+WINDOW_WIDTH = 900
+WINDOW_HEIGHT = 650
 INTERNET_RIG = "INTERNET ONLY"
 
 
@@ -566,6 +566,7 @@ class StatRepDialog(QDialog):
 
         # Rig selection
         rig_layout = QtWidgets.QHBoxLayout()
+        rig_layout.setSpacing(20)
         rig_label = QtWidgets.QLabel("Rig:")
         rig_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
         self.rig_combo = QtWidgets.QComboBox()
@@ -599,12 +600,25 @@ class StatRepDialog(QDialog):
         self.freq_field.setStyleSheet(theme.input_readonly_style())
         rig_layout.addWidget(freq_label)
         rig_layout.addWidget(self.freq_field)
+
+        # Delivery dropdown
+        delivery_label = QtWidgets.QLabel("Delivery:")
+        delivery_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
+        self.delivery_combo = QtWidgets.QComboBox()
+        self.delivery_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        self.delivery_combo.setMinimumHeight(28)
+        self.delivery_combo.setMinimumWidth(180)
+        self.delivery_combo.addItem("Maximum Reach")
+        self.delivery_combo.addItem("Limited Reach")
+        rig_layout.addWidget(delivery_label)
+        rig_layout.addWidget(self.delivery_combo)
+
         rig_layout.addStretch()
         layout.addLayout(rig_layout)
 
         # Header info (From, To, Grid, Scope) - all on one line
         header_layout = QtWidgets.QHBoxLayout()
-        header_layout.setSpacing(10)
+        header_layout.setSpacing(15)
 
         # From (Callsign)
         from_layout = QtWidgets.QVBoxLayout()
@@ -672,7 +686,8 @@ class StatRepDialog(QDialog):
 
         # Legend
         legend = QtWidgets.QLabel(
-            "<b>Green</b> = Normal | "
+            "<b>Maximum Reach</b> = RF + Internet | <b>Limited Reach</b> = RF Only"
+            "<br><b>Green</b> = Normal | "
             "<b>Yellow</b> = Limited | "
             "<b>Red</b> = Collapsed/None"
         )
@@ -685,7 +700,7 @@ class StatRepDialog(QDialog):
 
         # Status grid (4 columns x 3 rows)
         status_grid = QtWidgets.QGridLayout()
-        status_grid.setSpacing(10)
+        status_grid.setSpacing(12)
 
         for i, (label, name) in enumerate(STATUS_CATEGORIES):
             row = i // 4
@@ -786,52 +801,20 @@ class StatRepDialog(QDialog):
         except Exception:
             combo._orig_palette = None
 
-        # Ensure the combo uses the application's structural combo style by default
-        try:
-            combo.setStyleSheet(theme.combo_style())
-        except Exception:
-            pass
-
         return combo
 
     def _update_combo_color(self, combo: QComboBox, text: str) -> None:
         """Update combo box background color based on selection."""
-        # Use the semantic STATUS_COLORS mapping for selected items.
-        # Apply comprehensive styling including all subcontrols to ensure
-        # the color overrides platform/system theme styling.
+        # Use a minimal property override to preserve the system's native arrow
         color = STATUS_COLORS.get(text, "")
         if text in ("Green", "Yellow", "Red", "Unknown") and color:
             text_color = "#000" if text == "Yellow" else "#fff"
-            # Style the main combo box and all its subcontrols
-            combo.setStyleSheet(f"""
-                QComboBox {{
-                    background-color: {color};
-                    color: {text_color};
-                    font-weight: bold;
-                    border: 1px solid {color};
-                    padding: 2px 5px;
-                    border-radius: 4px;
-                }}
-                QComboBox::drop-down {{
-                    background-color: {color};
-                    border: none;
-                }}
-                QComboBox::down-arrow {{
-                    image: none;
-                    border-left: 4px solid transparent;
-                    border-right: 4px solid transparent;
-                    border-top: 5px solid {text_color};
-                    width: 0px;
-                    height: 0px;
-                }}
-            """)
+            combo.setStyleSheet(
+                f"background-color: {color}; color: {text_color}; font-weight: bold;"
+            )
         else:
-            # Revert to structural combo styling from theme manager so the
-            # app follows the system theme for non-status selections.
-            try:
-                combo.setStyleSheet(theme.combo_style())
-            except Exception:
-                combo.setStyleSheet("")
+            # Revert to base dialog styling (inherits system arrow)
+            combo.setStyleSheet("")
 
     def _button_style(self, color: str) -> str:
         """Generate button stylesheet."""
@@ -1171,7 +1154,8 @@ class StatRepDialog(QDialog):
             self._save_to_database(frequency)
 
             # Submit to backbone server (asynchronous, non-blocking)
-            self._submit_to_backbone_async(frequency)
+            if self.delivery_combo.currentText() != "Limited Reach":
+                self._submit_to_backbone_async(frequency)
 
             # Print to terminal
             now = QDateTime.currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss")

@@ -488,6 +488,17 @@ class ThemeManager:
         fg = self.color('windowtext')
         return f"color: {fg}; margin-bottom: 5px;"
 
+    def group_header_color(self) -> str:
+        """Return a hex color string for semantic group headers in lists.
+        
+        Used for things like '*** WEATHER ***' in Brevity dropdowns.
+        """
+        if self.legacy_ui:
+            return "#00008B"  # Dark Blue
+
+        # Linux: palette-aware (use highlight for visibility)
+        return self.color('highlight')
+
     @staticmethod
     def button_style(accent_color: str) -> str:
         """Return QSS for an accent-colored button.
