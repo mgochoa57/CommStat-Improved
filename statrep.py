@@ -532,24 +532,8 @@ class StatRepDialog(QDialog):
                 border-radius: 4px; 
                 padding: 2px 4px; 
             }}
-            QComboBox {{ 
-                background-color: {theme.color('base')}; 
-                color: {theme.color('text')}; 
-                border: 1px solid {theme.color('mid')}; 
-                border-radius: 4px; 
-                padding: 2px 4px; 
-            }}
-            QComboBox:disabled {{ 
-                background-color: {theme.color('mid')}; 
-                color: {theme.color('text')}; 
-                border: 1px solid {theme.color('mid')}; 
-            }}
-            QComboBox QAbstractItemView {{ 
-                background-color: {theme.color('base')}; 
-                color: {theme.color('text')}; 
-                selection-background-color: {theme.color('highlight')}; 
-                selection-color: {theme.color('highlightedtext')}; 
-            }}
+            {theme.combo_data_style()}
+            {theme.combo_list_data_style()}
         """)
 
         layout = QtWidgets.QVBoxLayout(self)

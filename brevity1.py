@@ -1011,11 +1011,11 @@ if __name__ == "__main__":
         # Apply theme colors
         window.setStyleSheet(f"""
             QMainWindow {{
-                background-color: {theme.color('window')};
+                background-color: {theme.main_window_bg()};
                 color: {theme.color('windowtext')};
             }}
             QLabel {{
-                color: {theme.color('windowtext')};
+                color: {theme.color('text')};
                 font-weight: bold;
                 font-size: 10pt;
             }}
@@ -1026,16 +1026,8 @@ if __name__ == "__main__":
                 padding: 4px;
                 font-size: 10pt;
             }}
-            QComboBox {{
-                background-color: {theme.color('base')};
-                color: {theme.color('text')};
-                border: 1px solid {theme.color('mid')};
-                padding: 4px;
-                font-weight: bold;
-                font-size: 10pt;
-                min-width: 200px;
-            }}
-            {theme.combo_list_style()}
+            {theme.combo_data_style()}
+            {theme.combo_list_data_style()}
             QTextEdit {{
                 background-color: {theme.color('base')};
                 color: {theme.color('text')};
@@ -1046,7 +1038,7 @@ if __name__ == "__main__":
                 border: 1px solid {theme.color('mid')};
             }}
             QCheckBox {{
-                color: {theme.color('windowtext')};
+                color: {theme.color('text')};
                 font-weight: bold;
                 font-size: 10pt;
             }}
@@ -1066,6 +1058,7 @@ if __name__ == "__main__":
         
         label_decode = QLabel("Enter Brevity Code:")
         label_decode.setAlignment(Qt.AlignCenter)
+        label_decode.setStyleSheet(theme.field_title_style())
         decode_layout.addWidget(label_decode)
         
         decode_inner_layout = QHBoxLayout()
@@ -1101,6 +1094,7 @@ if __name__ == "__main__":
         list_sublayout.setContentsMargins(0, 0, 0, 0)
         label_select = QLabel("1. Select List:")
         label_select.setAlignment(Qt.AlignCenter)
+        label_select.setStyleSheet(theme.field_title_style())
         list_sublayout.addWidget(label_select)
         list_combo = QComboBox()
         list_combo.setView(QListView())
@@ -1114,6 +1108,7 @@ if __name__ == "__main__":
         emergency_sublayout.setContentsMargins(0, 0, 0, 0)
         label_emergency = QLabel("2. Event:")
         label_emergency.setAlignment(Qt.AlignCenter)
+        label_emergency.setStyleSheet(theme.field_title_style())
         emergency_sublayout.addWidget(label_emergency)
         emergency_combo = QComboBox()
         emergency_combo.setView(QListView())
@@ -1127,6 +1122,7 @@ if __name__ == "__main__":
         status_sublayout.setContentsMargins(0, 0, 0, 0)
         label_status = QLabel("3. Status/Target:")
         label_status.setAlignment(Qt.AlignCenter)
+        label_status.setStyleSheet(theme.field_title_style())
         status_sublayout.addWidget(label_status)
         status_combo = QComboBox()
         status_combo.setView(QListView())
@@ -1146,6 +1142,7 @@ if __name__ == "__main__":
         primary_sublayout.setContentsMargins(0, 0, 0, 0)
         label_primary = QLabel("4. Impact:")
         label_primary.setAlignment(Qt.AlignCenter)
+        label_primary.setStyleSheet(theme.field_title_style())
         primary_sublayout.addWidget(label_primary)
         primary_combo = QComboBox()
         primary_combo.setView(QListView())
@@ -1159,6 +1156,7 @@ if __name__ == "__main__":
         secondary_sublayout.setContentsMargins(0, 0, 0, 0)
         label_secondary = QLabel("5. Response:")
         label_secondary.setAlignment(Qt.AlignCenter)
+        label_secondary.setStyleSheet(theme.field_title_style())
         secondary_sublayout.addWidget(label_secondary)
         secondary_combo = QComboBox()
         secondary_combo.setView(QListView())
@@ -1172,6 +1170,7 @@ if __name__ == "__main__":
         severity_sublayout.setContentsMargins(0, 0, 0, 0)
         label_severity = QLabel("6. Station/Location:")
         label_severity.setAlignment(Qt.AlignCenter)
+        label_severity.setStyleSheet(theme.field_title_style())
         severity_sublayout.addWidget(label_severity)
         severity_combo = QComboBox()
         severity_combo.setView(QListView())
@@ -1212,6 +1211,7 @@ if __name__ == "__main__":
         output_header_layout = QHBoxLayout()
         output_label = QLabel("Brevity Report")
         output_label.setFont(QFont(theme.font_family, 10, QFont.Bold))
+        output_label.setStyleSheet(theme.field_title_style())
         output_header_layout.addWidget(output_label)
         
         output_header_layout.addStretch()
@@ -1236,6 +1236,7 @@ if __name__ == "__main__":
         # Narrative section (initially hidden)
         narrative_label = QLabel("Detailed Narrative")
         narrative_label.setFont(QFont(theme.font_family, 10, QFont.Bold))
+        narrative_label.setStyleSheet(theme.field_title_style())
         narrative_label.hide()
         main_layout.addWidget(narrative_label)
         

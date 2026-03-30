@@ -348,7 +348,10 @@ class ThemeManager:
         """
 
     def combo_style(self) -> str:
-        """Return QSS for QComboBox structural chrome."""
+        """Return QSS for structural QComboBox chrome (Menu/Header style).
+        
+        Used primarily for the newsfeed dropdown in the main window.
+        """
         if self.legacy_ui:
             # Original: menu blue background with white text
             bg = '#3050CC'
@@ -359,9 +362,6 @@ class ThemeManager:
                 color: {fg};
                 border: 1px solid {fg};
                 padding: 2px 5px;
-            }}
-            QComboBox::drop-down {{
-                border: none;
             }}
         """
 
@@ -376,16 +376,60 @@ class ThemeManager:
                 border: 1px solid {border};
                 padding: 2px 5px;
             }}
-            QComboBox::drop-down {{
-                border: none;
+        """
+
+    def combo_data_style(self) -> str:
+        """Return QSS for QComboBox data-entry fields (Dialog style).
+        
+        Matches the look of the main branch dialogs: White background,
+        dark text, and gray borders.
+        """
+        if self.legacy_ui:
+            bg = 'white'
+            fg = '#333333'
+            border = '#cccccc'
+            disabled_bg = '#e9ecef'
+            disabled_fg = '#999999'
+            return f"""
+                QComboBox {{
+                    background-color: {bg};
+                    color: {fg};
+                    border: 1px solid {border};
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                }}
+                QComboBox:disabled {{
+                    background-color: {disabled_bg};
+                    color: {disabled_fg};
+                    border: 1px solid {border};
+                }}
+            """
+
+        # Linux: palette-derived
+        bg = self.color('base')
+        fg = self.color('text')
+        border = self.color('mid')
+        return f"""
+            QComboBox {{
+                background-color: {bg};
+                color: {fg};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 2px 4px;
+            }}
+            QComboBox:disabled {{
+                background-color: {border};
+                color: {fg};
+                border: 1px solid {border};
             }}
         """
 
     def combo_list_style(self) -> str:
-        """Return QSS for the QListView popup inside a QComboBox."""
+        """Return QSS for the QListView popup (Menu/Header style)."""
         if self.legacy_ui:
             bg = '#3050CC'
             fg = '#FFFFFF'
+            hl = '#007bff'  # Standard Blue for selection
             return f"""
             QListView {{
                 background-color: {bg};
@@ -396,6 +440,10 @@ class ThemeManager:
                 background-color: {bg};
                 color: {fg};
                 padding: 4px;
+            }}
+            QListView::item:selected {{
+                background-color: {hl};
+                color: {fg};
             }}
         """
 
@@ -420,6 +468,37 @@ class ThemeManager:
                 color: {hl_text};
             }}
         """
+
+    def combo_list_data_style(self) -> str:
+        """Return QSS for the QListView popup (Dialog style).
+        
+        Matches the look of the main branch dialogs: White background,
+        dark text, and Vibrant Blue selection.
+        """
+        if self.legacy_ui:
+            bg = 'white'
+            fg = '#333333'
+            hl = '#0078d7'  # Main branch Blue
+            return f"""
+                QListView {{
+                    background-color: {bg};
+                    color: {fg};
+                    outline: none;
+                    border: 1px solid #cccccc;
+                }}
+                QListView::item {{
+                    background-color: {bg};
+                    color: {fg};
+                    padding: 4px;
+                }}
+                QListView::item:selected {{
+                    background-color: {hl};
+                    color: white;
+                }}
+            """
+
+        # Linux: palette-derived
+        return self.combo_list_style()
 
     def header_button_style(self) -> str:
         """Return QSS for header-area buttons (e.g. 'Last 20')."""
@@ -494,6 +573,42 @@ class ThemeManager:
 
         # Linux: palette-aware (use highlight for visibility)
         return self.color('highlight')
+
+    def main_window_bg(self) -> str:
+        """Return the hex background color for main windows.
+        
+        On Legacy UI, matches the cream brown of the message pane.
+        On Linux, matches the standard system window background.
+        """
+        if self.legacy_ui:
+            return self.color('base')  # Cream Brown (#FFF0D4)
+        
+        return self.color('window')   # System Palette Window background
+
+    def section_header_style(self) -> str:
+        """Return QSS for section headers.
+        
+        On Legacy UI, uses Maroon text to stand out against cream backgrounds.
+        On Linux, uses standard window text color.
+        """
+        if self.legacy_ui:
+            # Use Maroon/Red for text color
+            return f"color: {self.color('window')}; font-weight: bold; font-size: 12pt;"
+        
+        # Linux: standard window text
+        return f"color: {self.color('windowtext')}; font-weight: bold; font-size: 12pt;"
+
+    def field_title_style(self) -> str:
+        """Return QSS for field titles (e.g. 'Rig:', 'Mode:').
+        
+        Matches the look of the message pane exactly.
+        """
+        if self.legacy_ui:
+            # Solid black, bold, 12pt
+            return f"color: {self.color('text')}; font-weight: bold; font-size: 12pt;"
+            
+        # Linux: standard window text
+        return f"color: {self.color('windowtext')}; font-weight: bold; font-size: 12pt;"
 
     @staticmethod
     def button_style(accent_color: str) -> str:
