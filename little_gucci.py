@@ -2,6 +2,15 @@
 # This file is part of CommStat.
 # Licensed under the GNU General Public License v3.0.
 # AI Assistance: Claude (Anthropic), ChatGPT (OpenAI)
+#
+# In the beginning was the word.
+# and the word was with God.
+# and the word was God.
+# And the Word was made flesh, and dwelt among us, and we beheld his glory.
+#
+# The truth is not hard to find,
+# it's hard to embrace.
+
 
 """
 CommStat v2.5.1 - Rebuilt with best practices
@@ -55,6 +64,7 @@ from groups import GroupsDialog
 from debug_features import DebugFeatures
 from js8mail import JS8MailDialog
 from js8sms import JS8SMSDialog
+from direct_message import DirectMessageDialog
 from message import Ui_FormMessage
 from alert import Ui_FormAlert
 from statrep import StatRepDialog
@@ -111,6 +121,38 @@ SOLAR_IMAGE_DIALOGS = [
      '<a href="https://www.hamqsl.com/solar.html">View more at hamqsl.com</a>',
      "Loading solar conditions...", "Failed to load solar data"),
 ]
+
+# Default color scheme for UI elements
+# These colors can be customized via config.ini in the future
+DEFAULT_COLORS: Dict[str, str] = {
+    # Main window colors
+    'program_background': '#A52A2A',	# Maroon
+    'program_foreground': '#FFFFFF',
+    'menu_background': '#3050CC',       # Blue
+    'menu_foreground': '#FFFFFF',
+    'title_bar_background': '#F07800',  # Orange
+    'title_bar_foreground': '#FFFFFF',
+    # News feed marquee colors
+    'newsfeed_background': '#242424',   # Dark gray
+    'newsfeed_foreground': '#00FF00',   # Green text
+    # Clock display colors
+    'time_background': '#282864',       # Navy blue
+    'time_foreground': '#AACCEE',       # Light blue was #88CCFF
+    # StatRep condition indicator colors (traffic light system)
+    'condition_green': '#28A745',       # Good normal status        was #108010
+    'condition_yellow': '#FFFF77',      # Caution/degraded status
+    'condition_red': '#DC3534',         # Critical/emergency status was #BB0000
+    'condition_gray': '#6C757D',        # Unknown/no data           was #808080
+    # Data table colors
+    'data_background': '#F8F6F4',	# Cream was #FFF5E1
+    'data_foreground': '#000000',
+    # Live feed display colors
+    'feed_background': '#000000',
+    'feed_foreground': '#FFFFFF',
+    # Panel colors for secondary UI elements (dropdown menus, sub-panels)
+    'panel_background': '#DDDDDD',
+    'panel_foreground': '#000000',
+}
 
 
 def hz_to_mhz(freq_hz: float, offset: float = 0) -> float:
@@ -504,38 +546,6 @@ class ConsoleColors:
     RESET = "\033[0m"
 
 
-# Default color scheme for UI elements
-# These colors can be customized via config.ini in the future
-DEFAULT_COLORS: Dict[str, str] = {
-    # Main window colors
-    'program_background': '#A52A2A',	# Maroon
-    'program_foreground': '#FFFFFF',
-    'menu_background': '#3050CC',       # Blue
-    'menu_foreground': '#FFFFFF',
-    'title_bar_background': '#F07800',  # Orange
-    'title_bar_foreground': '#FFFFFF',
-    # News feed marquee colors
-    'newsfeed_background': '#242424',   # Dark gray
-    'newsfeed_foreground': '#00FF00',   # Green text
-    # Clock display colors
-    'time_background': '#282864',       # Navy blue
-    'time_foreground': '#AACCEE',       # Light blue was #88CCFF
-    # StatRep condition indicator colors (traffic light system)
-    'condition_green': '#108010',       # Good/normal status
-    'condition_yellow': '#FFFF77',      # Caution/degraded status
-    'condition_red': '#BB0000',         # Critical/emergency status
-    'condition_gray': '#808080',        # Unknown/no data
-    # Data table colors
-    'data_background': '#F8F6F4',	# Cream was #FFF5E1
-    'data_foreground': '#000000',
-    # Live feed display colors
-    'feed_background': '#000000',
-    'feed_foreground': '#FFFFFF',
-    # Panel colors for secondary UI elements (dropdown menus, sub-panels)
-    'panel_background': '#DDDDDD',
-    'panel_foreground': '#000000',
-}
-
 # Default RSS news feeds
 DEFAULT_RSS_FEEDS: Dict[str, str] = {
     "Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
@@ -631,16 +641,41 @@ class CustomWebEnginePage(QWebEnginePage):
                 self.parent_widget._on_video_skip()
             return False  # Prevent navigation
 
-        # Handle statrep links
+        # Handle statrep links from map popups: /statrep/{id}/{callsign}
         if url.path().startswith("/statrep/"):
-            srid = url.path().replace("/statrep/", "").strip()
-            if srid:
-                try:
-                    view_statrep_path = os.path.join(os.getcwd(), "view_statrep.py")
-                    subprocess.Popen([sys.executable, view_statrep_path, srid])
-                    print(f"Launched view_statrep.py with SRid: {srid}")
-                except Exception as e:
-                    print(f"Failed to launch view_statrep.py: {e}")
+            parts = url.path().strip("/").split("/")
+            if len(parts) >= 3:
+                sr_id = parts[1]
+                callsign = parts[2]
+                mw = self.parent_widget
+                if sr_id and callsign and mw:
+                    try:
+                        from qrz_lookup import StatRepDetailDialog
+                        dlg = StatRepDetailDialog(
+                            sr_id, callsign, mw._internet_available,
+                            backbone_url=_BACKBONE,
+                            panel_background=mw.config.get_color('panel_background'),
+                            panel_foreground=mw.config.get_color('panel_foreground'),
+                            title_bar_background=mw.config.get_color('title_bar_background'),
+                            title_bar_foreground=mw.config.get_color('title_bar_foreground'),
+                            data_background=mw.config.get_color('data_background'),
+                            program_background=mw.config.get_color('program_background'),
+                            program_foreground=mw.config.get_color('program_foreground'),
+                            condition_green=mw.config.get_color('condition_green'),
+                            condition_yellow=mw.config.get_color('condition_yellow'),
+                            condition_red=mw.config.get_color('condition_red'),
+                            condition_gray=mw.config.get_color('condition_gray'),
+                            tcp_pool=mw.tcp_pool,
+                            connector_manager=mw.connector_manager,
+                            backbone_debug=mw.backbone_debug,
+                            parent=mw
+                        )
+                        dlg.pin_changed.connect(
+                            lambda _: mw._save_map_position(callback=mw._load_map)
+                        )
+                        dlg.exec_()
+                    except Exception as e:
+                        print(f"[Map popup] Failed to open StatRepDetailDialog: {e}")
             return False  # Prevent navigation
         return super().acceptNavigationRequest(url, navigation_type, is_main_frame)
 
@@ -1012,7 +1047,7 @@ class DatabaseManager:
                                power, water, med, telecom, travel, internet,
                                fuel, food, crime, civil, political, comments, source, id
                         FROM statrep
-                        WHERE {date_condition}
+                        WHERE {date_condition} OR pinned = 1
                     """
                     params = date_params
                 else:
@@ -1024,7 +1059,7 @@ class DatabaseManager:
                                power, water, med, telecom, travel, internet,
                                fuel, food, crime, civil, political, comments, source, id
                         FROM statrep
-                        WHERE target IN ({placeholders}) AND {date_condition}
+                        WHERE target IN ({placeholders}) AND ({date_condition} OR pinned = 1)
                     """
                     params = groups_with_at + date_params
 
@@ -1588,6 +1623,8 @@ class MainWindow(QtWidgets.QMainWindow):
             QMenuBar {{
                 background-color: {menu_bg};
                 color: {menu_fg};
+                font-size: 11pt;
+                font-weight: bold;
             }}
             QMenuBar::item {{
                 padding: 4px 8px;
@@ -1660,6 +1697,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ("statrep", "Status Report", self._on_statrep),
             ("group_alert", "Group Alert", self._on_group_alert),
             ("send_message", "Group Message", self._on_send_message),
+            ("direct_message", "Direct Message", self._on_direct_message),
             ("js8email", "JS8 Email", self._on_js8email),
             ("js8sms", "JS8 SMS", self._on_js8sms),
         ]
@@ -1767,7 +1805,6 @@ class MainWindow(QtWidgets.QMainWindow):
         create_action(self.tools_menu, "QRZ Lookup", "qrz_lookup", self._on_qrz_lookup)
 
         # Menubar items
-        create_action(self.menubar, "About", "about", self._on_about)
         create_action(self.menubar, "Exit", "exit", qApp.quit)
 
         # Debug menu (right of Exit, only visible in debug mode)
@@ -1929,6 +1966,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QTableWidget {{
                 background-color: {data_bg};
                 color: {data_fg};
+                font-size: 10pt;
             }}
             QTableWidget QHeaderView::section {{
                 background-color: {title_bg};
@@ -2740,6 +2778,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 # Parse the data line: date time freq_hz unused snr callsign: message
                 # Example: 2026-02-06 18:32:32    14118000    0    30    N0DDK: @MAGNET ,EM83CV,3,T31,321311111331,GA,{&%}
                 # Fields: date(0) time(1) freq_hz(2) unused/0(3) snr/db(4) callsign:message(5)
+                if data.startswith("DM:"):
+                    data = data[3:]
                 parts = data.split(None, 5)  # Split on whitespace, max 6 parts
                 if len(parts) < 6:
                     print(f"Skipping malformed data line (ID {data_id}): insufficient fields")
@@ -3132,21 +3172,17 @@ class MainWindow(QtWidgets.QMainWindow):
                     gridlist.append(grid)
 
                     # Create popup HTML
-                    html = f'''<HTML>
-                        <BODY>
-                            <p style="color:blue;font-size:14px;">
-                                Callsign: {callsign}<br>
-                                StatRep ID: {srid}<br>
-                                <button onclick="window.location.href='http://localhost/statrep/{statrep_id}'"
-                                    style="color:#0000FF;font-family:Arial;font-size:12px;font-weight:bold;
-                                    cursor:pointer;border:1px solid #000;padding:2px 5px;">
-                                    View StatRep
-                                </button>
-                            </p>
+                    html = f'''<HTML style="height:100%;">
+                        <BODY style="margin:0;font-family:Arial;text-align:center;
+                                     height:100%;display:flex;flex-direction:column;
+                                     justify-content:center;align-items:center;">
+                            <p style="font-size:11pt;font-weight:bold;margin:0 0 4px 0;">{callsign}</p>
+                            <a href="http://localhost/statrep/{statrep_id}/{callsign}"
+                               style="font-size:11pt;color:#0000EE;">Details</a>
                         </BODY>
                     </HTML>'''
-                    iframe = folium.IFrame(html, width=160, height=100)
-                    popup = folium.Popup(iframe, min_width=100, max_width=160)
+                    iframe = folium.IFrame(html, width=120, height=65)
+                    popup = folium.Popup(iframe, min_width=80, max_width=120)
 
                     # Determine pin color and size
                     if status == "1":
@@ -3249,23 +3285,31 @@ class MainWindow(QtWidgets.QMainWindow):
         """Handle click on StatRep table row — open detail view."""
         row = item.row()
         callsign_item = self.statrep_table.item(row, 3)  # from_callsign column
-        sr_id_item = self.statrep_table.item(row, 5)     # sr_id column
-        if callsign_item and sr_id_item:
-            callsign = callsign_item.text().strip()
-            sr_id = sr_id_item.text().strip()
+        if callsign_item:
+            callsign  = callsign_item.text().strip()
+            record_id = callsign_item.data(QtCore.Qt.UserRole)
             from qrz_lookup import StatRepDetailDialog
             dlg = StatRepDetailDialog(
-                sr_id, callsign, self._internet_available,
+                record_id, callsign, self._internet_available,
                 backbone_url=_BACKBONE,
                 panel_background=self.config.get_color('panel_background'),
                 panel_foreground=self.config.get_color('panel_foreground'),
                 title_bar_background=self.config.get_color('title_bar_background'),
                 title_bar_foreground=self.config.get_color('title_bar_foreground'),
                 data_background=self.config.get_color('data_background'),
+                program_background=self.config.get_color('program_background'),
+                program_foreground=self.config.get_color('program_foreground'),
+                condition_green=self.config.get_color('condition_green'),
+                condition_yellow=self.config.get_color('condition_yellow'),
+                condition_red=self.config.get_color('condition_red'),
+                condition_gray=self.config.get_color('condition_gray'),
                 tcp_pool=self.tcp_pool,
                 connector_manager=self.connector_manager,
                 backbone_debug=self.backbone_debug,
                 parent=self
+            )
+            dlg.pin_changed.connect(
+                lambda _: self._save_map_position(callback=self._load_map)
             )
             if dlg.exec_() == 1:  # QDialog.Accepted
                 self._load_statrep_data()
@@ -3275,18 +3319,24 @@ class MainWindow(QtWidgets.QMainWindow):
         row = item.row()
         callsign_item = self.message_table.item(row, 3)  # from_callsign column
         message_item = self.message_table.item(row, 6)   # message column
+        msg_id_item = self.message_table.item(row, 5)    # msg_id column
         if callsign_item:
             callsign = callsign_item.text().strip()
             message_text = message_item.text() if message_item else ""
+            msg_id = msg_id_item.text().strip() if msg_id_item else ""
             from qrz_lookup import MessageDetailDialog
             dlg = MessageDetailDialog(
                 callsign, message_text, self._internet_available,
                 panel_background=self.config.get_color('panel_background'),
                 panel_foreground=self.config.get_color('panel_foreground'),
                 data_background=self.config.get_color('data_background'),
+                program_background=self.config.get_color('program_background'),
+                program_foreground=self.config.get_color('program_foreground'),
+                msg_id=msg_id,
                 parent=self
             )
-            dlg.exec_()
+            if dlg.exec_() == 1:  # QDialog.Accepted
+                self._load_message_data()
 
     def _on_grid_finder(self) -> None:
         """Launch Grid Finder in a separate process."""
@@ -3320,6 +3370,8 @@ class MainWindow(QtWidgets.QMainWindow):
         dlg = QRZLookupDialog(
             panel_background=self.config.get_color('panel_background'),
             panel_foreground=self.config.get_color('panel_foreground'),
+            program_background=self.config.get_color('program_background'),
+            program_foreground=self.config.get_color('program_foreground'),
             parent=self
         )
         dlg.exec_()
@@ -3607,7 +3659,8 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = StatRepDialog(
             self.tcp_pool, self.connector_manager, self,
             backbone_debug=self.backbone_debug,
-            panel_background=self.config.get_color('panel_background')
+            panel_background=self.config.get_color('panel_background'),
+            data_background=self.config.get_color('data_background')
         )
         dialog.exec_()
 
@@ -3616,6 +3669,11 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = QtWidgets.QDialog(self)
         dialog.ui = Ui_FormMessage(self.tcp_pool, self.connector_manager, self._load_message_data)
         dialog.ui.setupUi(dialog)
+        dialog.exec_()
+
+    def _on_direct_message(self) -> None:
+        """Open Direct Message window."""
+        dialog = DirectMessageDialog(self.tcp_pool, self.connector_manager, parent=self)
         dialog.exec_()
 
     def _on_group_alert(self) -> None:
@@ -3863,6 +3921,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     item.setForeground(color)
 
                 table.setItem(row_num, col_num, item)
+
+            # Store database id on the callsign cell for statrep rows
+            if is_statrep_table and len(row_data) > 22:
+                cs_item = table.item(row_num, 3)
+                if cs_item:
+                    cs_item.setData(QtCore.Qt.UserRole, row_data[22])
 
         # Sort by datetime column (column 1 for both statrep and message tables)
         sort_column = 1 if (is_statrep_table or is_message_table) else 0
@@ -5058,7 +5122,9 @@ def main() -> None:
         'Roboto-Bold.ttf',
         'RobotoSlab-Regular.ttf',
         'RobotoSlab-Bold.ttf',
-        'RobotoSlab-Black.ttf'
+        'RobotoSlab-Black.ttf',
+        'KodeMono-Regular.ttf',
+        'KodeMono-Bold.ttf',
     ]
 
     for font_file in fonts_to_load:
