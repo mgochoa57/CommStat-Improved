@@ -78,7 +78,7 @@ from id_utils import generate_time_based_id
 # Constants
 # =============================================================================
 
-VERSION = "3.0.7b"
+VERSION = "4.0"
 WINDOW_TITLE = f"CommStat (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
