@@ -137,7 +137,7 @@ DEFAULT_COLORS: Dict[str, str] = {
     'newsfeed_foreground': '#00FF00',   # Green text
     # Clock display colors
     'time_background': '#282864',       # Navy blue
-    'time_foreground': '#AACCEE',       # Light blue was #88CCFF
+    'time_foreground': '#FFFF00',       # Light blue was #88CCFF, was #AACCEE
     # StatRep condition indicator colors (traffic light system)
     'condition_green': '#28A745',       # Good normal status        was #108010
     'condition_yellow': '#FFFF77',      # Caution/degraded status
@@ -3025,8 +3025,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Feed text area
         self.feed_text = QtWidgets.QPlainTextEdit(self.central_widget)
         self.feed_text.setObjectName("feedText")
-        mono_font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
-        mono_font.setPointSize(10)
+        mono_font = QtGui.QFont("Kode Mono", 10)
         self.feed_text.setFont(mono_font)
         self.feed_text.setStyleSheet(
             f"background-color: {self.config.get_color('feed_background')};"
@@ -3322,7 +3321,7 @@ class MainWindow(QtWidgets.QMainWindow):
         msg_id_item = self.message_table.item(row, 5)    # msg_id column
         if callsign_item:
             callsign = callsign_item.text().strip()
-            message_text = message_item.text() if message_item else ""
+            message_text = (message_item.data(QtCore.Qt.UserRole) or message_item.text()) if message_item else ""
             msg_id = msg_id_item.text().strip() if msg_id_item else ""
             from qrz_lookup import MessageDetailDialog
             dlg = MessageDetailDialog(
@@ -3828,10 +3827,15 @@ class MainWindow(QtWidgets.QMainWindow):
             for col_num, value in enumerate(row_data):
                 display_value = str(value) if value is not None else ""
 
-                # Decode || newline placeholders in statrep remarks
+                # Decode || newline placeholders in statrep remarks and messages
+                raw_message = None
                 if is_statrep_table and col_num == 20 and "||" in display_value:
                     decoded_remarks = display_value.replace("||", "\n")
                     display_value = display_value.replace("||", " ")
+                elif is_message_table and col_num == 6 and "||" in display_value:
+                    raw_message = display_value          # preserve for detail dialog
+                    display_value = display_value.replace("||", " ")
+                    decoded_remarks = None
                 else:
                     decoded_remarks = None
 
@@ -3908,6 +3912,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 # Add tooltip for multi-line remarks
                 if decoded_remarks:
                     item.setToolTip(decoded_remarks)
+
+                # Store raw message text (with ||) so detail dialog can show newlines
+                if raw_message is not None and is_message_table and col_num == 6:
+                    item.setData(QtCore.Qt.UserRole, raw_message)
 
                 # Bold From and To columns (3 and 4) if direct message
                 if bold_row and col_num in (3, 4):
@@ -5124,6 +5132,7 @@ def main() -> None:
         'RobotoSlab-Bold.ttf',
         'RobotoSlab-Black.ttf',
         'KodeMono-Regular.ttf',
+        'KodeMono-Medium.ttf',
         'KodeMono-Bold.ttf',
     ]
 

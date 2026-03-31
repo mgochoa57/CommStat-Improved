@@ -11,6 +11,7 @@ Allows creating and transmitting AMRRON Status Reports via JS8Call.
 import base64
 import os
 import re
+import subprocess
 import sqlite3
 import sys
 import urllib.request
@@ -95,13 +96,13 @@ STATUS_COLORS = {
 FONT_FAMILY = "Arial"
 FONT_SIZE = 12
 WINDOW_WIDTH = 700
-WINDOW_HEIGHT = 580
-WINDOW_HEIGHT_EXPANDED = 700  # Height when Internet Only (expanded remarks)
+WINDOW_HEIGHT = 640
+WINDOW_HEIGHT_EXPANDED = 760  # Height when Internet Only (expanded remarks)
 INTERNET_RIG = "INTERNET ONLY"
 REMARKS_MAX_RADIO = 60
 REMARKS_MAX_INTERNET = 300  # ~5 lines worth of text
 NEWLINE_PLACEHOLDER = "||"
-DATA_BACKGROUND = "#FFF5E1"   # matches little_gucci.py 'data_background'
+DATA_BACKGROUND = "#F8F6F4"   # matches little_gucci.py 'data_background'
 
 
 # =============================================================================
@@ -154,13 +155,15 @@ class StatRepDialog(QDialog):
         connector_manager: "ConnectorManager",
         parent=None,
         backbone_debug: bool = False,
-        panel_background: str = DATA_BACKGROUND
+        panel_background: str = DATA_BACKGROUND,
+        data_background: str = DATA_BACKGROUND
     ):
         super().__init__(parent)
         self.tcp_pool = tcp_pool
         self.connector_manager = connector_manager
         self.backbone_debug = backbone_debug  # Command line override for debug mode
         self.panel_background = panel_background
+        self.data_background = data_background
 
         self.setWindowTitle("CommStat STATREP")
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -719,20 +722,18 @@ class StatRepDialog(QDialog):
         status_grid.setSpacing(10)
 
         for i, (label, name) in enumerate(STATUS_CATEGORIES):
-            row = i // 4
+            label_row = (i // 4) * 2
+            combo_row = label_row + 1
             col = i % 4
 
-            cell_layout = QtWidgets.QVBoxLayout()
             cell_label = QtWidgets.QLabel(label)
             cell_label.setFont(QtGui.QFont(FONT_FAMILY, 12))
             cell_label.setAlignment(Qt.AlignCenter)
+            status_grid.addWidget(cell_label, label_row, col)
 
             combo = self._create_status_combo()
             self.status_combos[name] = combo
-
-            cell_layout.addWidget(cell_label)
-            cell_layout.addWidget(combo)
-            status_grid.addLayout(cell_layout, row, col)
+            status_grid.addWidget(combo, combo_row, col)
 
         layout.addLayout(status_grid)
 
@@ -764,36 +765,50 @@ class StatRepDialog(QDialog):
         # Spacer
         layout.addStretch()
 
-        # Buttons
-        button_layout = QtWidgets.QHBoxLayout()
-        button_layout.setSpacing(10)
+        # Buttons — two rows sharing the same 5-column grid so widths align
+        btn_grid = QtWidgets.QGridLayout()
+        btn_grid.setSpacing(10)
+        for col in range(5):
+            btn_grid.setColumnStretch(col, 1)
 
+        # Row 0: Grid Finder (col 3) and Brevity (col 4)
+        btn_grid_finder = QtWidgets.QPushButton("Grid Finder")
+        btn_grid_finder.clicked.connect(self._on_grid_finder)
+        btn_grid_finder.setStyleSheet(self._button_style("#28a745"))
+        btn_grid.addWidget(btn_grid_finder, 0, 3)
+
+        btn_brevity = QtWidgets.QPushButton("Brevity")
+        btn_brevity.clicked.connect(self._on_brevity)
+        btn_brevity.setStyleSheet(self._button_style("#6f42c1"))
+        btn_grid.addWidget(btn_brevity, 0, 4)
+
+        # Row 1: all five main buttons
         btn_all_green = QtWidgets.QPushButton("All Green")
         btn_all_green.clicked.connect(self._on_all_green)
         btn_all_green.setStyleSheet(self._button_style("#28a745"))
-        button_layout.addWidget(btn_all_green)
+        btn_grid.addWidget(btn_all_green, 1, 0)
 
         btn_all_gray = QtWidgets.QPushButton("All Gray")
         btn_all_gray.clicked.connect(self._on_all_gray)
         btn_all_gray.setStyleSheet(self._button_style("#6c757d"))
-        button_layout.addWidget(btn_all_gray)
+        btn_grid.addWidget(btn_all_gray, 1, 1)
 
         btn_save = QtWidgets.QPushButton("Save Only")
         btn_save.clicked.connect(self._on_save_only)
         btn_save.setStyleSheet(self._button_style("#17a2b8"))
-        button_layout.addWidget(btn_save)
+        btn_grid.addWidget(btn_save, 1, 2)
 
         btn_transmit = QtWidgets.QPushButton("Transmit")
         btn_transmit.clicked.connect(self._on_transmit)
         btn_transmit.setStyleSheet(self._button_style("#007bff"))
-        button_layout.addWidget(btn_transmit)
+        btn_grid.addWidget(btn_transmit, 1, 3)
 
         btn_cancel = QtWidgets.QPushButton("Cancel")
         btn_cancel.clicked.connect(self.close)
         btn_cancel.setStyleSheet(self._button_style("#dc3545"))
-        button_layout.addWidget(btn_cancel)
+        btn_grid.addWidget(btn_cancel, 1, 4)
 
-        layout.addLayout(button_layout)
+        layout.addLayout(btn_grid)
 
     def _create_status_combo(self) -> QComboBox:
         """Create a status dropdown with color-coded options."""
@@ -833,7 +848,7 @@ class StatRepDialog(QDialog):
                 padding: 8px 12px;
                 border-radius: 4px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 11pt;
             }}
             QPushButton:hover {{
                 opacity: 0.9;
@@ -960,6 +975,43 @@ class StatRepDialog(QDialog):
             if index >= 0:
                 combo.setCurrentIndex(index)
 
+    def _on_brevity(self) -> None:
+        """Launch Brevity modal over StatRep; Copy Code inserts into remarks field."""
+        from brevity import BrevityApp
+        self._brevity_window = BrevityApp(self.panel_background, "#333333", parent=self)
+        self._brevity_window.setWindowModality(QtCore.Qt.WindowModal)
+        self._brevity_window.code_selected.connect(self._on_brevity_code_selected)
+        self._brevity_window.show()
+
+    def _on_brevity_code_selected(self, code: str) -> None:
+        """Insert selected brevity code into the remarks field and close Brevity."""
+        padded = f" {code} "
+        if self.remarks_field.isVisible():
+            current = self.remarks_field.text()
+            self.remarks_field.setText(current + padded)
+            self.remarks_field.setCursorPosition(len(self.remarks_field.text()))
+        else:
+            self.remarks_expanded.insertPlainText(padded)
+        if hasattr(self, '_brevity_window'):
+            self._brevity_window.close()
+
+    def _on_grid_finder(self) -> None:
+        """Launch Grid Finder and wire selected grid back to the grid field."""
+        from gridfinder import GridFinderApp
+        self._grid_finder = GridFinderApp(
+            self.panel_background, "#333333", self.data_background, "#000000", parent=self
+        )
+        self._grid_finder.setWindowModality(QtCore.Qt.WindowModal)
+        self._grid_finder.grid_selected.connect(self._on_grid_finder_selected)
+        self._grid_finder.show()
+
+    def _on_grid_finder_selected(self, grid: str) -> None:
+        """Receive grid from Grid Finder, populate the grid field, and close the finder."""
+        self.grid_field.setText(grid)
+        self._on_grid_field_changed(grid)
+        if hasattr(self, '_grid_finder'):
+            self._grid_finder.close()
+
     def _on_all_green(self) -> None:
         """Set all statuses to Green."""
         self._set_all_status("Green")
@@ -973,7 +1025,7 @@ class StatRepDialog(QDialog):
         values = self._get_status_values()
         scope_code = self.scope_combo.currentData()
         raw_remarks = self._get_remarks_text()
-        remarks = raw_remarks if self._is_internet_only() else raw_remarks.upper()
+        remarks = raw_remarks
 
         # Replace newlines with || for storage/transmission
         remarks = remarks.replace('\r\n', NEWLINE_PLACEHOLDER).replace('\n', NEWLINE_PLACEHOLDER).replace('\r', NEWLINE_PLACEHOLDER)

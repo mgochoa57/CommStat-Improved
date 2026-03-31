@@ -52,14 +52,18 @@ class DirectMessageDialog(QDialog):
         self,
         tcp_pool: "TCPConnectionPool" = None,
         connector_manager: "ConnectorManager" = None,
+        target_callsign: str = "",
         parent=None,
     ):
         super().__init__(parent)
         self.tcp_pool = tcp_pool
         self.connector_manager = connector_manager
         self.callsign: str = self._get_my_callsign()
+        self._target_callsign = target_callsign.strip().upper()
 
         self._setup_ui()
+        if self._target_callsign:
+            self.callsign_input.setText(self._target_callsign)
 
     # -------------------------------------------------------------------------
     # Setup

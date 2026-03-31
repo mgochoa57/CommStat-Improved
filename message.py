@@ -32,6 +32,10 @@ MIN_CALLSIGN_LENGTH = 4
 MAX_CALLSIGN_LENGTH = 8
 MIN_MESSAGE_LENGTH = 4
 MAX_MESSAGE_LENGTH = 67
+MAX_MESSAGE_LENGTH_INTERNET = 500
+WINDOW_HEIGHT_DEFAULT = 344
+WINDOW_HEIGHT_EXPANDED = 418   # 344 + 74 (expanded message field height - single-line height)
+_MSG_EXPAND_DELTA = 74         # 100px expanded height - 26px single-line height
 DATABASE_FILE = "traffic.db3"
 CONFIG_FILE = "config.ini"
 
@@ -80,6 +84,7 @@ class Ui_FormMessage:
         self.msg_id: str = ""
         self._pending_message: str = ""
         self._pending_callsign: str = ""
+        self._message_is_expanded: bool = False
 
     def setupUi(self, FormMessage: QtWidgets.QWidget) -> None:
         """Initialize the UI components."""
@@ -218,6 +223,15 @@ class Ui_FormMessage:
         self.lineEdit_2.setMaxLength(MAX_MESSAGE_LENGTH)
         self.lineEdit_2.setObjectName("lineEdit_2")
 
+        # Multi-line message field for Internet Only (hidden by default)
+        self.message_expanded = QtWidgets.QPlainTextEdit(FormMessage)
+        self.message_expanded.setGeometry(QtCore.QRect(190, 177, 530, 100))
+        self.message_expanded.setFont(font)
+        self.message_expanded.setStyleSheet(
+            "background-color: white; color: #333333; border: 1px solid #cccccc; border-radius: 4px; padding: 2px 4px;"
+        )
+        self.message_expanded.hide()
+
         # Character limit note
         self.note_label = QtWidgets.QLabel(FormMessage)
         self.note_label.setGeometry(QtCore.QRect(190, 207, 481, 20))
@@ -355,6 +369,8 @@ class Ui_FormMessage:
             if not is_internet:
                 self.delivery_combo.addItem("Limited Reach")
             self.delivery_combo.blockSignals(False)
+        if hasattr(self, 'message_expanded'):
+            self._swap_message_widget(is_internet)
 
         if rig_name == INTERNET_RIG:
             callsign = self._get_internet_callsign()
@@ -426,6 +442,31 @@ class Ui_FormMessage:
             frequency_mhz = dial_freq / 1000000
             if hasattr(self, 'freq_field'):
                 self.freq_field.setText(f"{frequency_mhz:.3f}")
+
+    def _swap_message_widget(self, internet_only: bool) -> None:
+        """Swap between single-line and multi-line message field."""
+        if internet_only == self._message_is_expanded:
+            return
+        self._message_is_expanded = internet_only
+        shift = _MSG_EXPAND_DELTA if internet_only else -_MSG_EXPAND_DELTA
+        if internet_only:
+            text = self.lineEdit_2.text()
+            self.lineEdit_2.hide()
+            self.message_expanded.setPlainText(text)
+            self.message_expanded.show()
+            self.note_label.setText(f"Internet Only: messages support up to {MAX_MESSAGE_LENGTH_INTERNET} characters.")
+        else:
+            text = self.message_expanded.toPlainText()
+            self.message_expanded.hide()
+            self.lineEdit_2.setText(text[:MAX_MESSAGE_LENGTH])
+            self.lineEdit_2.show()
+            self.note_label.setText("Messages are limited to 67 characters.")
+        for w in [self.note_label, self.delivery_legend_label,
+                  self.pushButton_3, self.pushButton, self.pushButton_2]:
+            g = w.geometry()
+            w.setGeometry(g.x(), g.y() + shift, g.width(), g.height())
+        new_height = WINDOW_HEIGHT_EXPANDED if internet_only else WINDOW_HEIGHT_DEFAULT
+        self.MainWindow.resize(835, new_height)
 
     def _get_internet_callsign(self) -> str:
         """Get callsign from User Settings for internet-only transmission."""
@@ -536,7 +577,10 @@ class Ui_FormMessage:
             return None
 
         # Get and clean message
-        message_raw = self.lineEdit_2.text()
+        if self._message_is_expanded and hasattr(self, 'message_expanded'):
+            message_raw = self.message_expanded.toPlainText()
+        else:
+            message_raw = self.lineEdit_2.text()
         message = re.sub(r"[^ -~]+", " ", message_raw)
 
         # Validate message length
