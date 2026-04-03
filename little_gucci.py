@@ -28,8 +28,6 @@ import socket
 import sqlite3
 import threading
 import subprocess
-import http.server
-import socketserver
 import urllib.request
 import ssl
 import time
@@ -55,9 +53,10 @@ except ImportError:
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QTableWidgetItem
-from PyQt5.QtCore import QTimer, QDateTime, Qt
+from PyQt5.QtCore import QBuffer, QIODevice, QTimer, QDateTime, Qt, QUrl
 from PyQt5.QtWidgets import qApp
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile
+from PyQt5.QtWebEngineCore import QWebEngineUrlSchemeHandler, QWebEngineUrlScheme, QWebEngineUrlRequestJob
 from about import Ui_FormAbout
 from filter import FilterDialog
 from groups import GroupsDialog
@@ -573,37 +572,76 @@ def create_insecure_ssl_context():
 
 
 # =============================================================================
-# Tile Server for Map
+# Tile Scheme Handler for Map
 # =============================================================================
 
-class TileHandler(http.server.SimpleHTTPRequestHandler):
-    """Serves map tiles from the tilesPNG2 directory."""
+class TileSchemeHandler(QWebEngineUrlSchemeHandler):
+    """Serves map tiles from tilesPNG2 via the tiles:// custom URL scheme."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory="tilesPNG2", **kwargs)
+    def __init__(self, tile_dir: str, parent=None):
+        super().__init__(parent)
+        self._tile_dir = tile_dir
+        self._live_bufs: set = set()
 
-    def log_message(self, format, *args):
-        """Suppress logging to keep console clean."""
-        pass
+    def requestStarted(self, job: QWebEngineUrlRequestJob) -> None:
+        path = job.requestUrl().path().lstrip('/')
+        tile_path = os.path.join(self._tile_dir, path)
+        if os.path.exists(tile_path):
+            try:
+                with open(tile_path, 'rb') as f:
+                    data = f.read()
+                buf = QBuffer()
+                buf.setData(data)
+                buf.open(QIODevice.ReadOnly)
+                self._live_bufs.add(buf)
+                job.destroyed.connect(lambda: self._live_bufs.discard(buf))
+                job.reply(b'image/png', buf)
+            except Exception:
+                job.fail(QWebEngineUrlRequestJob.RequestFailed)
+        else:
+            job.fail(QWebEngineUrlRequestJob.UrlNotFound)
 
 
-def start_local_server(port: int = 8000) -> Optional[int]:
-    """Start a local tile server on the specified port."""
-    ports = [port, port + 1]
-    for p in ports:
-        try:
-            with socketserver.TCPServer(("", p), TileHandler) as httpd:
-                print(f"Tile server running on port {p}")
-                httpd.serve_forever()
-            return p
-        except OSError as e:
-            # Address already in use: 48=macOS, 98=Linux, 10048=Windows
-            if e.errno in (48, 98, 10048):
-                print(f"Port {p} in use, trying next...")
-                continue
-            raise
-    print("Failed to start tile server")
-    return None
+# =============================================================================
+# Large Map Breakout Window
+# =============================================================================
+
+class LargeMapDialog(QtWidgets.QDialog):
+    """Non-modal window showing a larger version of the main map."""
+
+    _ASPECT_RATIO = 16 / 9  # 800 x 450
+
+    def __init__(self, html: str, main_window, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("CommStat — Map")
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.resize(800, 450)
+        if os.path.exists("radiation-32.png"):
+            self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.map_view = QWebEngineView()
+        self.map_view.setPage(CustomWebEnginePage(main_window))
+        layout.addWidget(self.map_view)
+
+        if html:
+            self.map_view.setHtml(html, QUrl("http://localhost/"))
+
+    def resizeEvent(self, event):
+        new_w = event.size().width()
+        new_h = event.size().height()
+        if new_w / max(new_h, 1) != self._ASPECT_RATIO:
+            # Anchor to whichever dimension changed more
+            if abs(new_w - event.oldSize().width()) >= abs(new_h - event.oldSize().height()):
+                self.resize(new_w, round(new_w / self._ASPECT_RATIO))
+            else:
+                self.resize(round(new_h * self._ASPECT_RATIO), new_h)
+        super().resizeEvent(event)
+
+    def update_map(self, html: str) -> None:
+        self.map_view.setHtml(html, QUrl("http://localhost/"))
 
 
 # =============================================================================
@@ -649,33 +687,35 @@ class CustomWebEnginePage(QWebEnginePage):
                 callsign = parts[2]
                 mw = self.parent_widget
                 if sr_id and callsign and mw:
-                    try:
-                        from qrz_lookup import StatRepDetailDialog
-                        dlg = StatRepDetailDialog(
-                            sr_id, callsign, mw._internet_available,
-                            backbone_url=_BACKBONE,
-                            panel_background=mw.config.get_color('panel_background'),
-                            panel_foreground=mw.config.get_color('panel_foreground'),
-                            title_bar_background=mw.config.get_color('title_bar_background'),
-                            title_bar_foreground=mw.config.get_color('title_bar_foreground'),
-                            data_background=mw.config.get_color('data_background'),
-                            program_background=mw.config.get_color('program_background'),
-                            program_foreground=mw.config.get_color('program_foreground'),
-                            condition_green=mw.config.get_color('condition_green'),
-                            condition_yellow=mw.config.get_color('condition_yellow'),
-                            condition_red=mw.config.get_color('condition_red'),
-                            condition_gray=mw.config.get_color('condition_gray'),
-                            tcp_pool=mw.tcp_pool,
-                            connector_manager=mw.connector_manager,
-                            backbone_debug=mw.backbone_debug,
-                            parent=mw
-                        )
-                        dlg.pin_changed.connect(
-                            lambda _: mw._save_map_position(callback=mw._load_map)
-                        )
-                        dlg.exec_()
-                    except Exception as e:
-                        print(f"[Map popup] Failed to open StatRepDetailDialog: {e}")
+                    def _open_dialog(sr_id=sr_id, callsign=callsign, mw=mw):
+                        try:
+                            from qrz_lookup import StatRepDetailDialog
+                            dlg = StatRepDetailDialog(
+                                sr_id, callsign, mw._internet_available,
+                                backbone_url=_BACKBONE,
+                                panel_background=mw.config.get_color('panel_background'),
+                                panel_foreground=mw.config.get_color('panel_foreground'),
+                                title_bar_background=mw.config.get_color('title_bar_background'),
+                                title_bar_foreground=mw.config.get_color('title_bar_foreground'),
+                                data_background=mw.config.get_color('data_background'),
+                                program_background=mw.config.get_color('program_background'),
+                                program_foreground=mw.config.get_color('program_foreground'),
+                                condition_green=mw.config.get_color('condition_green'),
+                                condition_yellow=mw.config.get_color('condition_yellow'),
+                                condition_red=mw.config.get_color('condition_red'),
+                                condition_gray=mw.config.get_color('condition_gray'),
+                                tcp_pool=mw.tcp_pool,
+                                connector_manager=mw.connector_manager,
+                                backbone_debug=mw.backbone_debug,
+                                parent=mw
+                            )
+                            dlg.pin_changed.connect(
+                                lambda _: mw._save_map_position(callback=mw._load_map)
+                            )
+                            dlg.exec_()
+                        except Exception as e:
+                            print(f"[Map popup] Failed to open StatRepDetailDialog: {e}")
+                    QTimer.singleShot(0, _open_dialog)
             return False  # Prevent navigation
         return super().acceptNavigationRequest(url, navigation_type, is_main_frame)
 
@@ -1435,10 +1475,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # Initiate TCP connections (Connecting... messages come via status_message signal)
         self.tcp_pool.connect_all()
 
-        # Start tile server for map
-        self.server_thread = threading.Thread(target=start_local_server, daemon=True)
-        self.server_thread.start()
-
         # Map state
         self.map_loaded = False
 
@@ -1803,6 +1839,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tools_menu.addSeparator()
         create_action(self.tools_menu, "Grid Finder", "grid_finder", self._on_grid_finder)
         create_action(self.tools_menu, "QRZ Lookup", "qrz_lookup", self._on_qrz_lookup)
+        create_action(self.tools_menu, "Large Map...", "large_map", self._on_large_map)
 
         # Menubar items
         create_action(self.menubar, "Exit", "exit", qApp.quit)
@@ -2773,6 +2810,15 @@ class MainWindow(QtWidgets.QMainWindow):
                         ),
                         None
                     )
+                    try:
+                        conn = sqlite3.connect(DATABASE_FILE, timeout=10)
+                        cursor = conn.cursor()
+                        cursor.execute("UPDATE controls SET data_id = ? WHERE id = 1", (data_id,))
+                        conn.commit()
+                        conn.close()
+                        print(f"Updated data_id to {data_id} in controls table (delete)")
+                    except sqlite3.Error as e:
+                        print(f"Warning: Failed to update data_id in controls table (delete): {e}")
                     continue
 
                 # Parse the data line: date time freq_hz unused snr callsign: message
@@ -2999,7 +3045,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._handle_program_update(content_stripped)
                 return
 
-            if re.search(r'^\d+:\s+\d{4}-\d{2}-\d{2}', content_stripped, re.MULTILINE):
+            if (re.search(r'^\d+:\s+\d{4}-\d{2}-\d{2}', content_stripped, re.MULTILINE) or
+                    re.search(r'^\d+:\s+::STATREP-DELETE::', content_stripped, re.MULTILINE)):
                 self._handle_backbone_data_messages(content_stripped)
 
         except Exception as e:
@@ -3123,7 +3170,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Add local tile layer
         folium.raster_layers.TileLayer(
-            tiles='http://localhost:8000/{z}/{x}/{y}.png',
+            tiles='tiles://local/{z}/{x}/{y}.png',
             name='Local Tiles',
             attr='Local Tiles',
             max_zoom=8,
@@ -3171,16 +3218,18 @@ class MainWindow(QtWidgets.QMainWindow):
                     gridlist.append(grid)
 
                     # Create popup HTML
+                    sr_date = row[1][:10] if row[1] else ""
                     html = f'''<HTML style="height:100%;">
                         <BODY style="margin:0;font-family:Arial;text-align:center;
                                      height:100%;display:flex;flex-direction:column;
                                      justify-content:center;align-items:center;">
-                            <p style="font-size:11pt;font-weight:bold;margin:0 0 4px 0;">{callsign}</p>
+                            <p style="font-size:11pt;font-weight:bold;margin:0 0 2px 0;">{callsign}</p>
+                            <p style="font-size:9pt;font-weight:normal;margin:0 0 4px 0;">{sr_date}</p>
                             <a href="http://localhost/statrep/{statrep_id}/{callsign}"
                                style="font-size:11pt;color:#0000EE;">Details</a>
                         </BODY>
                     </HTML>'''
-                    iframe = folium.IFrame(html, width=120, height=65)
+                    iframe = folium.IFrame(html, width=120, height=78)
                     popup = folium.Popup(iframe, min_width=80, max_width=120)
 
                     # Determine pin color and size
@@ -3216,7 +3265,10 @@ class MainWindow(QtWidgets.QMainWindow):
         m.save(map_data, close_file=False)
 
         # Always set new HTML content (reload() only refreshes cached content)
-        self.map_widget.setHtml(map_data.getvalue().decode())
+        self._last_map_html = map_data.getvalue().decode()
+        self.map_widget.setHtml(self._last_map_html, QUrl("http://localhost/"))
+        if getattr(self, '_large_map_dlg', None) and self._large_map_dlg.isVisible():
+            self._large_map_dlg.update_map(self._last_map_html)
         self.map_loaded = True
 
         if callback:
@@ -3775,6 +3827,16 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.config.get_hide_map():
                 self.map_disabled_label.show()
                 self._start_slideshow()
+
+    def _on_large_map(self) -> None:
+        """Open or raise the large map breakout window."""
+        if getattr(self, '_large_map_dlg', None) and self._large_map_dlg.isVisible():
+            self._large_map_dlg.raise_()
+            self._large_map_dlg.activateWindow()
+            return
+        html = getattr(self, '_last_map_html', '')
+        self._large_map_dlg = LargeMapDialog(html, main_window=self, parent=self)
+        self._large_map_dlg.show()
 
     def _trigger_show_alerts(self) -> None:
         """Trigger Show Alerts mode when a new alert is received."""
@@ -5123,9 +5185,22 @@ def main() -> None:
         except Exception as e:
             print(f"Warning: Could not replace launcher: {e}")
 
+    # Register tiles:// scheme before QApplication (Qt requirement)
+    _tile_scheme = QWebEngineUrlScheme(b'tiles')
+    _tile_scheme.setFlags(
+        QWebEngineUrlScheme.SecureScheme |
+        QWebEngineUrlScheme.LocalScheme |
+        QWebEngineUrlScheme.CorsEnabled
+    )
+    QWebEngineUrlScheme.registerScheme(_tile_scheme)
+
     QtWidgets.QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QtWidgets.QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     app = QtWidgets.QApplication(sys.argv)
+
+    # Install tile scheme handler on the default profile
+    _tile_handler = TileSchemeHandler("tilesPNG2")
+    QWebEngineProfile.defaultProfile().installUrlSchemeHandler(b'tiles', _tile_handler)
 
     # Set tooltip colors to match Windows (tan background, black text)
     app.setStyleSheet("QToolTip { background-color: #FFFFE1; color: black; border: 1px solid black; }")

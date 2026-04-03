@@ -185,6 +185,7 @@ class StatRepDialog(QDialog):
         self.selected_group = ""
         self.statrep_id = ""
         self._pending_frequency = 0  # For storing frequency during transmit
+        self._forwarder_callsign = ""  # Forwarder's callsign in forward mode
 
         # Status combo boxes
         self.status_combos: Dict[str, QComboBox] = {}
@@ -362,10 +363,12 @@ class StatRepDialog(QDialog):
     def _on_rig_changed(self, rig_name: str) -> None:
         """Handle rig selection change - fetch callsign and grid from JS8Call."""
         if not rig_name or "(disconnected)" in rig_name:
-            self.callsign = ""
-            self.grid = ""
-            if hasattr(self, 'from_field'):
-                self.from_field.setText("")
+            if not getattr(self, '_forward_origin', None):
+                self.callsign = ""
+                self.grid = ""
+                if hasattr(self, 'from_field'):
+                    self.from_field.setText("")
+            if hasattr(self, 'grid_field'):
                 self.grid_field.setText("")
             if hasattr(self, 'freq_field'):
                 self.freq_field.setText("")
@@ -385,11 +388,15 @@ class StatRepDialog(QDialog):
 
         if rig_name == INTERNET_RIG:
             callsign, grid, state = self._get_internet_user_settings()
-            self.callsign = callsign
-            self.grid = grid
-            if hasattr(self, 'from_field'):
-                self.from_field.setText(callsign)
-                self.grid_field.setText(grid)
+            if getattr(self, '_forward_origin', None):
+                self._forwarder_callsign = callsign
+            else:
+                self.grid = grid
+                self.callsign = callsign
+                if hasattr(self, 'from_field'):
+                    self.from_field.setText(callsign)
+                if hasattr(self, 'grid_field'):
+                    self.grid_field.setText(grid)
             if hasattr(self, 'freq_field'):
                 self.freq_field.setText("")
             if hasattr(self, 'mode_combo'):
@@ -506,15 +513,18 @@ class StatRepDialog(QDialog):
         """Handle callsign received from JS8Call."""
         # Only update if this is the currently selected rig
         if self.rig_combo.currentText() == rig_name:
-            self.callsign = callsign
-            if hasattr(self, 'from_field'):
-                self.from_field.setText(callsign)
+            if getattr(self, '_forward_origin', None):
+                self._forwarder_callsign = callsign
+            else:
+                self.callsign = callsign
+                if hasattr(self, 'from_field'):
+                    self.from_field.setText(callsign)
 
     def _on_grid_received(self, rig_name: str, grid: str) -> None:
         """Handle grid received from JS8Call."""
         print(f"[StatRep] Grid received from {rig_name}: {grid}")
-        # Only update if this is the currently selected rig
-        if self.rig_combo.currentText() == rig_name:
+        # Only update if this is the currently selected rig and not forwarding
+        if self.rig_combo.currentText() == rig_name and not getattr(self, '_forward_origin', None):
             self.grid = grid
             if hasattr(self, 'grid_field'):
                 self.grid_field.setText(grid)
@@ -771,7 +781,15 @@ class StatRepDialog(QDialog):
         for col in range(5):
             btn_grid.setColumnStretch(col, 1)
 
-        # Row 0: Grid Finder (col 3) and Brevity (col 4)
+        # Row 0: Forward Mode indicator (cols 0-2), Grid Finder (col 3), Brevity (col 4)
+        self._forward_mode_label = QtWidgets.QLabel("FORWARD MODE")
+        self._forward_mode_label.setAlignment(QtCore.Qt.AlignCenter)
+        self._forward_mode_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
+        self._forward_mode_label.setStyleSheet("background-color: #FFFF00; color: #000000; border-radius: 4px;")
+        self._forward_mode_label.setMinimumHeight(28)
+        self._forward_mode_label.hide()
+        btn_grid.addWidget(self._forward_mode_label, 0, 0, 1, 3)
+
         btn_grid_finder = QtWidgets.QPushButton("Grid Finder")
         btn_grid_finder.clicked.connect(self._on_grid_finder)
         btn_grid_finder.setStyleSheet(self._button_style("#28a745"))
@@ -966,6 +984,11 @@ class StatRepDialog(QDialog):
 
         if data.get("origin_callsign"):
             self._forward_origin = data["origin_callsign"]
+            if hasattr(self, 'from_field'):
+                self.from_field.setText(self._forward_origin)
+                self.from_field.setReadOnly(True)
+            if hasattr(self, '_forward_mode_label'):
+                self._forward_mode_label.show()
 
     def _set_all_status(self, status_name: str) -> None:
         """Set all status dropdowns to the specified status."""
@@ -1057,7 +1080,8 @@ class StatRepDialog(QDialog):
         group = f"@{self.to_combo.currentText()}"
         if getattr(self, "_forward_origin", None):
             marker = "{F%}"
-            message = f"{self.callsign.upper()}: {group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{self._forward_origin},{marker}"
+            forwarder = getattr(self, '_forwarder_callsign', self.callsign).upper()
+            message = f"{self._forward_origin.upper()}: {group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{forwarder},{marker}"
         else:
             marker = "{&%3}" if self.rig_combo.currentText() == INTERNET_RIG else "{&%}"
             message = f"{self.callsign.upper()}: {group} ,{self.grid},{scope_code},{self.statrep_id},{status_str},{remarks},{marker}"
@@ -1178,7 +1202,8 @@ class StatRepDialog(QDialog):
                 return
             self.callsign = callsign
             self._pending_message = self._build_message()
-            self._save_to_database(0)
+            if not getattr(self, '_forward_origin', None):
+                self._save_to_database(0)
             self._submit_to_backbone_async(0)
             now = QDateTime.currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss")
             print(f"\n{'='*60}")
@@ -1263,8 +1288,9 @@ class StatRepDialog(QDialog):
             # Transmit via TCP
             client.send_tx_message(self._pending_message)
 
-            # Save to database with frequency
-            self._save_to_database(frequency)
+            # Save to database with frequency (skip if forwarding — record already exists)
+            if not getattr(self, '_forward_origin', None):
+                self._save_to_database(frequency)
 
             # Submit to backbone server (asynchronous, non-blocking)
             if self.delivery_combo.currentText() != "Limited Reach":

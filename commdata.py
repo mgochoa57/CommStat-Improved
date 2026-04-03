@@ -442,7 +442,7 @@ class UI(QMainWindow):
 
         # Add LOCAL tile layer (tilesPNG2 directory)
         folium.raster_layers.TileLayer(
-            tiles='http://localhost:8000/{z}/{x}/{y}.png',
+            tiles='tiles://local/{z}/{x}/{y}.png',
             name='Local Tiles',
             attr='Local Tiles',
             max_zoom=8,  # Local tiles only up to zoom level 8

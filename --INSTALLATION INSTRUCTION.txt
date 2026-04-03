@@ -1,9 +1,0 @@
-COMMSTAT-IMPROVED INSTALLATION INSTRUCTIONS
-============================================
-
-For current installation instructions, please visit:
-
-    https://commstat-improved.com/
-
-The website is always up to date with the latest installation
-guides for Windows, Linux, and Mac.

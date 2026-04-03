@@ -106,7 +106,7 @@ def _make_map_html(lat: float, lon: float, internet_available: bool = True,
         m = folium.Map(location=[lat, lon], zoom_start=4)
 
     folium.raster_layers.TileLayer(
-        tiles="http://localhost:8000/{z}/{x}/{y}.png",
+        tiles="tiles://local/{z}/{x}/{y}.png",
         name="Local Tiles", attr="Local Tiles",
         max_zoom=8, control=False,
     ).add_to(m)
@@ -121,7 +121,8 @@ def _make_map_html(lat: float, lon: float, internet_available: bool = True,
         folium.Marker(location=[lat, lon], icon=folium.Icon(color="red")).add_to(m)
         folium.Marker(location=[extra_lat, extra_lon]).add_to(m)
         m.fit_bounds([[min(lat, extra_lat), min(lon, extra_lon)],
-                      [max(lat, extra_lat), max(lon, extra_lon)]])
+                      [max(lat, extra_lat), max(lon, extra_lon)]],
+                     max_zoom=4)
     else:
         folium.Marker(location=[lat, lon]).add_to(m)
 
@@ -934,7 +935,8 @@ class StatRepDetailDialog(QDialog):
                 self._statrep_lon = lon
                 self._statrep_grid = grid[:4].upper()
                 self.map_view.setHtml(
-                    _make_map_html(lat, lon, self.internet_available)
+                    _make_map_html(lat, lon, self.internet_available),
+                    QUrl("http://localhost/")
                 )
                 self._map_loaded = True
             except Exception as e:
@@ -1046,7 +1048,8 @@ class StatRepDetailDialog(QDialog):
                 try:
                     lat, lon = float(d["lat"]), float(d["lon"])
                     self.map_view.setHtml(
-                        _make_map_html(lat, lon, self.internet_available)
+                        _make_map_html(lat, lon, self.internet_available),
+                        QUrl("http://localhost/")
                     )
                     self._map_loaded = True
                 except (ValueError, TypeError):
@@ -1062,7 +1065,8 @@ class StatRepDetailDialog(QDialog):
                             self._statrep_lat, self._statrep_lon,
                             self.internet_available,
                             extra_lat=qrz_lat, extra_lon=qrz_lon,
-                        )
+                        ),
+                        QUrl("http://localhost/")
                     )
                 except (ValueError, TypeError):
                     pass
@@ -1196,7 +1200,8 @@ class MessageDetailDialog(QDialog):
             if lat is not None and lon is not None:
                 self._map_loaded = True
                 self.map_view.setHtml(
-                    _make_map_html(lat, lon, self.internet_available)
+                    _make_map_html(lat, lon, self.internet_available),
+                    QUrl("http://localhost/")
                 )
         else:
             # Map already shows statrep grid — add QRZ home pin if grid differs
@@ -1209,7 +1214,8 @@ class MessageDetailDialog(QDialog):
                             self._statrep_lat, self._statrep_lon,
                             self.internet_available,
                             extra_lat=qrz_lat, extra_lon=qrz_lon,
-                        )
+                        ),
+                        QUrl("http://localhost/")
                     )
                 except (ValueError, TypeError):
                     pass
