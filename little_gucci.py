@@ -1729,7 +1729,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         transmit_items = [
             ("statrep", "Status Report", self._on_statrep),
-            ("group_alert", "Group Alert", self._on_group_alert),
+            ("group_alert", "Alert", self._on_group_alert),
             ("send_message", "Group Message", self._on_send_message),
             ("direct_message", "Direct Message", self._on_direct_message),
             ("js8email", "JS8 Email", self._on_js8email),

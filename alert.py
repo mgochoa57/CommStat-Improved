@@ -207,7 +207,7 @@ class Ui_FormAlert:
         self.target_call_field.setGeometry(QtCore.QRect(440, 107, 120, 26))
         self.target_call_field.setFont(font)
         self.target_call_field.setMaxLength(12)
-        self.target_call_field.setPlaceholderText("e.g. W8APP")
+        self.target_call_field.setPlaceholderText("e.g. N0CALL")
         self.target_call_field.setObjectName("target_call_field")
         make_uppercase(self.target_call_field)
 
