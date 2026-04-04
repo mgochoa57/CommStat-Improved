@@ -33,6 +33,11 @@ def debug_print(msg: str) -> None:
         print(msg)
 
 
+def qrz_log(msg: str) -> None:
+    """Always print a QRZ console log line."""
+    print(f"[QRZ] {msg}")
+
+
 def load_qrz_config() -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Load QRZ configuration from database.
@@ -103,6 +108,7 @@ def get_qrz_cached(callsign: str) -> Optional[Dict]:
                 cached_date = datetime.fromisoformat(row["insert_date"])
                 age_days = (datetime.now(timezone.utc) - cached_date).days
                 if age_days < CACHE_DAYS:
+                    qrz_log(f"Cache hit for {cs} (age: {age_days} days)")
                     return dict(row)
     except Exception:
         pass
@@ -256,6 +262,7 @@ class QRZClient:
                         return dict(row)
                     else:
                         # Cache expired, delete it
+                        qrz_log(f"Cache expired for {callsign} (age: {age_days} days), refreshing from API")
                         cursor.execute(
                             "DELETE FROM qrz WHERE callsign = ?",
                             (callsign.upper(),)
@@ -353,10 +360,10 @@ class QRZClient:
                 return ET.fromstring(xml_data)
 
         except urllib.error.URLError as e:
-            debug_print(f"QRZ API error: {e}")
+            qrz_log(f"Connection failed: {e.reason}")
             return None
         except ET.ParseError as e:
-            debug_print(f"QRZ XML parse error: {e}")
+            qrz_log(f"Response parse error: {e}")
             return None
 
     def login(self, username: str = None, password: str = None) -> bool:
@@ -374,7 +381,7 @@ class QRZClient:
         password = password or self.password
 
         if not username or not password:
-            debug_print("QRZ: Username and password required")
+            qrz_log("Login skipped: no credentials configured")
             return False
 
         self.username = username
@@ -388,7 +395,6 @@ class QRZClient:
 
         root = self._api_request(params)
         if root is None:
-            debug_print("QRZ: No response from API")
             return False
 
         # Handle XML namespace - QRZ uses xmlns="http://xmldata.qrz.com"
@@ -400,7 +406,7 @@ class QRZClient:
             session = root.find(".//Session")
 
         if session is None:
-            debug_print("QRZ: No Session element in response")
+            qrz_log("Login failed: unexpected server response (no Session element)")
             return False
 
         # Find Key element (with and without namespace)
@@ -410,14 +416,14 @@ class QRZClient:
 
         if key_elem is not None and key_elem.text:
             self.session_key = key_elem.text
-            debug_print(f"QRZ: Login successful")
+            qrz_log(f"Connected to QRZ.com as {username}")
 
             # Check subscription status
             sub_exp = session.find("qrz:SubExp", ns)
             if sub_exp is None:
                 sub_exp = session.find("SubExp")
             if sub_exp is not None and sub_exp.text:
-                debug_print(f"QRZ: Subscription expires {sub_exp.text}")
+                qrz_log(f"Subscription expires: {sub_exp.text}")
 
             return True
 
@@ -426,10 +432,10 @@ class QRZClient:
         if error is None:
             error = session.find("Error")
         if error is not None and error.text:
-            debug_print(f"QRZ: {error.text}")
+            qrz_log(f"Login failed: {error.text}")
             # Disable QRZ on authentication errors
             if "invalid" in error.text.lower() or "password" in error.text.lower():
-                debug_print("QRZ: Disabling QRZ lookups due to auth failure")
+                qrz_log("QRZ lookups disabled due to authentication failure")
                 set_qrz_active(False)
 
         return False
@@ -453,12 +459,12 @@ class QRZClient:
         if use_cache:
             cached = self._get_cached(callsign)
             if cached:
-                debug_print(f"QRZ: {callsign} found in cache")
+                qrz_log(f"Cache hit for {callsign}")
                 return cached
 
         # Check if QRZ is active before making API calls
         if not self.is_active():
-            debug_print("QRZ: Lookups disabled (active = False in config.ini)")
+            debug_print("QRZ: Lookups disabled")
             return None
 
         # Need session key
@@ -490,10 +496,12 @@ class QRZClient:
             if error is not None and error.text:
                 if "Session Timeout" in error.text or "Invalid session" in error.text:
                     # Session expired, re-login and retry
+                    qrz_log(f"Session expired, re-authenticating...")
                     self.session_key = None
                     if self.login():
                         return self.lookup(callsign, use_cache=False)
-                debug_print(f"QRZ: {error.text}")
+                else:
+                    qrz_log(f"Lookup error for {callsign}: {error.text}")
                 return None
 
         # Parse callsign data
@@ -501,7 +509,7 @@ class QRZClient:
         if callsign_elem is None:
             callsign_elem = root.find(".//Callsign")
         if callsign_elem is None:
-            debug_print(f"QRZ: {callsign} not found")
+            qrz_log(f"Data not found for {callsign}")
             return None
 
         # Extract all fields (strip namespace from tag names)
@@ -514,7 +522,10 @@ class QRZClient:
         # Save to cache
         self._save_to_cache(data)
 
-        debug_print(f"QRZ: {callsign} fetched from API")
+        name = " ".join(filter(None, [data.get("fname", ""), data.get("name", "")])).strip()
+        grid = data.get("grid", "")
+        details = ", ".join(filter(None, [name, grid]))
+        qrz_log(f"Data returned for {callsign}" + (f" ({details})" if details else ""))
         return data
 
 

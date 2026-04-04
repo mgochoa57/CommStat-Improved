@@ -185,17 +185,31 @@ class Ui_FormAlert:
         self.delivery_combo.addItem("Limited Reach")
         self.delivery_combo.setObjectName("delivery_combo")
 
-        # Group dropdown
+        # Target row: label + group dropdown + "OR Callsign" label + callsign input
         self.group_label = QtWidgets.QLabel(FormAlert)
         self.group_label.setGeometry(QtCore.QRect(58, 107, 120, 20))
         self.group_label.setFont(font)
-        self.group_label.setText("Group:")
+        self.group_label.setText("Target:")
         self.group_label.setObjectName("group_label")
 
         self.group_combo = QtWidgets.QComboBox(FormAlert)
         self.group_combo.setGeometry(QtCore.QRect(190, 107, 150, 26))
         self.group_combo.setFont(font)
         self.group_combo.setObjectName("group_combo")
+
+        self.or_label = QtWidgets.QLabel(FormAlert)
+        self.or_label.setGeometry(QtCore.QRect(350, 110, 80, 20))
+        self.or_label.setFont(font)
+        self.or_label.setText("OR Callsign")
+        self.or_label.setObjectName("or_label")
+
+        self.target_call_field = QtWidgets.QLineEdit(FormAlert)
+        self.target_call_field.setGeometry(QtCore.QRect(440, 107, 120, 26))
+        self.target_call_field.setFont(font)
+        self.target_call_field.setMaxLength(12)
+        self.target_call_field.setPlaceholderText("e.g. W8APP")
+        self.target_call_field.setObjectName("target_call_field")
+        make_uppercase(self.target_call_field)
 
         # Callsign input (read-only, from JS8Call)
         self.callsign_label = QtWidgets.QLabel(FormAlert)
@@ -344,6 +358,10 @@ class Ui_FormAlert:
         # Connect mode combo signal
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
 
+        # Connect target mutual-exclusion signals
+        self.group_combo.currentTextChanged.connect(self._on_group_changed)
+        self.target_call_field.textChanged.connect(self._on_target_callsign_changed)
+
         # Load rigs into dropdown
         self._load_rigs()
 
@@ -364,16 +382,11 @@ class Ui_FormAlert:
         # Get active group from database
         self.selected_group = self._get_active_group_from_db()
 
-        # Populate group dropdown
+        # Populate group dropdown — always include empty first item
         all_groups = self._get_all_groups_from_db()
-        if len(all_groups) == 1:
-            # Exactly 1 group - auto-select it
-            self.group_combo.addItem(all_groups[0])
-        else:
-            # Multiple groups or no groups - require user selection
-            self.group_combo.addItem("")  # Empty first item
-            for group in all_groups:
-                self.group_combo.addItem(group)
+        self.group_combo.addItem("")
+        for group in all_groups:
+            self.group_combo.addItem(group)
         # Callsign will be loaded from JS8Call when rig is selected
 
     def _load_rigs(self) -> None:
@@ -527,6 +540,30 @@ class Ui_FormAlert:
             print(f"Error reading groups from database: {e}")
         return []
 
+    def _on_group_changed(self, group: str) -> None:
+        """When a group is selected, clear the target callsign field."""
+        if group:
+            self.target_call_field.blockSignals(True)
+            self.target_call_field.clear()
+            self.target_call_field.blockSignals(False)
+
+    def _on_target_callsign_changed(self, text: str) -> None:
+        """When a target callsign is entered, clear the group selection."""
+        if text:
+            self.group_combo.blockSignals(True)
+            self.group_combo.setCurrentIndex(0)
+            self.group_combo.blockSignals(False)
+
+    def _get_target(self) -> str:
+        """Return the alert target: '@GROUP' or plain callsign."""
+        call_target = self.target_call_field.text().strip().upper()
+        if call_target:
+            return call_target
+        group = self.group_combo.currentText()
+        if group:
+            return "@" + group
+        return ""
+
     def _show_error(self, message: str) -> None:
         """Display an error message box."""
         msg = QMessageBox()
@@ -578,10 +615,9 @@ class Ui_FormAlert:
             self.rig_combo.setFocus()
             return None
 
-        # Check group is selected
-        group_name = self.group_combo.currentText()
-        if not group_name or group_name == "":
-            self._show_error("Please select a Group")
+        # Check that either a group or target callsign is provided
+        if not self._get_target():
+            self._show_error("Please select a Group or enter a Target Callsign")
             self.group_combo.setFocus()
             return None
 
@@ -635,9 +671,9 @@ class Ui_FormAlert:
 
     def _build_message(self, callsign: str, color: int, title: str, message: str) -> str:
         """Build the message string for transmission."""
-        group = "@" + self.group_combo.currentText()
+        target = self._get_target()
         marker = "{%%3}" if self.rig_combo.currentText() == INTERNET_RIG else "{%%}"
-        return f"{callsign}: {group} ,{self.alert_id},{color},{title},{message},{marker}"
+        return f"{callsign}: {target} ,{self.alert_id},{color},{title},{message},{marker}"
 
     def _submit_to_backbone_async(self, frequency: int, callsign: str, alert_data: str, now: str) -> None:
         """Start background thread to submit alert to backbone server.
@@ -692,7 +728,7 @@ class Ui_FormAlert:
         now = QDateTime.currentDateTime()
         datetime_str = now.toUTC().toString("yyyy-MM-dd HH:mm:ss")
         date_only = now.toUTC().toString("yyyy-MM-dd")
-        group = "@" + self.group_combo.currentText()
+        target = self._get_target()
 
         conn = sqlite3.connect(DATABASE_FILE)
         try:
@@ -701,19 +737,19 @@ class Ui_FormAlert:
                 "INSERT INTO alerts "
                 "(datetime, date, freq, db, source, alert_id, from_callsign, target, color, title, message) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (datetime_str, date_only, frequency, db, 3 if self.rig_combo.currentText() == INTERNET_RIG else 1, self.alert_id, callsign, group, color, title, message)
+                (datetime_str, date_only, frequency, db, 3 if self.rig_combo.currentText() == INTERNET_RIG else 1, self.alert_id, callsign, target, color, title, message)
             )
             conn.commit()
             freq_mhz = frequency / 1000000.0 if frequency else 0
-            print(f"[Alert] Saved: {datetime_str}, {group}, {self.alert_id}, {callsign}, color={color}, title={title}, {freq_mhz:.6f} MHz")
+            print(f"[Alert] Saved: {datetime_str}, {target}, {self.alert_id}, {callsign}, color={color}, title={title}, {freq_mhz:.6f} MHz")
         finally:
             conn.close()
 
         # Submit to backbone server if transmitted (has frequency)
         if frequency > 0:
             if self.delivery_combo.currentText() != "Limited Reach":
-                # Format: CALLSIGN: @GROUP ,ALERT_ID,COLOR,TITLE,MESSAGE,{%%}
-                alert_data = f"{callsign}: {group} ,{self.alert_id},{color},{title},{message},{{%%}}"
+                # Format: CALLSIGN: TARGET ,ALERT_ID,COLOR,TITLE,MESSAGE,{%%}
+                alert_data = f"{callsign}: {target} ,{self.alert_id},{color},{title},{message},{{%%}}"
                 self._submit_to_backbone_async(frequency, callsign, alert_data, datetime_str)
 
     def _save_only(self) -> None:

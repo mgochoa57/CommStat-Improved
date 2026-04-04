@@ -77,7 +77,7 @@ from id_utils import generate_time_based_id
 # Constants
 # =============================================================================
 
-VERSION = "4.0.1"
+VERSION = "4.0.3"
 WINDOW_TITLE = f"CommStat (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
@@ -4461,17 +4461,15 @@ class MainWindow(QtWidgets.QMainWindow):
             # Remove empty trailing fields
             while fields and not fields[-1].strip():
                 fields.pop()
-            # Last field is origin callsign
+            # Last field is original sender callsign
             origin_call = fields[-1].strip() if len(fields) > 4 else ""
             # Comments are between SRCODE and origin
             comments_raw = ",".join(fields[4:-1]).strip() if len(fields) > 5 else ""
             comments = sanitize_ascii(comments_raw)
-            # Append forwarded info
+            # Append original sender info; from_callsign (forwarder) remains the sender
             if origin_call:
-                fwd_suffix = f" FORWARDED BY: {from_callsign}"
-                comments = (comments + fwd_suffix) if comments else fwd_suffix.lstrip()
-                # Use origin callsign as sender
-                from_callsign = origin_call
+                orig_suffix = f" ORIGINALLY FROM: {origin_call}"
+                comments = (comments + orig_suffix) if comments else orig_suffix.lstrip()
         else:
             # Standard statrep comments
             comments_raw = ",".join([f for f in fields[4:] if f.strip()]).strip() if len(fields) > 4 else ""
@@ -4607,18 +4605,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Filter alerts by target
         if not alert_target.startswith("@"):
-            # No @ prefix — target is a callsign; only accept if it matches our callsign
-            local_callsign, _, __ = self.db.get_user_settings()
-            if alert_target.upper() != local_callsign.upper():
+            # No @ prefix — target is a callsign; accept if it matches any known callsign
+            user_callsigns = [c.upper() for c in self.rig_callsigns.values() if c]
+            if not user_callsigns:
+                local_callsign, _, __ = self.db.get_user_settings()
+                if local_callsign:
+                    user_callsigns = [local_callsign.upper()]
+            if alert_target.upper() not in user_callsigns:
                 return ("", None)
         elif alert_target.upper() == "@GLOBAL":
             # @GLOBAL is a broadcast to everyone — store as @ALLCALL
             alert_target = "@ALLCALL"
         else:
-            # Standard @GROUP — only save if we're a member of that group
+            # Standard @GROUP — only save if we're a member of that group (active or not)
             group_name = alert_target[1:].upper()
-            active_groups = self.db.get_active_groups()
-            if group_name not in active_groups:
+            all_groups = self.db.get_all_groups()
+            if group_name not in all_groups:
                 return ("", None)
 
         # Build data dict for insertion

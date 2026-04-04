@@ -117,6 +117,7 @@ class DirectMessageDialog(QDialog):
         self.callsign_input.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.callsign_input.setFixedWidth(200)
         self.callsign_input.setMinimumHeight(28)
+        self.callsign_input.setMaxLength(12)
         self.callsign_input.setPlaceholderText("e.g. N0CALL")
         self.callsign_input.textChanged.connect(self._on_callsign_changed)
         layout.addWidget(self.callsign_input)

@@ -174,7 +174,7 @@ class _ImageLoader(QThread):
             px = QPixmap()
             px.loadFromData(data)
             if not px.isNull():
-                target_h = 166 if px.width() < px.height() * 1.6 else 126
+                target_h = 166 if px.height() * 2.0 > px.width() else 126
                 self.image_loaded.emit(px.scaledToHeight(target_h, Qt.SmoothTransformation))
         except Exception:
             pass
@@ -335,13 +335,13 @@ class _QRZInfoSection(QWidget):
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
 
-        hdr = QLabel("QRZ API Results")
-        hdr.setFont(QFont("Arial", 16, QFont.Bold))
-        hdr.setStyleSheet(
+        self.hdr = QLabel("QRZ API Lookup For:")
+        self.hdr.setFont(QFont("Roboto Slab", 16, QFont.Black))
+        self.hdr.setStyleSheet(
             f"QLabel {{ background-color: {self._hdr_bg}; color: {self._hdr_fg}; padding-top: 9px; padding-bottom: 9px; }}"
             if self._hdr_bg else ""
         )
-        hdr.setAlignment(Qt.AlignCenter)
+        self.hdr.setAlignment(Qt.AlignCenter)
         self.lbl_call    = QLabel(); self.lbl_call.setFont(QFont("Arial", 14, QFont.Bold))
         self.lbl_name    = QLabel(); self.lbl_name.setFont(QFont("Arial", 12, QFont.Bold))
         self.lbl_addr1   = QLabel(); self.lbl_addr1.setFont(QFont("Arial", 11))
@@ -358,7 +358,7 @@ class _QRZInfoSection(QWidget):
         self.lbl_qrz_profile = QLabel(); self.lbl_qrz_profile.setFont(QFont("Arial", 11))
         self.lbl_qrz_profile.setOpenExternalLinks(True)
 
-        grid.addWidget(hdr,                   0, 0, 1, 2)  # header spans both columns
+        grid.addWidget(self.hdr,              0, 0, 1, 2)  # header spans both columns
         grid.addWidget(self.lbl_call,         1, 0)
         grid.addWidget(self.lbl_name,         2, 0)
         grid.addWidget(self.lbl_license,      2, 1)
@@ -457,7 +457,8 @@ class _QRZInfoSection(QWidget):
         """Populate all labels from raw QRZ data (API or cached format)."""
         d = _normalize_qrz(data)
 
-        self.lbl_call.setText(d["call"])
+        self.hdr.setText(f"QRZ API Lookup For: {d['call']}")
+        self.lbl_call.setText("")
         self.lbl_name.setText(d["name"])
 
         self.lbl_addr1.setText(d["addr1"])
@@ -511,7 +512,8 @@ class _QRZInfoSection(QWidget):
         else:
             px = QPixmap("little-duck.png")
             if not px.isNull():
-                self.lbl_image.setPixmap(px.scaledToHeight(126, Qt.SmoothTransformation))
+                target_h = 166 if px.height() * 2.0 > px.width() else 126
+                self.lbl_image.setPixmap(px.scaledToHeight(target_h, Qt.SmoothTransformation))
 
     def _on_image_loaded(self, px: QPixmap) -> None:
         self.lbl_image.setPixmap(px)
@@ -539,6 +541,7 @@ class _QRZInfoSection(QWidget):
         if self._gif_movie:
             self._gif_movie.stop()
             self._gif_movie = None
+        self.hdr.setText("QRZ API Lookup For:")
         for w in (self.lbl_call, self.lbl_name, self.lbl_addr1, self.lbl_addr2,
                   self.lbl_county, self.lbl_country, self.lbl_license, self.lbl_born,
                   self.lbl_grid, self.lbl_lat, self.lbl_lon, self.lbl_email,
