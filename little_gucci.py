@@ -1745,6 +1745,7 @@ class MainWindow(QtWidgets.QMainWindow):
         create_action(self.tools_menu, "Grid Finder", "grid_finder", self._on_grid_finder)
         create_action(self.tools_menu, "QRZ Lookup", "qrz_lookup", self._on_qrz_lookup)
         create_action(self.tools_menu, "Large Map...", "large_map", self._on_large_map)
+        create_action(self.tools_menu, "QRZ Cache Viewer", "qrz_cache_viewer", self._on_qrz_cache_viewer)
 
         # Menubar items
         create_action(self.menubar, "Exit", "exit", qApp.quit)
@@ -3488,6 +3489,25 @@ class MainWindow(QtWidgets.QMainWindow):
             parent=self
         )
         dlg.exec_()
+
+    def _on_qrz_cache_viewer(self) -> None:
+        """Open the QRZ Cache Viewer window (Tools menu)."""
+        try:
+            from qrz_cache_viewer import QRZCacheViewer
+            # We store it on self to prevent garbage collection if it's not modal
+            if not hasattr(self, 'qrz_viewer') or self.qrz_viewer is None:
+                self.qrz_viewer = QRZCacheViewer(
+                    panel_bg=self.config.get_color('panel_background'),
+                    panel_fg=self.config.get_color('panel_foreground'),
+                    data_bg="#FFF5E1",
+                    data_fg="#000000"
+                )
+            
+            self.qrz_viewer.show()
+            self.qrz_viewer.raise_()
+            self.qrz_viewer.activateWindow()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Could not launch QRZ Cache Viewer: {e}")
 
     def _setup_timers(self) -> None:
         """Setup timers for clock, data refresh, and news feed animation."""
