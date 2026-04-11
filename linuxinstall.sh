@@ -39,13 +39,70 @@ echo "(You may be prompted for your sudo password)"
 echo ""
 
 sudo apt update
-sudo apt install -y python3-pyqt5 python3-pyqt5.qtwebengine libenchant-2-dev python3-tk
+sudo apt install -y python3-pyqt5 python3-pyqt5.qtwebengine libenchant-2-dev python3-tk qt5ct
 
 echo ""
 echo "Running Python installer..."
 echo ""
 
 python3 install.py
+
+echo ""
+echo "Configuring Qt5 theme environment..."
+
+# ~/.profile (shell-agnostic, covers desktop-launched apps)
+if [ -f "$HOME/.profile" ] && ! grep -q "QT_QPA_PLATFORMTHEME" "$HOME/.profile"; then
+    echo 'export QT_QPA_PLATFORMTHEME=qt5ct' >> "$HOME/.profile"
+    echo "  Added to ~/.profile"
+fi
+
+# bash
+if [ -f "$HOME/.bashrc" ] && ! grep -q "QT_QPA_PLATFORMTHEME" "$HOME/.bashrc"; then
+    echo 'export QT_QPA_PLATFORMTHEME=qt5ct' >> "$HOME/.bashrc"
+    echo "  Added to ~/.bashrc"
+fi
+
+# zsh
+if [ -f "$HOME/.zshrc" ] && ! grep -q "QT_QPA_PLATFORMTHEME" "$HOME/.zshrc"; then
+    echo 'export QT_QPA_PLATFORMTHEME=qt5ct' >> "$HOME/.zshrc"
+    echo "  Added to ~/.zshrc"
+fi
+
+# ksh
+if [ -f "$HOME/.kshrc" ] && ! grep -q "QT_QPA_PLATFORMTHEME" "$HOME/.kshrc"; then
+    echo 'export QT_QPA_PLATFORMTHEME=qt5ct' >> "$HOME/.kshrc"
+    echo "  Added to ~/.kshrc"
+fi
+
+# fish (uses different syntax)
+if [ -f "$HOME/.config/fish/config.fish" ] && ! grep -q "QT_QPA_PLATFORMTHEME" "$HOME/.config/fish/config.fish"; then
+    echo 'set -x QT_QPA_PLATFORMTHEME qt5ct' >> "$HOME/.config/fish/config.fish"
+    echo "  Added to ~/.config/fish/config.fish"
+fi
+
+echo "Qt5 theme configuration complete."
+
+echo ""
+echo "Installing application icon..."
+sudo cp "$(dirname "$0")/radiation-32.png" /usr/share/pixmaps/radiation-32.png
+
+echo ""
+echo "Creating desktop shortcut..."
+INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "$HOME/Desktop"
+cat > "$HOME/Desktop/CommStat-Improved.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=CommStat-Improved
+Comment=Run CommStat-Improved
+Exec=$INSTALL_DIR/linuxlauncher.sh
+Icon=radiation-32.png
+Terminal=false
+StartupNotify=true
+Path=$INSTALL_DIR
+EOF
+chmod +x "$HOME/Desktop/CommStat-Improved.desktop"
+echo "Desktop shortcut created at $HOME/Desktop/CommStat-Improved.desktop"
 
 echo ""
 echo "=============================================="
