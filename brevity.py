@@ -1117,7 +1117,7 @@ class BrevityApp(QMainWindow):
 
         decode_button = QPushButton("Decode")
         decode_button.setFixedWidth(100)
-        decode_button.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; font-size: 11pt; padding: 4px 8px; border: none; }")
+        decode_button.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-family: Roboto; font-size: 15px; font-weight: bold; padding: 4px 8px; border: none; }")
         decode_inner_layout.addWidget(decode_button)
 
         decode_layout.addLayout(decode_inner_layout)
@@ -1225,23 +1225,28 @@ class BrevityApp(QMainWindow):
 
         clear_button = QPushButton("Clear")
         clear_button.setFixedWidth(120)
-        clear_button.setStyleSheet("QPushButton { background-color: #dc3545; color: white; font-weight: bold; font-size: 11pt; padding: 4px 8px; border: none; }")
+        clear_button.setStyleSheet("QPushButton { background-color: #dc3545; color: white; font-family: Roboto; font-size: 15px; font-weight: bold; padding: 4px 8px; border: none; }")
         action_layout.addWidget(clear_button)
 
         copy_code_button = QPushButton("Copy Code")
         copy_code_button.setFixedWidth(120)
-        copy_code_button.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; font-size: 11pt; padding: 4px 8px; border: none; }")
+        copy_code_button.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-family: Roboto; font-size: 15px; font-weight: bold; padding: 4px 8px; border: none; }")
         action_layout.addWidget(copy_code_button)
 
         copy_sitrep_button = QPushButton("Copy Report")
         copy_sitrep_button.setFixedWidth(120)
-        copy_sitrep_button.setStyleSheet("QPushButton { background-color: #17a2b8; color: white; font-weight: bold; font-size: 11pt; padding: 4px 8px; border: none; }")
+        copy_sitrep_button.setStyleSheet("QPushButton { background-color: #17a2b8; color: white; font-family: Roboto; font-size: 15px; font-weight: bold; padding: 4px 8px; border: none; }")
         action_layout.addWidget(copy_sitrep_button)
 
         copy_all_button = QPushButton("Copy All")
         copy_all_button.setFixedWidth(120)
-        copy_all_button.setStyleSheet("QPushButton { background-color: #007bff; color: white; font-weight: bold; font-size: 11pt; padding: 4px 8px; border: none; }")
+        copy_all_button.setStyleSheet("QPushButton { background-color: #007bff; color: white; font-family: Roboto; font-size: 15px; font-weight: bold; padding: 4px 8px; border: none; }")
         action_layout.addWidget(copy_all_button)
+
+        cancel_button = QPushButton("Cancel")
+        cancel_button.setFixedWidth(120)
+        cancel_button.setStyleSheet("QPushButton { background-color: #dc3545; color: white; font-family: Roboto; font-size: 15px; font-weight: bold; padding: 4px 8px; border: none; }")
+        action_layout.addWidget(cancel_button)
 
         main_layout.addLayout(action_layout)
 
@@ -1322,6 +1327,7 @@ class BrevityApp(QMainWindow):
         copy_code_button.clicked.connect(self._on_copy_code)
         copy_sitrep_button.clicked.connect(copy_sitrep)
         copy_all_button.clicked.connect(copy_all)
+        cancel_button.clicked.connect(self.close)
         narrative_check.stateChanged.connect(toggle_narrative)
 
         self.list_combo.currentTextChanged.connect(

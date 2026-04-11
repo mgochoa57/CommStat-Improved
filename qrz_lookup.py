@@ -209,8 +209,8 @@ def _get_local_callsign() -> str:
 
 
 class _ReadCountThread(QThread):
-    """Fetches the delivery read-count from the backbone server."""
-    count_ready = pyqtSignal(int)
+    """Fetches the delivery read-count (and last-seen) from the backbone server."""
+    count_ready = pyqtSignal(str)
 
     def __init__(self, backbone_url: str, callsign: str, global_id: int):
         super().__init__()
@@ -224,9 +224,9 @@ class _ReadCountThread(QThread):
                    f"?cs={urllib.parse.quote(self.callsign)}&id={self.global_id}")
             with urllib.request.urlopen(url, timeout=10) as resp:
                 text = resp.read().decode().strip()
-            self.count_ready.emit(int(text))
+            self.count_ready.emit(text)
         except Exception:
-            pass
+            self.count_ready.emit("")
 
 
 class _QRZThread(QThread):
@@ -328,12 +328,13 @@ class _QRZInfoSection(QWidget):
     image_width_ready = pyqtSignal(int)
     last_seen_updated = pyqtSignal(str)
 
-    def __init__(self, hdr_bg: str = "", hdr_fg: str = "", parent=None):
+    def __init__(self, hdr_bg: str = "", hdr_fg: str = "", skip_last_seen: bool = False, parent=None):
         super().__init__(parent)
         self._img_loader: Optional[_ImageLoader] = None
         self._gif_movie: Optional[QMovie] = None
         self._hdr_bg = hdr_bg
         self._hdr_fg = hdr_fg
+        self._skip_last_seen = skip_last_seen
         self._build()
 
     def _build(self) -> None:
@@ -516,7 +517,7 @@ class _QRZInfoSection(QWidget):
         self.lbl_country.setText(f"<b>Country:</b> {d['country']}" if d["country"] else "")
 
         self.lbl_license.setText("<b>Last Seen:</b> —")
-        if d["call"]:
+        if d["call"] and not self._skip_last_seen:
             self._fetch_last_seen(d["call"])
 
         if d["license"] and d["expdate"]:
@@ -850,7 +851,7 @@ class StatRepDetailDialog(QDialog):
         self.memo_edit.setStyleSheet(
             f"background-color:{self._data_bg}; color:#000000; border:1px solid #ccc; border-radius:4px;"
         )
-        self.qrz_info = _QRZInfoSection(hdr_bg=self._program_bg, hdr_fg=self._program_fg, parent=self)
+        self.qrz_info = _QRZInfoSection(hdr_bg=self._program_bg, hdr_fg=self._program_fg, skip_last_seen=True, parent=self)
         self.qrz_info.add_statrep_rows(memo_widget=self.memo_edit)
         self.qrz_info.image_width_ready.connect(self._adjust_for_image_width)
         main.addWidget(self.qrz_info)
@@ -1051,8 +1052,14 @@ class StatRepDetailDialog(QDialog):
             except Exception as e:
                 print(f"[StatRepDetailDialog] Map error for grid {grid}: {e}")
 
-    def _on_read_count(self, count: int) -> None:
-        self.qrz_info.lbl_sr_delivered.setText(f"<b>Delivered To:</b>  {count} CommStat users")
+    def _on_read_count(self, text: str) -> None:
+        if not text:
+            return
+        parts = text.split(",", 1)
+        count_str = parts[0].strip()
+        last_seen = parts[1].strip() if len(parts) > 1 else "—"
+        self.qrz_info.lbl_sr_delivered.setText(f"<b>Delivered To:</b>  {count_str} CommStat users")
+        self.qrz_info.lbl_license.setText(f"<b>Last Seen:</b> {last_seen}")
 
     def _save_memo(self) -> None:
         """Save memo text to the database on focus-out."""

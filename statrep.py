@@ -753,12 +753,14 @@ class StatRepDialog(QDialog):
         self.remarks_field.setMaxLength(REMARKS_MAX_RADIO)
         self.remarks_field.setPlaceholderText(f"Optional - max {REMARKS_MAX_RADIO} characters")
         self.remarks_field.setText(self._get_default_remarks())
+        self.remarks_field.setStyleSheet("background-color: #FFFFFF; color: #000000; border: 1px solid #cccccc; border-radius: 4px; padding: 2px 4px;")
 
         # Multi-line remarks (for Internet Only, hidden by default)
         self.remarks_expanded = QtWidgets.QPlainTextEdit()
         self.remarks_expanded.setFont(QtGui.QFont("Kode Mono", FONT_SIZE))
         self.remarks_expanded.setFixedHeight(110)  # ~5 lines
         self.remarks_expanded.setPlaceholderText(f"Optional - max {REMARKS_MAX_INTERNET} characters, multiple lines allowed")
+        self.remarks_expanded.setStyleSheet("background-color: #FFFFFF; color: #000000; border: 1px solid #cccccc; border-radius: 4px; padding: 2px 4px;")
         self.remarks_expanded.hide()
 
         remarks_layout.addWidget(remarks_label)
@@ -859,8 +861,9 @@ class StatRepDialog(QDialog):
                 border: none;
                 padding: 8px 12px;
                 border-radius: 4px;
+                font-family: Roboto;
                 font-weight: bold;
-                font-size: 11pt;
+                font-size: 15px;
             }}
             QPushButton:hover {{
                 opacity: 0.9;
@@ -1035,6 +1038,9 @@ class StatRepDialog(QDialog):
             self.remarks_field.setText(current + padded)
             self.remarks_field.setCursorPosition(len(self.remarks_field.text()))
         else:
+            cursor = self.remarks_expanded.textCursor()
+            cursor.movePosition(QtGui.QTextCursor.End)
+            self.remarks_expanded.setTextCursor(cursor)
             self.remarks_expanded.insertPlainText(padded)
         if hasattr(self, '_brevity_window'):
             self._brevity_window.close()

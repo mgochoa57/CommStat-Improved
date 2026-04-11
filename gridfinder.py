@@ -146,7 +146,7 @@ class GridFinderApp(QMainWindow):
         self.clear_btn.setFixedWidth(120)
         self.clear_btn.setStyleSheet(
             "QPushButton { background-color: #dc3545; color: white; font-weight: bold; "
-            "font-size: 11pt; padding: 4px 8px; border: none; }"
+            "font-family: Roboto; font-size: 15px; padding: 4px 8px; border: none; }"
             "QPushButton:hover { background-color: #c82333; }"
             "QPushButton:pressed { background-color: #a71d2a; }"
         )
@@ -157,12 +157,23 @@ class GridFinderApp(QMainWindow):
         self.copy_btn.setFixedWidth(120)
         self.copy_btn.setStyleSheet(
             "QPushButton { background-color: #17a2b8; color: white; font-weight: bold; "
-            "font-size: 11pt; padding: 4px 8px; border: none; }"
+            "font-family: Roboto; font-size: 15px; padding: 4px 8px; border: none; }"
             "QPushButton:hover { background-color: #138496; }"
             "QPushButton:pressed { background-color: #0f6674; }"
         )
         self.copy_btn.setFocusPolicy(Qt.NoFocus)
         btn_row.addWidget(self.copy_btn)
+
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setFixedWidth(120)
+        self.cancel_btn.setStyleSheet(
+            "QPushButton { background-color: #dc3545; color: white; font-weight: bold; "
+            "font-family: Roboto; font-size: 15px; padding: 4px 8px; border: none; }"
+            "QPushButton:hover { background-color: #c82333; }"
+            "QPushButton:pressed { background-color: #a71d2a; }"
+        )
+        self.cancel_btn.setFocusPolicy(Qt.NoFocus)
+        btn_row.addWidget(self.cancel_btn)
 
         layout.addLayout(btn_row)
 
@@ -178,6 +189,7 @@ class GridFinderApp(QMainWindow):
         self.table.clicked.connect(self._on_row_clicked)
         self.clear_btn.clicked.connect(self._on_clear)
         self.copy_btn.clicked.connect(self._on_copy)
+        self.cancel_btn.clicked.connect(self.close)
 
         self.city_input.setFocus()
 
