@@ -805,10 +805,10 @@ class StatRepDialog(QDialog):
         btn_all_gray.setStyleSheet(self._button_style("#6c757d"))
         btn_grid.addWidget(btn_all_gray, 1, 1)
 
-        btn_save = QtWidgets.QPushButton("Save Only")
-        btn_save.clicked.connect(self._on_save_only)
-        btn_save.setStyleSheet(self._button_style("#17a2b8"))
-        btn_grid.addWidget(btn_save, 1, 2)
+        self.btn_save = QtWidgets.QPushButton("Save Only")
+        self.btn_save.clicked.connect(self._on_save_only)
+        self.btn_save.setStyleSheet(self._button_style("#17a2b8"))
+        btn_grid.addWidget(self.btn_save, 1, 2)
 
         btn_transmit = QtWidgets.QPushButton("Transmit")
         btn_transmit.clicked.connect(self._on_transmit)
@@ -984,6 +984,8 @@ class StatRepDialog(QDialog):
                 self.from_field.setReadOnly(True)
             if hasattr(self, '_forward_mode_label'):
                 self._forward_mode_label.show()
+            if hasattr(self, 'btn_save'):
+                self.btn_save.setEnabled(False)
 
         # If a rig is already selected (e.g. Internet Only pre-selected at open),
         # update remarks now since _on_rig_changed fired before prefill set _forward_origin.
@@ -1002,7 +1004,7 @@ class StatRepDialog(QDialog):
         if not getattr(self, '_forward_origin', None) or not callsign:
             return
         base = getattr(self, '_forward_original_remarks', "")
-        suffix = f" -> Forwarded By: {callsign}"
+        suffix = f" - Forwarded By: {callsign}"
         full = (base + suffix) if base else suffix.lstrip()
         if hasattr(self, 'remarks_field'):
             self.remarks_field.setText(full[:self.remarks_field.maxLength()])

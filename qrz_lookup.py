@@ -10,6 +10,7 @@ Three modal dialog views:
   - MessageDetailDialog : detail view when clicking a Message row
 """
 
+import base64
 import datetime
 import io
 import os
@@ -17,6 +18,7 @@ import platform
 import sqlite3
 import subprocess
 import sys
+import threading
 import urllib.parse
 import urllib.request
 from typing import Dict, Optional
@@ -35,6 +37,7 @@ from PyQt5.QtWidgets import (
 from qrz_client import QRZClient, get_qrz_cached, load_qrz_config
 
 DB_PATH = "traffic.db3"
+_BACKBONE_URL = base64.b64decode("aHR0cHM6Ly9jb21tc3RhdC1pbXByb3ZlZC5jb20=").decode()
 
 # macOS renders pt-based fonts ~25% smaller than Windows (72 vs 96 DPI base).
 # fs() compensates by scaling font sizes up on Mac.
@@ -149,10 +152,11 @@ def _make_map_html(lat: float, lon: float, internet_available: bool = True,
     return html
 
 
-def _btn_style(color: str) -> str:
+def _btn_style(color: str, px: int = 0) -> str:
+    font_size = f"{px}px" if px else "11pt"
     return (
         f"QPushButton {{ background-color:{color}; color:white; border:none; "
-        f"padding:6px 14px; border-radius:4px; font-weight:bold; font-size:11pt; }}"
+        f"padding:6px 14px; border-radius:4px; font-weight:bold; font-size:{font_size}; }}"
         f"QPushButton:hover {{ background-color:{color}; }}"
     )
 
@@ -317,11 +321,12 @@ class _QRZInfoSection(QWidget):
     """Three-column QRZ info display used by all three dialogs.
 
     Left  : section header, callsign, name, address
-    Center: license, born, grid, lat/lon, email
+    Center: last seen, license, grid, lat/lon, email
     Right : profile image, last modified date
     """
 
     image_width_ready = pyqtSignal(int)
+    last_seen_updated = pyqtSignal(str)
 
     def __init__(self, hdr_bg: str = "", hdr_fg: str = "", parent=None):
         super().__init__(parent)
@@ -369,6 +374,8 @@ class _QRZInfoSection(QWidget):
         self.lbl_email.setOpenExternalLinks(True)
         self.lbl_qrz_profile = QLabel(); self.lbl_qrz_profile.setFont(QFont("Arial", fs(11)))
         self.lbl_qrz_profile.setOpenExternalLinks(True)
+
+        self.last_seen_updated.connect(self._on_last_seen_updated)
 
         grid.addWidget(self.hdr,              0, 0, 1, 2)  # header spans both columns
         grid.addWidget(self.lbl_call,         1, 0)
@@ -465,6 +472,32 @@ class _QRZInfoSection(QWidget):
         self._main_layout.addLayout(sr_row)
         self._main_layout.addStretch()
 
+    # ── Last Seen lookup ──────────────────────────────────────────────────────
+
+    def _fetch_last_seen(self, target: str) -> None:
+        self.lbl_license.setText("<b>Last Seen:</b> …")
+        threading.Thread(target=self._last_seen_thread, args=(target,), daemon=True).start()
+
+    def _last_seen_thread(self, target: str) -> None:
+        try:
+            my_cs = _get_local_callsign()
+            if not my_cs:
+                self.last_seen_updated.emit("—")
+                return
+            url = (
+                f"{_BACKBONE_URL}/get-last-seen-808585.php"
+                f"?cs={urllib.parse.quote(my_cs)}&lookup={urllib.parse.quote(target)}"
+            )
+            with urllib.request.urlopen(url, timeout=8) as resp:
+                result = resp.read().decode("utf-8").strip()
+            self.last_seen_updated.emit(result if result else "—")
+        except Exception as e:
+            print(f"[QRZInfoSection] last-seen error: {e}")
+            self.last_seen_updated.emit("—")
+
+    def _on_last_seen_updated(self, value: str) -> None:
+        self.lbl_license.setText(f"<b>Last Seen:</b> {value}")
+
     def update_data(self, data: dict) -> None:
         """Populate all labels from raw QRZ data (API or cached format)."""
         d = _normalize_qrz(data)
@@ -482,14 +515,18 @@ class _QRZInfoSection(QWidget):
         self.lbl_county.setText(f"<b>County:</b> {d['county']}" if d["county"] else "")
         self.lbl_country.setText(f"<b>Country:</b> {d['country']}" if d["country"] else "")
 
-        if d["license"] and d["expdate"]:
-            self.lbl_license.setText(f"<b>License:</b> {d['license']} (exp: {d['expdate']})")
-        elif d["expdate"]:
-            self.lbl_license.setText(f"(exp: {d['expdate']})")
-        else:
-            self.lbl_license.setText("")
+        self.lbl_license.setText("<b>Last Seen:</b> —")
+        if d["call"]:
+            self._fetch_last_seen(d["call"])
 
-        self.lbl_born.setText(f"<b>Born:</b> {d['born']}" if d["born"] else "")
+        if d["license"] and d["expdate"]:
+            self.lbl_born.setText(f"<b>License:</b> {d['license']} (exp: {d['expdate']})")
+        elif d["expdate"]:
+            self.lbl_born.setText(f"(exp: {d['expdate']})")
+        elif d["license"]:
+            self.lbl_born.setText(f"<b>License:</b> {d['license']}")
+        else:
+            self.lbl_born.setText("")
         self.lbl_grid.setText(f"<b>Grid:</b> {d['grid']}" if d["grid"] else "")
         self.lbl_lat.setText(f"<b>Lat:</b> {d['lat']}" if d["lat"] else "")
         self.lbl_lon.setText(f"<b>Lon:</b> {d['lon']}" if d["lon"] else "")
@@ -541,7 +578,7 @@ class _QRZInfoSection(QWidget):
         self._gif_movie._buf = buf
         self._gif_movie.jumpToFrame(0)
         size = self._gif_movie.currentPixmap().size()
-        target_h = 166 if size.width() < size.height() * 1.6 else 126
+        target_h = 166 if size.height() * 2.0 > size.width() else 126
         self._gif_movie.setScaledSize(
             self._gif_movie.currentPixmap().scaledToHeight(target_h, Qt.SmoothTransformation).size()
         )
@@ -579,8 +616,8 @@ class QRZLookupDialog(QDialog):
         self._program_fg = program_foreground
         self.setWindowTitle("QRZ Lookup")
         self.setModal(True)
-        self.setMinimumSize(750, 320)
-        self.resize(820, 380)
+        self.setMinimumSize(825, 352)
+        self.resize(902, 418)
         if os.path.exists("radiation-32.png"):
             self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
         self._thread: Optional[_QRZThread] = None
@@ -611,12 +648,16 @@ class QRZLookupDialog(QDialog):
         self.cs_edit = QLineEdit()
         self.cs_edit.setPlaceholderText("Enter callsign…")
         self.cs_edit.setMaxLength(12)
+        _cs_font = QtGui.QFont("Kode Mono")
+        _cs_font.setPixelSize(15)
+        self.cs_edit.setFont(_cs_font)
+        self.cs_edit.setMinimumHeight(34)
         self.cs_edit.returnPressed.connect(self._search)
         self.cs_edit.textChanged.connect(self._force_upper)
         row.addWidget(self.cs_edit)
 
         self.btn_search = QPushButton("Search")
-        self.btn_search.setStyleSheet(_btn_style("#0078d7"))
+        self.btn_search.setStyleSheet(_btn_style("#0078d7", px=15))
         self.btn_search.setFixedWidth(90)
         self.btn_search.clicked.connect(self._search)
         row.addWidget(self.btn_search)
@@ -639,7 +680,9 @@ class QRZLookupDialog(QDialog):
 
         self.memo_edit = _MemoTextEdit()
         self.memo_edit.setPlaceholderText("Add notes…")
-        self.memo_edit.setFont(QFont("Arial", fs(11)))
+        _memo_font = QtGui.QFont("Kode Mono")
+        _memo_font.setPixelSize(15)
+        self.memo_edit.setFont(_memo_font)
         self.memo_edit.setStyleSheet(
             f"background-color:white; border:1px solid #ccc; border-radius:4px;"
         )
@@ -653,10 +696,14 @@ class QRZLookupDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self.btn_message_lookup = QPushButton("Message")
-        self.btn_message_lookup.setStyleSheet(_btn_style("#0078d7"))
+        self.btn_message_lookup.setStyleSheet(_btn_style("#0078d7", px=15))
         self.btn_message_lookup.setVisible(False)
         self.btn_message_lookup.clicked.connect(self._on_message_clicked)
         btn_row.addWidget(self.btn_message_lookup)
+        self.btn_close_lookup = QPushButton("Close")
+        self.btn_close_lookup.setStyleSheet(_btn_style("#555555", px=15))
+        self.btn_close_lookup.clicked.connect(self.reject)
+        btn_row.addWidget(self.btn_close_lookup)
         main.addLayout(btn_row)
 
     def _adjust_for_image_width(self, img_width: int) -> None:
@@ -797,7 +844,9 @@ class StatRepDetailDialog(QDialog):
         # QRZ info (top section) — lbl_moddate embedded below image in right column
         self.memo_edit = _MemoTextEdit()
         self.memo_edit.setPlaceholderText("Add notes…")
-        self.memo_edit.setFont(QFont("Kode Mono", 15, QFont.Normal))
+        _memo_font = QFont("Kode Mono", -1)
+        _memo_font.setPixelSize(15)
+        self.memo_edit.setFont(_memo_font)
         self.memo_edit.setStyleSheet(
             f"background-color:{self._data_bg}; color:#000000; border:1px solid #ccc; border-radius:4px;"
         )

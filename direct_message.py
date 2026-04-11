@@ -48,6 +48,8 @@ DATA_BACKGROUND = "#F8F6F4"
 class DirectMessageDialog(QDialog):
     """Dialog for sending a direct message to a specific callsign via backbone."""
 
+    last_seen_updated = QtCore.pyqtSignal(str)
+
     def __init__(
         self,
         tcp_pool: "TCPConnectionPool" = None,
@@ -130,13 +132,33 @@ class DirectMessageDialog(QDialog):
 
         callsign_row = QtWidgets.QHBoxLayout()
         callsign_row.addWidget(self.callsign_input)
-        self.last_seen_label = QtWidgets.QLabel("Last Seen:")
-        _ls_font = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
+        _ls_title_font = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
+        _ls_title_font.setPixelSize(15)
+        ls_title = QtWidgets.QLabel("Last Seen:")
+        ls_title.setFont(_ls_title_font)
+        ls_title.setStyleSheet("color: #000000;")
+        callsign_row.addWidget(ls_title)
+
+        self.last_seen_label = QtWidgets.QLabel("—")
+        _ls_font = QtGui.QFont("Kode Mono")
         _ls_font.setPixelSize(15)
         self.last_seen_label.setFont(_ls_font)
+        self.last_seen_label.setStyleSheet("color: #000000;")
         callsign_row.addWidget(self.last_seen_label)
         callsign_row.addStretch()
         layout.addLayout(callsign_row)
+
+        # Timer for debouncing last-seen lookups
+        self._last_seen_timer = QtCore.QTimer(self)
+        self._last_seen_timer.setSingleShot(True)
+        self._last_seen_timer.timeout.connect(self._trigger_last_seen_lookup)
+        self.last_seen_updated.connect(self._on_last_seen_updated)
+
+        message_label = QtWidgets.QLabel("Message:")
+        _msg_lbl_font = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
+        _msg_lbl_font.setPixelSize(15)
+        message_label.setFont(_msg_lbl_font)
+        layout.addWidget(message_label)
 
         # Message text box (~8 rows)
         self.message_box = QtWidgets.QPlainTextEdit()
@@ -219,7 +241,7 @@ class DirectMessageDialog(QDialog):
             return ""
 
     def _on_callsign_changed(self, text: str) -> None:
-        """Force uppercase on callsign input."""
+        """Force uppercase on callsign input and schedule a last-seen lookup."""
         upper = text.upper()
         if upper != text:
             pos = self.callsign_input.cursorPosition()
@@ -227,6 +249,44 @@ class DirectMessageDialog(QDialog):
             self.callsign_input.setText(upper)
             self.callsign_input.blockSignals(False)
             self.callsign_input.setCursorPosition(pos)
+        self._last_seen_timer.stop()
+        if len(upper.strip()) >= 3:
+            self.last_seen_label.setText("…")
+            self._last_seen_timer.start(600)
+        else:
+            self.last_seen_label.setText("—")
+
+    def _trigger_last_seen_lookup(self) -> None:
+        """Fire background lookup for the current callsign input value."""
+        target = self.callsign_input.text().strip().upper()
+        if len(target) < 3 or not self.callsign:
+            self.last_seen_label.setText("—")
+            return
+        threading.Thread(
+            target=self._fetch_last_seen_thread,
+            args=(target,),
+            daemon=True,
+        ).start()
+
+    def _fetch_last_seen_thread(self, target: str) -> None:
+        """Background thread: hit the last-seen endpoint and emit result."""
+        try:
+            url = (
+                f"{_BACKBONE}/get-last-seen-808585.php"
+                f"?cs={urllib.parse.quote(self.callsign)}"
+                f"&lookup={urllib.parse.quote(target)}"
+            )
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                result = resp.read().decode("utf-8").strip()
+            self.last_seen_updated.emit(result if result else "—")
+        except Exception as e:
+            print(f"[DirectMessage] last-seen error: {e}")
+            self.last_seen_updated.emit("—")
+
+    def _on_last_seen_updated(self, value: str) -> None:
+        """Slot: update the Last Seen label from the background thread result."""
+        self.last_seen_label.setText(value)
 
     def _sanitize_message(self, text: str) -> str:
         """Normalize message text for over-the-air transmission."""

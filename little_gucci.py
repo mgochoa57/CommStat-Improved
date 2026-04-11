@@ -1721,19 +1721,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.filter_menu, "Show All Groups",
             self.config.get_show_every_group(), self._on_toggle_show_every_group)
 
-        # MAP OPTION section
-        self.filter_menu.addSeparator()
-        map_option_label = QtWidgets.QAction("MAP OPTION", self)
-        map_option_label.setEnabled(False)  # Disabled as a section title
-        self.filter_menu.addAction(map_option_label)
-
-        self.hide_map_checkbox = self._create_menu_checkbox(
-            self.filter_menu, "Hide Map",
-            self.config.get_hide_map(), self._on_toggle_hide_map)
-        self.show_alerts_checkbox = self._create_menu_checkbox(
-            self.filter_menu, "Show Alerts",
-            self.config.get_show_alerts(), self._on_toggle_show_alerts)
-
         # Create Tools dropdown menu
         self.tools_menu = QtWidgets.QMenu("Tools", self.menubar)
         self.menubar.addMenu(self.tools_menu)
@@ -1752,8 +1739,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 lambda checked=False, t=menu_label, u=url, l=link, lt=load_text, ep=err_prefix:
                     self._show_image_dialog(title=t, image_url=u, link_html=l, loading_text=lt, error_prefix=ep)
             )
-
-        create_action(self.tools_menu, "Artemis II Tracker", "artemis_tracker", self._on_artemis_tracker)
 
         # QRZ Lookup
         self.tools_menu.addSeparator()
@@ -1779,9 +1764,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusbar = QtWidgets.QStatusBar(self)
         self.setStatusBar(self.statusbar)
 
-        # Add "Rig Status:" label (no sunken effect, permanent on left)
+        # Map view toggle buttons (left side of status bar)
+        font_tiny = QtGui.QFont("Roboto", 9)
+        for label, mode in [("Map", "map"), ("Images", "images"), ("Alerts", "alerts")]:
+            btn = QtWidgets.QPushButton(label)
+            btn.setFont(font_tiny)
+            btn.setFixedHeight(18)
+            btn.setFixedWidth(52)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda checked, m=mode: self._set_map_view_mode(m))
+            self.statusbar.addWidget(btn)
+            setattr(self, f"_btn_{mode}", btn)
+
+        hint_label = QtWidgets.QLabel(" < Click to Change View")
+        hint_label.setFont(font_tiny)
+        self.statusbar.addWidget(hint_label)
+
+        # Add "Rig Status:" label (no sunken effect, permanent on right)
         rig_status_header = QtWidgets.QLabel(" Rig Status: ")
-        self.statusbar.addWidget(rig_status_header)
+        self.statusbar.addPermanentWidget(rig_status_header)
 
         # Dictionary to hold status widgets for each rig
         self.rig_status_widgets: Dict[str, Tuple[QtWidgets.QLabel, QtWidgets.QLabel]] = {}
@@ -2007,17 +2008,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Setup map disabled label (hidden by default)
         self._setup_map_disabled_label()
 
-        # Apply initial hide_map and show_alerts settings
-        if self.config.get_hide_map():
-            self.map_widget.hide()
-            if self.config.get_show_alerts():
-                # Show alerts mode - don't show slideshow
-                self.map_disabled_label.hide()
-            else:
-                self.map_disabled_label.show()
-                self._start_slideshow()
-        else:
-            self.map_disabled_label.hide()
+        # Setup view-toggle buttons below map
+        self._setup_map_view_buttons()
 
     def _setup_map_disabled_label(self) -> None:
         """Create the label/image display shown when map is hidden."""
@@ -2127,8 +2119,46 @@ class MainWindow(QtWidgets.QMainWindow):
         # Hidden by default
         self.alert_display.hide()
 
-        # Apply initial show_alerts setting
+    def _setup_map_view_buttons(self) -> None:
+        """Apply initial map view state (buttons live in the status bar)."""
         if self.config.get_show_alerts():
+            self._set_map_view_mode("alerts")
+        elif self.config.get_hide_map():
+            self._set_map_view_mode("images")
+        else:
+            self._set_map_view_mode("map")
+
+    def _set_map_view_mode(self, mode: str) -> None:
+        """Switch the map panel between Map, Images, and Alerts views."""
+        INACTIVE = "background-color: #DDDDDD; color: #000000; border: none; border-radius: 4px; padding: 2px 10px;"
+        ACTIVE   = "background-color: #28a745; color: white; border: none; border-radius: 4px; padding: 2px 10px;"
+
+        for m in ("map", "images", "alerts"):
+            btn = getattr(self, f"_btn_{m}", None)
+            if btn:
+                btn.setStyleSheet(ACTIVE if m == mode else INACTIVE)
+
+        if mode == "map":
+            self._stop_slideshow()
+            self.map_disabled_label.hide()
+            self.alert_display.hide()
+            self.map_widget.show()
+            self.config.set_hide_map(False)
+            self.config.set_show_alerts(False)
+        elif mode == "images":
+            self.map_widget.hide()
+            self.alert_display.hide()
+            self.map_disabled_label.show()
+            self._start_slideshow()
+            self.config.set_hide_map(True)
+            self.config.set_show_alerts(False)
+        elif mode == "alerts":
+            self._stop_slideshow()
+            self.map_widget.hide()
+            self.map_disabled_label.hide()
+            self.config.set_hide_map(True)
+            self.config.set_show_alerts(True)
+            self.alert_index = 0
             self._show_alert_display()
 
     def _show_alert_display(self) -> None:
@@ -3177,12 +3207,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _load_message_data(self) -> None:
         """Load message data from database into the table."""
-        filters = self.config.filter_settings
         groups, show_all = self._get_filtered_groups()
         data = self.db.get_message_data(
             groups=groups,
-            start=filters.get('start', DEFAULT_FILTER_START),
-            end=filters.get('end', ''),
+            start='',
+            end='',
             show_all=show_all
         )
 
@@ -3559,9 +3588,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 label_status.setFrameStyle(QtWidgets.QFrame.Panel | QtWidgets.QFrame.Sunken)
                 label_status.setLineWidth(2)
 
-                # Add to status bar (on left side, not permanent)
-                self.statusbar.addWidget(label_rig)
-                self.statusbar.addWidget(label_status)
+                # Add to status bar (on right side)
+                self.statusbar.addPermanentWidget(label_rig)
+                self.statusbar.addPermanentWidget(label_status)
 
                 # Store references
                 self.rig_status_widgets[rig_name] = (label_rig, label_status)
@@ -3816,64 +3845,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.feed_text.show()
             self.main_layout.setRowStretch(3, 1)
 
-    def _on_toggle_hide_map(self, checked: bool) -> None:
-        """Toggle between map and image slideshow."""
-        self.config.set_hide_map(checked)
-        if checked:
-            self.map_widget.hide()
-            # If show_alerts is enabled, show alert display instead of slideshow
-            if self.config.get_show_alerts():
-                self.map_disabled_label.hide()
-                self._show_alert_display()
-            else:
-                self.alert_display.hide()
-                self.map_disabled_label.show()
-                self._start_slideshow()
-        else:
-            self._stop_slideshow()
-            self.map_disabled_label.hide()
-            self.alert_display.hide()
-            self.map_widget.show()
-            # Uncheck show_alerts when showing map
-            if self.config.get_show_alerts():
-                self.config.set_show_alerts(False)
-                self.show_alerts_checkbox.blockSignals(True)
-                self.show_alerts_checkbox.setChecked(False)
-                self.show_alerts_checkbox.blockSignals(False)
-
-    def _on_toggle_show_alerts(self, checked: bool) -> None:
-        """Toggle alert display mode."""
-        self.config.set_show_alerts(checked)
-        if checked:
-            # Reset to show most recent alert
-            self.alert_index = 0
-
-            # Also check hide_map if not already checked
-            if not self.config.get_hide_map():
-                self.config.set_hide_map(True)
-                self.hide_map_checkbox.blockSignals(True)
-                self.hide_map_checkbox.setChecked(True)
-                self.hide_map_checkbox.blockSignals(False)
-                self.map_widget.hide()
-
-            # Stop slideshow and hide slideshow label
-            self._stop_slideshow()
-            self.map_disabled_label.hide()
-
-            # Show alert display
-            self._show_alert_display()
-        else:
-            # Hide alert display
-            self.alert_display.hide()
-            # If hide_map is still checked, show slideshow
-            if self.config.get_hide_map():
-                self.map_disabled_label.show()
-                self._start_slideshow()
-
-    def _on_artemis_tracker(self) -> None:
-        """Open the Artemis II Tracker YouTube feed in the system default browser."""
-        QDesktopServices.openUrl(QUrl("https://www.youtube.com/watch?v=M8m9YdxgJ5g"))
-
     def _on_large_map(self) -> None:
         """Open or raise the large map breakout window."""
         if getattr(self, '_large_map_dlg', None) and self._large_map_dlg.isVisible():
@@ -3886,14 +3857,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _trigger_show_alerts(self) -> None:
         """Trigger Show Alerts mode when a new alert is received."""
-        # Reset to show most recent alert
-        self.alert_index = 0
-        # Check the Show Alerts checkbox (this will trigger the handler)
-        if not self.show_alerts_checkbox.isChecked():
-            self.show_alerts_checkbox.setChecked(True)
-        else:
-            # Already checked, just refresh the display
-            self._show_alert_display()
+        self._set_map_view_mode("alerts")
 
     def _get_filtered_groups(self) -> tuple:
         """Get groups list and show_all flag based on current filter settings.
