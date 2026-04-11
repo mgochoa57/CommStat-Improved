@@ -13,7 +13,7 @@ from typing import Dict
 # Application Identity
 # =============================================================================
 
-VERSION = "4.0.4"
+VERSION = "4.0.5"
 WINDOW_TITLE = f"CommStat (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1440, 832)
 CONFIG_FILE = "config.ini"
