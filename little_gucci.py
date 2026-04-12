@@ -1300,24 +1300,17 @@ class DatabaseManager:
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window for CommStat."""
 
-    def __init__(self, config: ConfigManager, db: DatabaseManager, demo_mode: bool = False, demo_version: int = 1, demo_duration: int = 60):
+    def __init__(self, config: ConfigManager, db: DatabaseManager):
         """
         Initialize the main window.
 
         Args:
             config: ConfigManager instance with loaded settings
             db: DatabaseManager instance for database operations
-            demo_mode: Enable demo mode with simulated disaster data
-            demo_version: Demo scenario version (1, 2, 3, etc.)
-            demo_duration: Demo playback duration in seconds (default 60)
         """
         super().__init__()
         self.config = config
         self.db = db
-        self.demo_mode = demo_mode
-        self.demo_version = demo_version
-        self.demo_duration = demo_duration
-        self.demo_runner = None
 
         # Internet connectivity state
         self._internet_available = False
@@ -1407,20 +1400,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if hasattr(self, 'tcp_pool'):
             print("Closing TCP connections...")
             self.tcp_pool.disconnect_all()
-
-        # Demo mode cleanup - ask user if they want to delete demo data from traffic.db3
-        if self.demo_mode:
-            reply = QtWidgets.QMessageBox.question(
-                self,
-                "Demo Mode",
-                "Delete demo data from database before exiting?",
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                QtWidgets.QMessageBox.Yes
-            )
-            if reply == QtWidgets.QMessageBox.Yes:
-                from demo_mode import cleanup_demo_data_from_traffic
-                cleanup_demo_data_from_traffic()
-                print("Demo data deleted from traffic.db3")
 
         # Save window position
         self._save_window_position()
@@ -1700,12 +1679,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Menubar items
         create_action(self.menubar, "Exit", "exit", qApp.quit)
-
-        # Demo mode - start after window is shown
-        if self.demo_mode:
-            from demo_mode import DemoRunner
-            self.demo_runner = DemoRunner(self, self.demo_version, self.demo_duration)
-            QTimer.singleShot(1000, self.demo_runner.start)
 
         # Add status bar
         self.statusbar = QtWidgets.QStatusBar(self)
@@ -5111,21 +5084,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
 def main() -> None:
     """Application entry point."""
-    # Check for demo mode with version number and optional duration
-    # Usage: --demo-mode [version] [duration_seconds]
-    demo_mode = False
-    demo_version = 1
-    demo_duration = 60  # default 60 seconds
-    for i, arg in enumerate(sys.argv):
-        if arg == "--demo-mode":
-            demo_mode = True
-            # Check if next arg is a version number
-            if i + 1 < len(sys.argv) and sys.argv[i + 1].isdigit():
-                demo_version = int(sys.argv[i + 1])
-                # Check if there's also a duration
-                if i + 2 < len(sys.argv) and sys.argv[i + 2].isdigit():
-                    demo_duration = int(sys.argv[i + 2])
-
     # Replace commstat.py with commstat-copy.py if the copy exists
     _script_dir = Path(__file__).parent
     _copy = _script_dir / "commstat-copy.py"
@@ -5190,19 +5148,11 @@ def main() -> None:
     # Load configuration
     config = ConfigManager()
 
-    # In demo mode, initialize demo database (but still use traffic.db3 for display)
-    if demo_mode:
-        from demo_mode import init_demo_database
-        init_demo_database()  # Creates demo.db3 if needed
-
     db = DatabaseManager()
 
     # Create and show main window
-    window = MainWindow(config, db, demo_mode=demo_mode, demo_version=demo_version, demo_duration=demo_duration)
+    window = MainWindow(config, db)
     window.show()
-
-    if demo_mode:
-        print(f"Demo mode enabled - Version {demo_version} - {demo_duration} second disaster simulation")
 
     sys.exit(app.exec_())
 
