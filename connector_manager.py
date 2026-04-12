@@ -48,13 +48,6 @@ class ConnectorManager:
                     )
                 """)
                 conn.commit()
-
-                # Add state column if it doesn't exist (migration for existing databases)
-                cursor.execute("PRAGMA table_info(js8_connectors)")
-                columns = [col[1] for col in cursor.fetchall()]
-                if "state" not in columns:
-                    cursor.execute("ALTER TABLE js8_connectors ADD COLUMN state TEXT")
-                    conn.commit()
         except sqlite3.Error as e:
             print(f"Error initializing js8_connectors table: {e}")
 

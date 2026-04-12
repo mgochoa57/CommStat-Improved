@@ -270,7 +270,6 @@ class JS8CallTCPClient(QObject):
             self.message_received.emit(self.rig_name, message)
 
         elif msg_type == "RX.CALL_ACTIVITY":
-            # Call activity response (debug feature) - emit for processing
             self.message_received.emit(self.rig_name, message)
 
         elif msg_type == "RX.CALL_SELECTED":

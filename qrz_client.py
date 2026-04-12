@@ -23,16 +23,6 @@ QRZ_API_URL = "https://xmldata.qrz.com/xml/current/"
 CACHE_DAYS = 30  # How long to cache callsign data
 DB_PATH = Path(__file__).parent / "traffic.db3"
 
-# Debug mode via --debug command line flag
-_DEBUG = "--debug" in sys.argv
-
-
-def debug_print(msg: str) -> None:
-    """Print message only if debug mode is enabled."""
-    if _DEBUG:
-        print(msg)
-
-
 def qrz_log(msg: str) -> None:
     """Always print a QRZ console log line."""
     print(f"[QRZ] {msg}")
@@ -56,8 +46,7 @@ def load_qrz_config() -> Tuple[bool, Optional[str], Optional[str]]:
                 is_active = bool(result[2])
                 return is_active, username or None, password or None
             return False, None, None
-    except sqlite3.Error as e:
-        debug_print(f"Error reading QRZ config from database: {e}")
+    except sqlite3.Error:
         return False, None, None
 
 
@@ -80,8 +69,7 @@ def set_qrz_active(active: bool) -> bool:
             )
             conn.commit()
             return cursor.rowcount > 0
-    except sqlite3.Error as e:
-        debug_print(f"Error writing QRZ config to database: {e}")
+    except sqlite3.Error:
         return False
 
 
@@ -173,8 +161,7 @@ class QRZClient:
                         return dict(row), False
 
                 return None, False
-        except sqlite3.Error as e:
-            debug_print(f"Error reading QRZ cache: {e}")
+        except sqlite3.Error:
             return None, False
 
     def _save_to_cache(self, data: Dict) -> None:
@@ -240,8 +227,8 @@ class QRZClient:
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (callsign,) + values)
                 conn.commit()
-        except sqlite3.Error as e:
-            debug_print(f"Error saving to QRZ cache: {e}")
+        except sqlite3.Error:
+            pass
 
     def _api_request(self, params: Dict) -> Optional[ET.Element]:
         """
@@ -255,10 +242,6 @@ class QRZClient:
         """
         try:
             url = QRZ_API_URL + "?" + urllib.parse.urlencode(params, safe="")
-            # Debug: show URL (mask password)
-            debug_url = url.replace(params.get("password", ""), "***") if "password" in params else url
-            debug_print(f"QRZ Request URL: {debug_url}")
-
             with urllib.request.urlopen(url, timeout=10) as response:
                 xml_data = response.read().decode("utf-8")
                 return ET.fromstring(xml_data)

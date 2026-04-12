@@ -57,10 +57,8 @@ from PyQt5.QtCore import QBuffer, QIODevice, QTimer, QDateTime, Qt, QUrl
 from PyQt5.QtWidgets import qApp
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile
 from PyQt5.QtWebEngineCore import QWebEngineUrlSchemeHandler, QWebEngineUrlScheme, QWebEngineUrlRequestJob
-from about import Ui_FormAbout
 from filter import FilterDialog
 from groups import GroupsDialog
-from debug_features import DebugFeatures
 from js8mail import JS8MailDialog
 from js8sms import JS8SMSDialog
 from direct_message import DirectMessageDialog
@@ -1302,14 +1300,13 @@ class DatabaseManager:
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window for CommStat."""
 
-    def __init__(self, config: ConfigManager, db: DatabaseManager, debug_mode: bool = False, demo_mode: bool = False, demo_version: int = 1, demo_duration: int = 60):
+    def __init__(self, config: ConfigManager, db: DatabaseManager, demo_mode: bool = False, demo_version: int = 1, demo_duration: int = 60):
         """
         Initialize the main window.
 
         Args:
             config: ConfigManager instance with loaded settings
             db: DatabaseManager instance for database operations
-            debug_mode: Enable debug features when True
             demo_mode: Enable demo mode with simulated disaster data
             demo_version: Demo scenario version (1, 2, 3, etc.)
             demo_duration: Demo playback duration in seconds (default 60)
@@ -1317,7 +1314,6 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.config = config
         self.db = db
-        self.debug_mode = debug_mode
         self.demo_mode = demo_mode
         self.demo_version = demo_version
         self.demo_duration = demo_duration
@@ -1704,11 +1700,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Menubar items
         create_action(self.menubar, "Exit", "exit", qApp.quit)
-
-        # Debug menu (right of Exit, only visible in debug mode)
-        if self.debug_mode:
-            self.debug_features = DebugFeatures(self)
-            self.debug_features.setup_debug_menu()
 
         # Demo mode - start after window is shown
         if self.demo_mode:
@@ -2940,11 +2931,6 @@ class MainWindow(QtWidgets.QMainWindow):
             # commstat.py will apply the update on next launch
             self.close()
 
-    def _debug(self, message: str) -> None:
-        """Print debug message if debug mode is enabled."""
-        if self.debug_mode:
-            print(f"[Backbone] {message}")
-
     def _load_slideshow_images(self) -> None:
         """Load images with priority: my_images > images > 00-default.png."""
         self.slideshow_items = []
@@ -3054,10 +3040,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             self._backbone_fail_count += 1
-            self._debug(f"Failed ({self._backbone_fail_count}/{self._backbone_max_failures}): {e}")
             if self._backbone_fail_count >= self._backbone_max_failures:
                 self.backbone_timer.stop()
-                self._debug(f"Stopped after {self._backbone_max_failures} consecutive failures")
 
     @QtCore.pyqtSlot()
     def _reload_slideshow(self) -> None:
@@ -4291,16 +4275,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 feed_line = f"{utc_str}\t{dial_freq_mhz:.3f}\t{offset}\t{snr:+03d}\t{from_call}: {value}"
                 self._add_to_feed(feed_line, rig_name)
 
-        # Handle RX.CALL_ACTIVITY response (debug feature)
-        elif msg_type == "RX.CALL_ACTIVITY":
-            if hasattr(self, 'debug_features'):
-                self.debug_features.handle_call_activity_response(rig_name, message)
-
-        # Handle RX.CALL_SELECTED response (debug feature)
-        elif msg_type == "RX.CALL_SELECTED":
-            if hasattr(self, 'debug_features'):
-                self.debug_features.handle_call_selected_response(rig_name, message)
-
     def _add_to_feed(self, line: str, rig_name: str) -> None:
         """
         Add a message line to the live feed buffer.
@@ -5130,13 +5104,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         dialog.exec_()
 
-    def _on_about(self) -> None:
-        """Open About window."""
-        dialog = QtWidgets.QDialog()
-        dialog.ui = Ui_FormAbout()
-        dialog.ui.setupUi(dialog)
-        dialog.exec_()
-
 
 # =============================================================================
 # Application Entry Point
@@ -5144,9 +5111,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
 def main() -> None:
     """Application entry point."""
-    # Check for debug mode
-    debug_mode = "--debug" in sys.argv
-
     # Check for demo mode with version number and optional duration
     # Usage: --demo-mode [version] [duration_seconds]
     demo_mode = False
@@ -5234,11 +5198,9 @@ def main() -> None:
     db = DatabaseManager()
 
     # Create and show main window
-    window = MainWindow(config, db, debug_mode=debug_mode, demo_mode=demo_mode, demo_version=demo_version, demo_duration=demo_duration)
+    window = MainWindow(config, db, demo_mode=demo_mode, demo_version=demo_version, demo_duration=demo_duration)
     window.show()
 
-    if debug_mode:
-        print("Debug mode enabled")
     if demo_mode:
         print(f"Demo mode enabled - Version {demo_version} - {demo_duration} second disaster simulation")
 
