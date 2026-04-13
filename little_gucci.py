@@ -1683,13 +1683,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     self._show_image_dialog(title=t, image_url=u, link_html=l, loading_text=lt, error_prefix=ep)
             )
 
-        # QRZ Lookup
         self.tools_menu.addSeparator()
         create_action(self.tools_menu, "Grid Finder", "grid_finder", self._on_grid_finder)
-        create_action(self.tools_menu, "QRZ Lookup", "qrz_lookup", self._on_qrz_lookup)
         create_action(self.tools_menu, "Large Map...", "large_map", self._on_large_map)
 
         # Menubar items
+        create_action(self.menubar, "QRZ", "qrz_lookup", self._on_qrz_lookup)
         create_action(self.menubar, "Exit", "exit", qApp.quit)
 
         # Add status bar

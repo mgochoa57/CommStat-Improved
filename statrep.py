@@ -1237,6 +1237,11 @@ class StatRepDialog(QDialog):
             if hasattr(parent, '_load_message_data'):
                 parent._load_message_data()
 
+    def _refresh_and_close(self) -> None:
+        """Refresh parent data and close the dialog (main-thread safe)."""
+        self._refresh_parent_data()
+        self.accept()
+
     def _on_save_only(self) -> None:
         """Validate and save without transmitting."""
         self._generate_statrep_id()
@@ -1288,6 +1293,7 @@ class StatRepDialog(QDialog):
 
                 def _on_internet_backbone_complete(global_id: int) -> None:
                     self._save_to_database(0, global_id)
+                    QtCore.QTimer.singleShot(0, self._refresh_and_close)
 
                 self._submit_to_backbone_async(0, on_complete=_on_internet_backbone_complete)
             else:
@@ -1303,8 +1309,9 @@ class StatRepDialog(QDialog):
             print(f"  Scope:    {self.scope_combo.currentText()}")
             print(f"  Message:  {self._pending_message}")
             print(f"{'='*60}\n")
-            self._refresh_parent_data()
-            self.accept()
+            if getattr(self, '_forward_origin', None):
+                self._refresh_parent_data()
+                self.accept()
             return
 
         if "(disconnected)" in rig_name:
@@ -1376,6 +1383,7 @@ class StatRepDialog(QDialog):
             client.send_tx_message(self._pending_message)
 
             # Save to database (skip if forwarding — record already exists)
+            deferred_close = False
             if not getattr(self, '_forward_origin', None):
                 self._pending_save_data = self._capture_save_data(frequency)
                 if self.delivery_combo.currentText() == "Limited Reach":
@@ -1383,8 +1391,10 @@ class StatRepDialog(QDialog):
                     self._save_to_database(frequency, 0)
                 else:
                     # Delay DB write until backbone returns the assigned global_id
+                    deferred_close = True
                     def _on_radio_backbone_complete(global_id: int) -> None:
                         self._save_to_database(frequency, global_id)
+                        QtCore.QTimer.singleShot(0, self._refresh_and_close)
                     self._submit_to_backbone_async(frequency, on_complete=_on_radio_backbone_complete)
             elif self.delivery_combo.currentText() != "Limited Reach":
                 # Forwarding path — still submit to backbone, no DB write
@@ -1405,8 +1415,9 @@ class StatRepDialog(QDialog):
             print(f"  Message:  {self._pending_message}")
             print(f"{'='*60}\n")
 
-            self._refresh_parent_data()
-            self.accept()
+            if not deferred_close:
+                self._refresh_parent_data()
+                self.accept()
         except Exception as e:
             self._show_error(f"Failed to transmit StatRep: {e}")
 
