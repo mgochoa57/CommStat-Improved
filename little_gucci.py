@@ -1871,9 +1871,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 gridline-color: #D2D0CF;
                 border: 1px solid #D2D0CF;
             }}
-            QTableWidget::item {{
-                border: none;
-            }}
             QTableWidget QHeaderView::section {{
                 background-color: {title_bg};
                 color: {title_fg};
