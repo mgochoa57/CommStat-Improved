@@ -669,7 +669,7 @@ class ConfigManager:
         # Load toggle settings from config if it exists
         default_feed = list(DEFAULT_RSS_FEEDS.keys())[0]
         if not self.config_path.exists():
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': True, 'show_every_group': True, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': False}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': True, 'show_every_group': True, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': False, 'unchecked_groups': ''}
             return
 
         config = ConfigParser()
@@ -684,9 +684,10 @@ class ConfigManager:
                 'show_alerts': config.getboolean("DIRECTEDCONFIG", "show_alerts", fallback=False),
                 'selected_rss_feed': config.get("DIRECTEDCONFIG", "selected_rss_feed", fallback=default_feed),
                 'apply_text_normalization': config.getboolean("DIRECTEDCONFIG", "apply_text_normalization", fallback=True),
+                'unchecked_groups': config.get("DIRECTEDCONFIG", "unchecked_groups", fallback=""),
             }
         else:
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': True, 'show_every_group': True, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': False}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': True, 'show_every_group': True, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': False, 'unchecked_groups': ''}
 
     def get_color(self, key: str) -> str:
         """Get a color value by key."""
@@ -720,6 +721,13 @@ class ConfigManager:
 
     def set_show_every_group(self, value: bool) -> None:
         self._save_setting('show_every_group', value)
+
+    def get_unchecked_groups(self) -> List[str]:
+        raw = self.directed_config.get('unchecked_groups', '')
+        return [g.strip() for g in raw.split(',') if g.strip()]
+
+    def set_unchecked_groups(self, groups: List[str]) -> None:
+        self._save_setting('unchecked_groups', ','.join(groups))
 
     def get_show_alerts(self) -> bool:
         return self.directed_config.get('show_alerts', False)
@@ -960,7 +968,8 @@ class DatabaseManager:
         groups: List[str],
         start: str,
         end: str = '',
-        show_all: bool = False
+        show_all: bool = False,
+        exclude_groups: List[str] = None
     ) -> List[Tuple]:
         """
         Fetch StatRep data from database.
@@ -969,7 +978,8 @@ class DatabaseManager:
             groups: List of active group names (empty list returns no data unless show_all)
             start: Start date filter (required)
             end: End date filter (optional, empty string means no upper limit)
-            show_all: If True, return all statreps regardless of group
+            show_all: If True, return all statreps (subject to exclude_groups)
+            exclude_groups: When show_all=True, exclude records from these groups
 
         Returns:
             List of tuples containing StatRep records
@@ -992,15 +1002,29 @@ class DatabaseManager:
 
                 # Build query based on whether we're showing all or filtering by groups
                 if show_all:
-                    query = f"""
-                        SELECT db, datetime, freq, from_callsign, target, sr_id, grid, scope, map,
-                               power, water, med, telecom, travel, internet,
-                               fuel, food, crime, civil, political, comments, source, id
-                        FROM statrep
-                        WHERE {date_condition} OR pinned = 1
-                        ORDER BY datetime DESC
-                    """
-                    params = date_params
+                    if exclude_groups:
+                        excl_with_at = ["@" + g for g in exclude_groups]
+                        placeholders = ",".join("?" * len(excl_with_at))
+                        query = f"""
+                            SELECT db, datetime, freq, from_callsign, target, sr_id, grid, scope, map,
+                                   power, water, med, telecom, travel, internet,
+                                   fuel, food, crime, civil, political, comments, source, id
+                            FROM statrep
+                            WHERE target NOT IN ({placeholders})
+                              AND ({date_condition} OR pinned = 1)
+                            ORDER BY datetime DESC
+                        """
+                        params = excl_with_at + date_params
+                    else:
+                        query = f"""
+                            SELECT db, datetime, freq, from_callsign, target, sr_id, grid, scope, map,
+                                   power, water, med, telecom, travel, internet,
+                                   fuel, food, crime, civil, political, comments, source, id
+                            FROM statrep
+                            WHERE {date_condition} OR pinned = 1
+                            ORDER BY datetime DESC
+                        """
+                        params = date_params
                 else:
                     # Build group filter for multiple groups (add @ prefix for matching)
                     groups_with_at = ["@" + g for g in groups]
@@ -1469,8 +1493,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._setup_message_table()
         self._setup_timers()
 
-        # Populate the Groups menu with checkable items
+        # Populate the Groups menu and filter menu group checkboxes
         self._populate_groups_menu()
+        self._populate_filter_groups_menu()
 
         # Load initial data
         self._load_statrep_data()
@@ -1660,9 +1685,14 @@ class MainWindow(QtWidgets.QMainWindow):
         statrep_messages_label.setEnabled(False)  # Disabled as a section title
         self.filter_menu.addAction(statrep_messages_label)
 
+        # Per-group checkboxes are inserted here dynamically after DB is ready
+        self.filter_group_actions: Dict[str, QtWidgets.QAction] = {}
+
         self.show_every_group_checkbox = self._create_menu_checkbox(
             self.filter_menu, "Show All Groups",
             self.config.get_show_every_group(), self._on_toggle_show_every_group)
+        # Keep a reference to the QWidgetAction so insertAction() can use it as anchor
+        self.show_every_group_action = self.filter_menu.actions()[-1]
 
         # Create Tools dropdown menu
         self.tools_menu = QtWidgets.QMenu("Tools", self.menubar)
@@ -3165,7 +3195,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_map(self, callback=None) -> None:
         """Generate and display the folium map with StatRep pins."""
         filters = self.config.filter_settings
-        groups, show_all = self._get_filtered_groups()
+        groups, exclude_groups, show_all = self._get_filtered_groups()
 
         # Use saved map position or default to US center
         if not hasattr(self, 'map_center'):
@@ -3199,7 +3229,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 groups=groups,
                 start=filters.get('start', DEFAULT_FILTER_START),
                 end=filters.get('end', ''),
-                show_all=show_all
+                show_all=show_all,
+                exclude_groups=exclude_groups
             )
 
             gridlist = []
@@ -3319,14 +3350,15 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_statrep_data(self) -> None:
         """Load StatRep data from database into the table."""
         filters = self.config.filter_settings
-        groups, show_all = self._get_filtered_groups()
+        groups, exclude_groups, show_all = self._get_filtered_groups()
 
         # Fetch data from database
         data = self.db.get_statrep_data(
             groups=groups,
             start=filters.get('start', DEFAULT_FILTER_START),
             end=filters.get('end', ''),
-            show_all=show_all
+            show_all=show_all,
+            exclude_groups=exclude_groups
         )
 
         # Status color mapping for values 1-4
@@ -3808,13 +3840,21 @@ class MainWindow(QtWidgets.QMainWindow):
         """Get groups list and show_all flag based on current filter settings.
 
         Returns:
-            Tuple of (groups, show_all) where:
-            - groups: List of group names to filter by
-            - show_all: True if all data should be shown regardless of groups
+            Tuple of (include_groups, exclude_groups, show_all) where:
+            - include_groups: Group names to include (used when show_all=False)
+            - exclude_groups: Group names to exclude (used when show_all=True)
+            - show_all: True if base query shows all records (filtered by exclusions)
         """
-        if self.config.get_show_every_group():
-            return [], True
-        return self.db.get_all_groups(), False
+        show_all = self.config.get_show_every_group()
+        all_groups = self.db.get_all_groups()
+        unchecked = set(self.config.get_unchecked_groups())
+
+        if show_all:
+            exclude = [g for g in all_groups if g in unchecked]
+            return [], exclude, True
+        else:
+            checked = [g for g in all_groups if g not in unchecked]
+            return checked, [], False
 
     def _populate_table(self, table, data, status_colors: dict = None) -> None:
         """Populate a table widget with data.
@@ -3989,6 +4029,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.set_show_every_group(checked)
         self._refresh_all_data()
 
+    def _on_toggle_group_filter(self, group_name: str, checked: bool) -> None:
+        """Toggle a single group's visibility in the StatRep display."""
+        unchecked = self.config.get_unchecked_groups()
+        if not checked and group_name not in unchecked:
+            unchecked.append(group_name)
+        elif checked and group_name in unchecked:
+            unchecked.remove(group_name)
+        self.config.set_unchecked_groups(unchecked)
+        self._refresh_all_data()
+
     def _on_toggle_text_normalization(self, checked: bool) -> None:
         """Toggle text normalization (abbreviation expansion and smart title case)."""
         self.config.set_apply_text_normalization(checked)
@@ -3999,6 +4049,11 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = GroupsDialog(self.db, self)
         dialog.exec_()
         self._populate_groups_menu()
+        self._populate_filter_groups_menu()
+        # Prune unchecked_groups entries for groups that no longer exist
+        all_groups = set(self.db.get_all_groups())
+        pruned = [g for g in self.config.get_unchecked_groups() if g in all_groups]
+        self.config.set_unchecked_groups(pruned)
         self._refresh_all_data()
 
     def _on_show_groups(self) -> None:
@@ -4101,23 +4156,27 @@ class MainWindow(QtWidgets.QMainWindow):
         return checkbox
 
     def _populate_groups_menu(self) -> None:
-        """Populate the Groups menu with a read-only group list."""
-        # Remove existing group actions (keep Manage Groups, Show Groups, separator, and title)
+        """Remove any stale group label actions from the Config menu."""
         actions = self.groups_menu.actions()
-        for action in actions[9:]:  # Skip Config items, GROUPS header, Manage Groups, Show Groups, separator, and title
+        for action in actions[8:]:
             self.groups_menu.removeAction(action)
 
-        # Add section title if not already present
-        if len(self.groups_menu.actions()) == 8:
-            title_action = QtWidgets.QAction("GROUP LIST", self)
-            title_action.setEnabled(False)
-            self.groups_menu.addAction(title_action)
+    def _populate_filter_groups_menu(self) -> None:
+        """Populate filter menu with per-group checkboxes above 'Show All Groups'."""
+        for action in self.filter_group_actions.values():
+            self.filter_menu.removeAction(action)
+        self.filter_group_actions.clear()
 
-        # Add groups alphabetically as read-only labels
+        unchecked = set(self.config.get_unchecked_groups())
         for name in self.db.get_all_groups():
-            label_action = QtWidgets.QAction(name, self)
-            label_action.setEnabled(False)
-            self.groups_menu.addAction(label_action)
+            action = QtWidgets.QAction(name, self)
+            action.setCheckable(True)
+            action.setChecked(name not in unchecked)
+            action.triggered.connect(
+                lambda checked, g=name: self._on_toggle_group_filter(g, checked)
+            )
+            self.filter_menu.insertAction(self.show_every_group_action, action)
+            self.filter_group_actions[name] = action
 
     def _on_js8_connectors(self) -> None:
         """Open JS8 Connectors management window."""
@@ -4278,6 +4337,31 @@ class MainWindow(QtWidgets.QMainWindow):
                 dial_freq_mhz = hz_to_mhz(freq, offset)
                 feed_line = f"{utc_str}\t{dial_freq_mhz:.3f}\t{offset}\t{snr:+03d}\t{from_call}: {value}"
                 self._add_to_feed(feed_line, rig_name)
+
+                # Also try to process as a directed message for database storage.
+                # JS8Call users send "CALLSIGN: @GROUP MSG text♦" without CommStat's
+                # ",msg_id,{^%}" suffix. These arrive as RX.ACTIVITY when the local
+                # JS8Call is not subscribed to the target group. The msg_id is
+                # generated from the timestamp inside _parse_message().
+                # Relay messages like "K7RIE: N0DDK @MAGNET MSG..." (no colon after
+                # the relayed callsign) are excluded — only "CALLSIGN: @GROUP MSG..."
+                # matches. Duplicate callsigns (JS8Call bug "K7RIE: K7RIE: @MAGNET")
+                # are stripped before the check so they still match correctly.
+                import re as _re
+                _check_value = strip_duplicate_callsign(value, from_call)
+                _check_value = _re.sub(r'[^ -~]', '', _check_value).strip()
+                _activity_match = _re.match(
+                    r'^(?:\w+:\s+)?(@\w+)\s+MSG\s+', _check_value, _re.IGNORECASE
+                )
+                if _activity_match:
+                    to_call = _activity_match.group(1)
+                    utc_db = utc_dt.strftime("%Y-%m-%d %H:%M:%S")
+                    dial_freq = freq - offset if freq else 0
+                    data_type = self._process_directed_message(
+                        rig_name, value, from_call, to_call, "", dial_freq, snr, utc_db
+                    )
+                    if data_type == "message":
+                        self._load_message_data()
 
     def _add_to_feed(self, line: str, rig_name: str) -> None:
         """
