@@ -149,6 +149,7 @@ def test_python():
 def lininstall():
     """Install dependencies for Linux/Pi systems."""
     packages = [
+        "branca>=0.6.0",
         "folium",
         "pandas",
         "maidenhead",
@@ -165,6 +166,7 @@ def macinstall():
     packages = [
         "PyQt5",
         "PyQtWebEngine",
+        "branca>=0.6.0",
         "folium",
         "pandas",
         "maidenhead",
@@ -181,6 +183,7 @@ def wininstall():
     packages = [
         "pyqt5",
         "PyQtWebEngine",
+        "branca>=0.6.0",
         "folium",
         "pandas",
         "maidenhead",
