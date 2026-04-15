@@ -4169,7 +4169,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         panel_bg = self.config.get_color('panel_background')
         panel_fg = self.config.get_color('panel_foreground')
-        checked_color = self.config.get_color('program_background')
+        checked_color = self.config.get_color('panel_background')
 
         unchecked = set(self.config.get_unchecked_groups())
         for name in self.db.get_all_groups():
