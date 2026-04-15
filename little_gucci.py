@@ -4167,16 +4167,42 @@ class MainWindow(QtWidgets.QMainWindow):
             self.filter_menu.removeAction(action)
         self.filter_group_actions.clear()
 
+        panel_bg = self.config.get_color('panel_background')
+        panel_fg = self.config.get_color('panel_foreground')
+        checked_color = self.config.get_color('program_background')
+
         unchecked = set(self.config.get_unchecked_groups())
         for name in self.db.get_all_groups():
-            action = QtWidgets.QAction(name, self)
-            action.setCheckable(True)
-            action.setChecked(name not in unchecked)
-            action.triggered.connect(
-                lambda checked, g=name: self._on_toggle_group_filter(g, checked)
+            checkbox = QtWidgets.QCheckBox(name)
+            checkbox.setChecked(name not in unchecked)
+            checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    padding: 4px 8px;
+                    background-color: {panel_bg};
+                    color: {panel_fg};
+                    font-family: Roboto;
+                    font-size: 15px;
+                }}
+                QCheckBox::indicator {{
+                    width: 14px;
+                    height: 14px;
+                    background-color: white;
+                    border: 1px solid #555555;
+                    border-radius: 2px;
+                }}
+                QCheckBox::indicator:checked {{
+                    background-color: {checked_color};
+                    border: 1px solid {checked_color};
+                    border-radius: 2px;
+                }}
+            """)
+            checkbox.stateChanged.connect(
+                lambda state, g=name: self._on_toggle_group_filter(g, state == Qt.Checked)
             )
-            self.filter_menu.insertAction(self.show_every_group_action, action)
-            self.filter_group_actions[name] = action
+            widget_action = QtWidgets.QWidgetAction(self)
+            widget_action.setDefaultWidget(checkbox)
+            self.filter_menu.insertAction(self.show_every_group_action, widget_action)
+            self.filter_group_actions[name] = widget_action
 
     def _on_js8_connectors(self) -> None:
         """Open JS8 Connectors management window."""
