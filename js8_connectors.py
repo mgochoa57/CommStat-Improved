@@ -129,6 +129,10 @@ class JS8ConnectorsDialog(QDialog):
         self._setup_ui()
         self._load_connectors()
 
+        # Refresh table whenever any connection state changes (async connect/disconnect)
+        if self.tcp_pool and hasattr(self.tcp_pool, "any_connection_changed"):
+            self.tcp_pool.any_connection_changed.connect(self._on_connection_changed)
+
     # ── UI construction ────────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
@@ -474,6 +478,18 @@ class JS8ConnectorsDialog(QDialog):
                 "Cannot delete this connector.\n\n"
                 "You cannot delete the default connector or the last connector."
             )
+
+    def _on_connection_changed(self, _rig_name: str, _connected: bool) -> None:
+        """Refresh table when any TCP connection state changes."""
+        self._load_connectors()
+
+    def closeEvent(self, event) -> None:
+        if self.tcp_pool and hasattr(self.tcp_pool, "any_connection_changed"):
+            try:
+                self.tcp_pool.any_connection_changed.disconnect(self._on_connection_changed)
+            except RuntimeError:
+                pass
+        super().closeEvent(event)
 
     def _on_reconnect(self) -> None:
         cid = self._selected_connector_id()

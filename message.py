@@ -148,10 +148,11 @@ class Ui_FormMessage:
         self.mode_combo = QtWidgets.QComboBox(FormMessage)
         self.mode_combo.setGeometry(QtCore.QRect(350, 72, 100, 26))
         self.mode_combo.setFont(font)
-        self.mode_combo.addItem("Slow", 3)
+        self.mode_combo.addItem("Slow", 4)
         self.mode_combo.addItem("Normal", 0)
         self.mode_combo.addItem("Fast", 1)
         self.mode_combo.addItem("Turbo", 2)
+        self.mode_combo.addItem("Ultra", 8)
         self.mode_combo.setObjectName("mode_combo")
 
         # Frequency field (label above control)
@@ -391,7 +392,7 @@ class Ui_FormMessage:
             # Populate mode dropdown with current mode preselected
             if hasattr(self, 'mode_combo'):
                 speed_name = (client.speed_name or "").upper()
-                mode_map = {"SLOW": 0, "NORMAL": 1, "FAST": 2, "TURBO": 3}
+                mode_map = {"SLOW": 0, "NORMAL": 1, "FAST": 2, "TURBO": 3, "ULTRA": 4}
                 idx = mode_map.get(speed_name, 1)  # Default to Normal
                 self.mode_combo.blockSignals(True)
                 self.mode_combo.setCurrentIndex(idx)

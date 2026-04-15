@@ -455,7 +455,7 @@ class StatRepDialog(QDialog):
             # Populate mode dropdown with current mode preselected
             if hasattr(self, 'mode_combo'):
                 speed_name = (client.speed_name or "").upper()
-                mode_map = {"SLOW": 0, "NORMAL": 1, "FAST": 2, "TURBO": 3}
+                mode_map = {"SLOW": 0, "NORMAL": 1, "FAST": 2, "TURBO": 3, "ULTRA": 4}
                 idx = mode_map.get(speed_name, 1)  # Default to Normal
                 self.mode_combo.blockSignals(True)
                 self.mode_combo.setCurrentIndex(idx)
@@ -615,10 +615,11 @@ class StatRepDialog(QDialog):
         self.mode_combo = QtWidgets.QComboBox()
         self.mode_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.mode_combo.setMinimumHeight(28)
-        self.mode_combo.addItem("Slow", 3)
+        self.mode_combo.addItem("Slow", 4)
         self.mode_combo.addItem("Normal", 0)
         self.mode_combo.addItem("Fast", 1)
         self.mode_combo.addItem("Turbo", 2)
+        self.mode_combo.addItem("Ultra", 8)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         mode_col.addWidget(mode_label)
         mode_col.addWidget(self.mode_combo)
