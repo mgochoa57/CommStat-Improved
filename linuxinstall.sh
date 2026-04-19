@@ -48,6 +48,28 @@ echo ""
 python3 install.py
 
 echo ""
+echo "Installing application icon..."
+sudo cp "$(dirname "$0")/radiation-32.png" /usr/share/pixmaps/radiation-32.png
+
+echo ""
+echo "Creating desktop shortcut..."
+INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "$HOME/Desktop"
+cat > "$HOME/Desktop/CommStat-Improved.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=CommStat-Improved
+Comment=Run CommStat-Improved
+Exec=$INSTALL_DIR/linuxlauncher.sh
+Icon=radiation-32.png
+Terminal=false
+StartupNotify=true
+Path=$INSTALL_DIR
+EOF
+chmod +x "$HOME/Desktop/CommStat-Improved.desktop"
+echo "Desktop shortcut created at $HOME/Desktop/CommStat-Improved.desktop"
+
+echo ""
 echo "=============================================="
 echo "Installation complete!"
 echo "https://commstat-improved.com/"
