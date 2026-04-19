@@ -669,7 +669,7 @@ class ConfigManager:
         # Load toggle settings from config if it exists
         default_feed = list(DEFAULT_RSS_FEEDS.keys())[0]
         if not self.config_path.exists():
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': True, 'show_every_group': True, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': False, 'unchecked_groups': ''}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': True, 'show_every_group': True, 'hide_map': False, 'show_alerts': False, 'show_contacts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': False, 'unchecked_groups': ''}
             return
 
         config = ConfigParser()
@@ -682,12 +682,13 @@ class ConfigManager:
                 'show_every_group': config.getboolean("DIRECTEDCONFIG", "show_every_group", fallback=False),
                 'hide_map': config.getboolean("DIRECTEDCONFIG", "hide_map", fallback=False),
                 'show_alerts': config.getboolean("DIRECTEDCONFIG", "show_alerts", fallback=False),
+                'show_contacts': config.getboolean("DIRECTEDCONFIG", "show_contacts", fallback=False),
                 'selected_rss_feed': config.get("DIRECTEDCONFIG", "selected_rss_feed", fallback=default_feed),
                 'apply_text_normalization': config.getboolean("DIRECTEDCONFIG", "apply_text_normalization", fallback=True),
                 'unchecked_groups': config.get("DIRECTEDCONFIG", "unchecked_groups", fallback=""),
             }
         else:
-            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': True, 'show_every_group': True, 'hide_map': False, 'show_alerts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': False, 'unchecked_groups': ''}
+            self.directed_config = {'hide_heartbeat': False, 'show_all_groups': True, 'show_every_group': True, 'hide_map': False, 'show_alerts': False, 'show_contacts': False, 'selected_rss_feed': default_feed, 'apply_text_normalization': False, 'unchecked_groups': ''}
 
     def get_color(self, key: str) -> str:
         """Get a color value by key."""
@@ -734,6 +735,12 @@ class ConfigManager:
 
     def set_show_alerts(self, value: bool) -> None:
         self._save_setting('show_alerts', value)
+
+    def get_show_contacts(self) -> bool:
+        return self.directed_config.get('show_contacts', False)
+
+    def set_show_contacts(self, value: bool) -> None:
+        self._save_setting('show_contacts', value)
 
     def get_apply_text_normalization(self) -> bool:
         return self.directed_config.get('apply_text_normalization', True)
@@ -1265,6 +1272,18 @@ class DatabaseManager:
             return {row[0].upper() for row in cursor.fetchall()}
         return self._execute(op, set())
 
+    def get_qrz_contacts(self) -> list:
+        """Return all QRZ cached contacts ordered by most recent first."""
+        def op(cursor, conn):
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT callsign, name, address, city, state, zip, country, grid, "
+                "class, email, image, insert_date FROM qrz ORDER BY insert_date DESC"
+            )
+            return cursor.fetchall()
+        return self._execute(op, [])
+
     def set_user_settings(self, callsign: str, grid: str, state: str) -> bool:
         """Save user callsign, grid square, and state to controls table."""
         def op(cursor, conn):
@@ -1491,6 +1510,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._setup_map_widget()
         self._setup_live_feed()
         self._setup_message_table()
+        self._setup_contacts_widget()
         self._setup_timers()
 
         # Populate the Groups menu and filter menu group checkboxes
@@ -1727,11 +1747,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Map view toggle buttons (left side of status bar)
         font_tiny = QtGui.QFont("Roboto", 9)
-        for label, mode in [("Map", "map"), ("Images", "images"), ("Alerts", "alerts")]:
+        for label, mode in [("Map", "map"), ("Images", "images"), ("Alerts", "alerts"), ("Contacts", "contacts")]:
             btn = QtWidgets.QPushButton(label)
             btn.setFont(font_tiny)
             btn.setFixedHeight(18)
-            btn.setFixedWidth(62)
+            btn.setFixedWidth(70)
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda checked, m=mode: self._set_map_view_mode(m))
             self.statusbar.addWidget(btn)
@@ -1947,10 +1967,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._setup_table_widget(self.statrep_table, STATREP_HEADERS)
 
-        # Connect click handler
         self.statrep_table.itemClicked.connect(self._on_statrep_click)
+        self.statrep_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.statrep_table.customContextMenuRequested.connect(
+            lambda pos: self._show_table_copy_menu(self.statrep_table, pos)
+        )
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+C"), self.statrep_table).activated.connect(
+            lambda: self._copy_table_current_cell(self.statrep_table)
+        )
 
-        # Add to layout (row 2, spans all columns)
         self.main_layout.addWidget(self.statrep_table, 2, 0, 1, 2)
 
     def _setup_map_widget(self) -> None:
@@ -2095,7 +2120,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _setup_map_view_buttons(self) -> None:
         """Apply initial map view state (buttons live in the status bar)."""
-        if self.config.get_show_alerts():
+        if self.config.get_show_contacts():
+            self._set_map_view_mode("contacts")
+        elif self.config.get_show_alerts():
             self._set_map_view_mode("alerts")
         elif self.config.get_hide_map():
             self._set_map_view_mode("images")
@@ -2107,7 +2134,7 @@ class MainWindow(QtWidgets.QMainWindow):
         INACTIVE = "background-color: #DDDDDD; color: #000000; border: none; border-radius: 4px; padding: 2px 10px;"
         ACTIVE   = "background-color: #28a745; color: white; border: none; border-radius: 4px; padding: 2px 10px;"
 
-        for m in ("map", "images", "alerts"):
+        for m in ("map", "images", "alerts", "contacts"):
             btn = getattr(self, f"_btn_{m}", None)
             if btn:
                 btn.setStyleSheet(ACTIVE if m == mode else INACTIVE)
@@ -2116,24 +2143,54 @@ class MainWindow(QtWidgets.QMainWindow):
             self._stop_slideshow()
             self.map_disabled_label.hide()
             self.alert_display.hide()
+            if hasattr(self, 'contacts_widget'):
+                self.contacts_widget.hide()
             self.map_widget.show()
+            if hasattr(self, 'message_table'):
+                self.message_table.show()
             self.config.set_hide_map(False)
             self.config.set_show_alerts(False)
+            self.config.set_show_contacts(False)
         elif mode == "images":
             self.map_widget.hide()
             self.alert_display.hide()
+            if hasattr(self, 'contacts_widget'):
+                self.contacts_widget.hide()
             self.map_disabled_label.show()
+            if hasattr(self, 'message_table'):
+                self.message_table.show()
             self._start_slideshow()
             self.config.set_hide_map(True)
             self.config.set_show_alerts(False)
+            self.config.set_show_contacts(False)
         elif mode == "alerts":
             self._stop_slideshow()
             self.map_widget.hide()
             self.map_disabled_label.hide()
+            if hasattr(self, 'contacts_widget'):
+                self.contacts_widget.hide()
+            if hasattr(self, 'message_table'):
+                self.message_table.show()
             self.config.set_hide_map(True)
             self.config.set_show_alerts(True)
+            self.config.set_show_contacts(False)
             self.alert_index = 0
             self._show_alert_display()
+        elif mode == "contacts":
+            self._stop_slideshow()
+            self.map_widget.hide()
+            self.map_disabled_label.hide()
+            self.alert_display.hide()
+            self.config.set_hide_map(True)
+            self.config.set_show_alerts(False)
+            self.config.set_show_contacts(True)
+            if hasattr(self, 'contacts_widget'):
+                if hasattr(self, 'message_table'):
+                    self.message_table.hide()
+                self.contacts_widget.show()
+                self._load_contacts_data()
+            else:
+                QTimer.singleShot(0, lambda: self._set_map_view_mode("contacts"))
 
     def _show_alert_display(self) -> None:
         """Show the alert display with the current alert from database."""
@@ -3175,11 +3232,215 @@ class MainWindow(QtWidgets.QMainWindow):
         self.message_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.message_table.setFixedHeight(MAP_HEIGHT)
 
-        # Connect click handler
         self.message_table.itemClicked.connect(self._on_message_click)
+        self.message_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.message_table.customContextMenuRequested.connect(
+            lambda pos: self._show_table_copy_menu(self.message_table, pos)
+        )
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+C"), self.message_table).activated.connect(
+            lambda: self._copy_table_current_cell(self.message_table)
+        )
 
-        # Add to layout (row 4, column 1)
         self.main_layout.addWidget(self.message_table, 4, 1, 1, 1)
+
+    def _setup_contacts_widget(self) -> None:
+        """Create the QRZ contacts table widget spanning both map and message columns."""
+        _CONTACTS_HEADERS = [
+            "Callsign", "Name", "Address", "City", "State",
+            "Zip", "Country", "Grid", "Class", "Email", "Image", "Date Added"
+        ]
+
+        self.contacts_widget = QtWidgets.QWidget(self.central_widget)
+        outer = QtWidgets.QVBoxLayout(self.contacts_widget)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.contacts_table = QtWidgets.QTableWidget(self.central_widget)
+        self.contacts_table.setObjectName("contactsTable")
+        self.contacts_table.setColumnCount(len(_CONTACTS_HEADERS))
+        self.contacts_table.setRowCount(1)  # row 0 = filter row
+
+        self._setup_table_widget(self.contacts_table, _CONTACTS_HEADERS)
+        self.contacts_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.contacts_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+
+        # Interactive mode — resizeColumnsToContents() is called once after data loads
+        header = self.contacts_table.horizontalHeader()
+        header.setStretchLastSection(False)
+        for col in range(len(_CONTACTS_HEADERS)):
+            header.setSectionResizeMode(col, QtWidgets.QHeaderView.Interactive)
+
+        # Embed a QLineEdit in every cell of row 0 as the filter row
+        filter_font = QtGui.QFont("Kode Mono", -1)
+        filter_font.setPixelSize(13)
+        filter_style = (
+            "QLineEdit { background-color: white; color: #333333; "
+            "border: none; padding: 1px 3px; }"
+        )
+        self._contacts_filters: List[QtWidgets.QLineEdit] = []
+        for col in range(len(_CONTACTS_HEADERS)):
+            edit = QtWidgets.QLineEdit()
+            edit.setFont(filter_font)
+            edit.setStyleSheet(filter_style)
+            edit.textChanged.connect(self._apply_contacts_filter)
+            self.contacts_table.setCellWidget(0, col, edit)
+            self._contacts_filters.append(edit)
+        self.contacts_table.setRowHeight(0, 30)
+
+        self.contacts_table.itemClicked.connect(self._on_contacts_item_clicked)
+        self.contacts_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.contacts_table.customContextMenuRequested.connect(self._on_contacts_context_menu)
+
+        copy_shortcut = QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+C"), self.contacts_table)
+        copy_shortcut.activated.connect(self._copy_contacts_current_cell)
+
+        outer.addWidget(self.contacts_table)
+
+        self.contacts_widget.setFixedHeight(MAP_HEIGHT)
+        self.main_layout.addWidget(self.contacts_widget, 4, 0, 1, 2)
+        self.contacts_widget.hide()
+
+    def _load_contacts_data(self) -> None:
+        """Populate the contacts table from the QRZ cache."""
+        _IMAGE_COL = 10
+        _DATE_COL = 11
+
+        data_fg = self.config.get_color('data_foreground')
+        kode_font = QtGui.QFont("Kode Mono", -1)
+        kode_font.setPixelSize(15)
+        kode_bold = QtGui.QFont("Kode Mono", -1)
+        kode_bold.setPixelSize(15)
+        kode_bold.setBold(True)
+
+        rows = self.db.get_qrz_contacts()
+
+        col_keys = ["callsign", "name", "address", "city", "state",
+                    "zip", "country", "grid", "class", "email", "image", "insert_date"]
+
+        self.contacts_table.setUpdatesEnabled(False)
+        self.contacts_table.setRowCount(1 + len(rows))  # row 0 reserved for filters
+
+        for i, row in enumerate(rows):
+            table_row = i + 1
+            for col, key in enumerate(col_keys):
+                raw = row[key] if row[key] is not None else ""
+
+                if col == _IMAGE_COL:
+                    if raw:
+                        item = QTableWidgetItem("View")
+                        item.setForeground(QColor("#0078d7"))
+                        item.setData(Qt.UserRole, raw)
+                    else:
+                        item = QTableWidgetItem("—")
+                        item.setForeground(QColor(data_fg))
+                        item.setData(Qt.UserRole, None)
+                elif col == _DATE_COL:
+                    try:
+                        dt = datetime.fromisoformat(str(raw))
+                        formatted = dt.strftime("%b %d, %Y")
+                    except (ValueError, TypeError):
+                        formatted = str(raw)
+                    item = QTableWidgetItem(formatted)
+                else:
+                    item = QTableWidgetItem(str(raw))
+
+                if col == 0:
+                    item.setFont(kode_bold)
+                    item.setTextAlignment(Qt.AlignCenter)
+                else:
+                    item.setFont(kode_font)
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                self.contacts_table.setItem(table_row, col, item)
+
+        self.contacts_table.setUpdatesEnabled(True)
+        self.contacts_table.resizeColumnsToContents()
+
+    def _apply_contacts_filter(self) -> None:
+        """Show/hide data rows based on per-column filter inputs. Row 0 is always shown."""
+        filters = [edit.text().strip().upper() for edit in self._contacts_filters]
+        for row in range(1, self.contacts_table.rowCount()):
+            match = True
+            for col, f in enumerate(filters):
+                if not f:
+                    continue
+                item = self.contacts_table.item(row, col)
+                cell = item.text().upper() if item else ""
+                if col == 0:
+                    if not cell.startswith(f):
+                        match = False
+                        break
+                else:
+                    if f not in cell:
+                        match = False
+                        break
+            self.contacts_table.setRowHidden(row, not match)
+
+    def _on_contacts_item_clicked(self, item: QTableWidgetItem) -> None:
+        """Callsign opens QRZ lookup; image opens URL; all others just select."""
+        if item.row() == 0:
+            return
+
+        col = item.column()
+
+        if col == 0:
+            callsign = item.text().strip()
+            if callsign:
+                from qrz_lookup import QRZLookupDialog
+                dlg = QRZLookupDialog(
+                    panel_background=self.config.get_color('panel_background'),
+                    panel_foreground=self.config.get_color('panel_foreground'),
+                    program_background=self.config.get_color('program_background'),
+                    program_foreground=self.config.get_color('program_foreground'),
+                    parent=self
+                )
+                dlg.cs_edit.setText(callsign)
+                dlg._search()
+                dlg.exec_()
+        elif col == 10:
+            url = item.data(Qt.UserRole)
+            if url:
+                QDesktopServices.openUrl(QUrl(url))
+
+    def _on_contacts_context_menu(self, pos) -> None:
+        """Show right-click context menu with Copy option for contacts table."""
+        item = self.contacts_table.itemAt(pos)
+        if not item or item.row() == 0 or item.text().strip() == "—":
+            return
+        self._show_table_copy_menu(self.contacts_table, pos)
+
+    def _copy_contacts_current_cell(self) -> None:
+        """Copy the currently selected contacts cell text via Ctrl+C."""
+        item = self.contacts_table.currentItem()
+        if item and item.row() != 0:
+            text = item.text().strip()
+            if text and text != "—":
+                QtWidgets.QApplication.clipboard().setText(text)
+
+    def _show_table_copy_menu(self, table: QtWidgets.QTableWidget, pos) -> None:
+        """Show a right-click Copy context menu for any table cell."""
+        item = table.itemAt(pos)
+        if not item:
+            return
+        text = item.text().strip()
+        if not text:
+            return
+        menu = QtWidgets.QMenu(table)
+        menu.setStyleSheet(
+            "QMenu { background-color: #FFFFE1; color: black; border: 1px solid black; }"
+            "QMenu::item:selected { background-color: #e6e600; color: black; }"
+        )
+        copy_action = menu.addAction("Copy")
+        action = menu.exec_(table.viewport().mapToGlobal(pos))
+        if action == copy_action:
+            QtWidgets.QApplication.clipboard().setText(text)
+
+    def _copy_table_current_cell(self, table: QtWidgets.QTableWidget) -> None:
+        """Copy the currently selected cell in any table via Ctrl+C."""
+        item = table.currentItem()
+        if item:
+            text = item.text().strip()
+            if text:
+                QtWidgets.QApplication.clipboard().setText(text)
 
     def _load_message_data(self) -> None:
         """Load message data from database into the table."""
@@ -3301,8 +3562,31 @@ class MainWindow(QtWidgets.QMainWindow):
         map_data = io.BytesIO()
         m.save(map_data, close_file=False)
 
+        map_html = map_data.getvalue().decode()
+
+        # Convert circle marker popups from click-to-open to hover-to-open.
+        # Leaflet keeps popups open after mouseover so the Details link remains clickable.
+        hover_js = """<script>
+window.addEventListener('load', function() {
+    setTimeout(function() {
+        Object.keys(window).forEach(function(key) {
+            var obj = window[key];
+            if (obj && obj._leaflet_id && obj.eachLayer) {
+                obj.eachLayer(function(layer) {
+                    if (layer.getPopup && layer.getPopup()) {
+                        layer.off('click');
+                        layer.on('mouseover', function() { this.openPopup(); });
+                    }
+                });
+            }
+        });
+    }, 500);
+});
+</script>"""
+        map_html = map_html.replace('</body>', hover_js + '\n</body>')
+
         # Always set new HTML content (reload() only refreshes cached content)
-        self._last_map_html = map_data.getvalue().decode()
+        self._last_map_html = map_html
         self.map_widget.setHtml(self._last_map_html, QUrl("http://localhost/"))
         if getattr(self, '_large_map_dlg', None) and self._large_map_dlg.isVisible():
             self._large_map_dlg.update_map(self._last_map_html)
@@ -3371,60 +3655,74 @@ class MainWindow(QtWidgets.QMainWindow):
         self._populate_table(self.statrep_table, data, status_colors)
 
     def _on_statrep_click(self, item: QTableWidgetItem) -> None:
-        """Handle click on StatRep table row — open detail view."""
+        """From callsign (col 3) opens detail view; all other cells copy their text."""
+        _FROM_COL = 3
         row = item.row()
-        callsign_item = self.statrep_table.item(row, 3)  # from_callsign column
-        if callsign_item:
-            callsign  = callsign_item.text().strip()
-            record_id = callsign_item.data(QtCore.Qt.UserRole)
-            from qrz_lookup import StatRepDetailDialog
-            dlg = StatRepDetailDialog(
-                record_id, callsign, self._internet_available,
-                backbone_url=_BACKBONE,
-                panel_background=self.config.get_color('panel_background'),
-                panel_foreground=self.config.get_color('panel_foreground'),
-                title_bar_background=self.config.get_color('title_bar_background'),
-                title_bar_foreground=self.config.get_color('title_bar_foreground'),
-                data_background=self.config.get_color('data_background'),
-                program_background=self.config.get_color('program_background'),
-                program_foreground=self.config.get_color('program_foreground'),
-                condition_green=self.config.get_color('condition_green'),
-                condition_yellow=self.config.get_color('condition_yellow'),
-                condition_red=self.config.get_color('condition_red'),
-                condition_gray=self.config.get_color('condition_gray'),
-                tcp_pool=self.tcp_pool,
-                connector_manager=self.connector_manager,
-                parent=self
-            )
-            dlg.pin_changed.connect(
-                lambda _: self._save_map_position(callback=self._load_map)
-            )
-            if dlg.exec_() == 1:  # QDialog.Accepted
-                self._load_statrep_data()
+
+        if item.column() == _FROM_COL:
+            callsign_item = self.statrep_table.item(row, _FROM_COL)
+            if callsign_item:
+                callsign  = callsign_item.text().strip()
+                record_id = callsign_item.data(QtCore.Qt.UserRole)
+                from qrz_lookup import StatRepDetailDialog
+                dlg = StatRepDetailDialog(
+                    record_id, callsign, self._internet_available,
+                    backbone_url=_BACKBONE,
+                    panel_background=self.config.get_color('panel_background'),
+                    panel_foreground=self.config.get_color('panel_foreground'),
+                    title_bar_background=self.config.get_color('title_bar_background'),
+                    title_bar_foreground=self.config.get_color('title_bar_foreground'),
+                    data_background=self.config.get_color('data_background'),
+                    program_background=self.config.get_color('program_background'),
+                    program_foreground=self.config.get_color('program_foreground'),
+                    condition_green=self.config.get_color('condition_green'),
+                    condition_yellow=self.config.get_color('condition_yellow'),
+                    condition_red=self.config.get_color('condition_red'),
+                    condition_gray=self.config.get_color('condition_gray'),
+                    tcp_pool=self.tcp_pool,
+                    connector_manager=self.connector_manager,
+                    parent=self
+                )
+                dlg.pin_changed.connect(
+                    lambda _: self._save_map_position(callback=self._load_map)
+                )
+                if dlg.exec_() == 1:
+                    self._load_statrep_data()
+        else:
+            text = item.text().strip()
+            if text:
+                QtWidgets.QApplication.clipboard().setText(text)
 
     def _on_message_click(self, item: QTableWidgetItem) -> None:
-        """Handle click on Message table row — open detail view."""
+        """From callsign (col 3) opens detail view; all other cells copy their text."""
+        _FROM_COL = 3
         row = item.row()
-        callsign_item = self.message_table.item(row, 3)  # from_callsign column
-        message_item = self.message_table.item(row, 6)   # message column
-        msg_id_item = self.message_table.item(row, 5)    # msg_id column
-        if callsign_item:
-            callsign = callsign_item.text().strip()
-            message_text = (message_item.data(QtCore.Qt.UserRole) or message_item.text()) if message_item else ""
-            msg_id = msg_id_item.text().strip() if msg_id_item else ""
-            from qrz_lookup import MessageDetailDialog
-            dlg = MessageDetailDialog(
-                callsign, message_text, self._internet_available,
-                panel_background=self.config.get_color('panel_background'),
-                panel_foreground=self.config.get_color('panel_foreground'),
-                data_background=self.config.get_color('data_background'),
-                program_background=self.config.get_color('program_background'),
-                program_foreground=self.config.get_color('program_foreground'),
-                msg_id=msg_id,
-                parent=self
-            )
-            if dlg.exec_() == 1:  # QDialog.Accepted
-                self._load_message_data()
+
+        if item.column() == _FROM_COL:
+            callsign_item = self.message_table.item(row, _FROM_COL)
+            message_item  = self.message_table.item(row, 6)
+            msg_id_item   = self.message_table.item(row, 5)
+            if callsign_item:
+                callsign = callsign_item.text().strip()
+                message_text = (message_item.data(QtCore.Qt.UserRole) or message_item.text()) if message_item else ""
+                msg_id = msg_id_item.text().strip() if msg_id_item else ""
+                from qrz_lookup import MessageDetailDialog
+                dlg = MessageDetailDialog(
+                    callsign, message_text, self._internet_available,
+                    panel_background=self.config.get_color('panel_background'),
+                    panel_foreground=self.config.get_color('panel_foreground'),
+                    data_background=self.config.get_color('data_background'),
+                    program_background=self.config.get_color('program_background'),
+                    program_foreground=self.config.get_color('program_foreground'),
+                    msg_id=msg_id,
+                    parent=self
+                )
+                if dlg.exec_() == 1:
+                    self._load_message_data()
+        else:
+            text = item.text().strip()
+            if text:
+                QtWidgets.QApplication.clipboard().setText(text)
 
     def _on_grid_finder(self) -> None:
         """Launch Grid Finder in a separate process."""
