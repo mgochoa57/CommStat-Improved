@@ -5138,19 +5138,20 @@ if (window.webkitStorageInfo === undefined && navigator.webkitTemporaryStorage) 
         msg_target = target
         message_text = None
 
-        # Try to parse backbone format with msg_id: SENDER: @GROUP MSG ,MSG_ID,MESSAGE,{^%}
-        backbone_pattern = re.match(r'^(\w+):\s+(@?\w+)\s+MSG\s+,([^,]+),(.+?)(?:\s*,\{\^%\})?$', message_value, re.IGNORECASE)
+        # Try to parse backbone format: [SENDER: ]@GROUP MSG ,MSG_ID,MESSAGE[,{^%}]
+        # Callsign prefix is optional — new JS8Call omits it (sender is in from_callsign param).
+        # Old JS8Call includes it; strip_duplicate_callsign reduces any double prefix first.
+        backbone_pattern = re.match(r'^(?:\w+:\s+)?(@?\w+)\s+MSG\s+,([^,]+),(.+?)(?:\s*,\{\^%\})?$', message_value, re.IGNORECASE)
         if backbone_pattern:
-            # Group 1 is sender (already have from from_callsign parameter)
-            msg_target = backbone_pattern.group(2).strip()
-            msg_id = backbone_pattern.group(3).strip()
-            message_text = backbone_pattern.group(4).strip()
+            msg_target = backbone_pattern.group(1).strip()
+            msg_id = backbone_pattern.group(2).strip()
+            message_text = backbone_pattern.group(3).strip()
         else:
-            # Try strict TCP MSG pattern: CALLSIGN: TARGET MSG message_text
-            tcp_pattern = re.match(r'^(\w+):\s+(@?\w+)\s+MSG\s+(.+)$', message_value, re.IGNORECASE)
+            # Try TCP MSG pattern: [CALLSIGN: ]TARGET MSG message_text
+            tcp_pattern = re.match(r'^(?:\w+:\s+)?(@?\w+)\s+MSG\s+(.+)$', message_value, re.IGNORECASE)
             if tcp_pattern:
-                msg_target = tcp_pattern.group(2).strip()
-                message_text = tcp_pattern.group(3).strip()
+                msg_target = tcp_pattern.group(1).strip()
+                message_text = tcp_pattern.group(2).strip()
             elif source == 2:
                 # Backbone fallback: accept raw message (for older formats)
                 message_text = message_value
