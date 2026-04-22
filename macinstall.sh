@@ -43,15 +43,95 @@ echo ""
 
 python3 install.py
 
-# Create launcher script for macOS
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cat > "$SCRIPT_DIR/run_commstat.sh" << 'EOF'
+
+# Build a CommStat.app bundle in ~/Applications so it appears in Launchpad/Spotlight
+echo ""
+echo "Creating CommStat.app in ~/Applications..."
+
+APP_DIR="$HOME/Applications/CommStat.app"
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
+
+# Launcher inside the app bundle — cd into the real CommStat source dir and run it.
+# Finder/Launchpad launches use a minimal PATH, so resolve python3 to an absolute
+# path and prepend Homebrew locations so user-installed packages are importable.
+PYTHON3_BIN="$(command -v python3 || echo /usr/bin/python3)"
+cat > "$APP_DIR/Contents/MacOS/CommStat" << EOF
 #!/bin/bash
-# CommStat macOS Launcher
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec python3 "$SCRIPT_DIR/commstat.py" "$@"
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:\$PATH"
+cd "$SCRIPT_DIR" || exit 1
+LOG="\$HOME/Library/Logs/CommStat.log"
+mkdir -p "\$(dirname "\$LOG")"
+exec "$PYTHON3_BIN" "$SCRIPT_DIR/commstat.py" "\$@" >>"\$LOG" 2>&1
 EOF
-chmod +x "$SCRIPT_DIR/run_commstat.sh"
+chmod +x "$APP_DIR/Contents/MacOS/CommStat"
+
+# Info.plist
+cat > "$APP_DIR/Contents/Info.plist" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>CommStat</string>
+    <key>CFBundleDisplayName</key>
+    <string>CommStat</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.commstat.app</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleExecutable</key>
+    <string>CommStat</string>
+    <key>CFBundleIconFile</key>
+    <string>CommStat.icns</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.13</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+# Build an .icns from the best radiation image we can find
+ICON_SRC=""
+for candidate in "$SCRIPT_DIR/radiation.png" "$SCRIPT_DIR/radiation-32.png" "$SCRIPT_DIR/images/044-radiation.png"; do
+    if [ -f "$candidate" ]; then
+        ICON_SRC="$candidate"
+        break
+    fi
+done
+
+if [ -n "$ICON_SRC" ]; then
+    ICONSET="$(mktemp -d)/CommStat.iconset"
+    mkdir -p "$ICONSET"
+    for size in 16 32 64 128 256 512 1024; do
+        sips -z $size $size "$ICON_SRC" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null 2>&1
+    done
+    # Retina @2x variants (macOS expects these names)
+    cp "$ICONSET/icon_32x32.png"   "$ICONSET/icon_16x16@2x.png"   2>/dev/null || true
+    cp "$ICONSET/icon_64x64.png"   "$ICONSET/icon_32x32@2x.png"   2>/dev/null || true
+    cp "$ICONSET/icon_256x256.png" "$ICONSET/icon_128x128@2x.png" 2>/dev/null || true
+    cp "$ICONSET/icon_512x512.png" "$ICONSET/icon_256x256@2x.png" 2>/dev/null || true
+    cp "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_512x512@2x.png" 2>/dev/null || true
+    iconutil -c icns "$ICONSET" -o "$APP_DIR/Contents/Resources/CommStat.icns" 2>/dev/null \
+        || cp "$ICON_SRC" "$APP_DIR/Contents/Resources/CommStat.icns"
+    rm -rf "$(dirname "$ICONSET")"
+    echo "Icon installed from: $ICON_SRC"
+else
+    echo "No radiation icon found — app will use default icon."
+fi
+
+# Nudge the Finder/Launch Services to pick up the new icon
+touch "$APP_DIR"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "$APP_DIR" >/dev/null 2>&1 || true
+
+echo "CommStat.app installed at: $APP_DIR"
 
 echo ""
 echo "=============================================="
