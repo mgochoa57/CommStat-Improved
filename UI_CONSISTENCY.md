@@ -37,9 +37,9 @@ Read this at the start of every UI consistency session to know exactly where we 
 | `gridfinder.py` | 350 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ **Session 2** |
 | `alert.py` | 905 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ | ✅ **Session 2** |
 | `message.py` | 847 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ | ✅ **Session 3** |
-| `qrz_lookup.py` | 1,447 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ **Next up** |
-| `statrep.py` | 1,445 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | N/A | ⬜ | ⬜ |
-| `js8_connectors.py` | 500 | ✅ | ⬜ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⬜ **After qrz** |
+| `qrz_lookup.py` | 1,447 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ **Session 3** |
+| `statrep.py` | 1,445 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | N/A | ⬜ | ⬜ **Next up** |
+| `js8_connectors.py` | 500 | ✅ | ⬜ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⬜ **After statrep** |
 | `js8mail.py` | 477 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ | ✅ |
 | `js8sms.py` | 479 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ | ✅ |
 
@@ -57,7 +57,7 @@ Read this at the start of every UI consistency session to know exactly where we 
 |---------|------|-------------------|
 | 1 | 2026-04-24 | `filter.py`, `groups.py` |
 | 2 | 2026-04-24 | `direct_message.py`, `view_statrep.py`, `gridfinder.py`, `alert.py` |
-| 3 | 2026-04-24 | `message.py` |
+| 3 | 2026-04-24 | `message.py`, `qrz_lookup.py` |
 
 ---
 

@@ -35,19 +35,29 @@ from PyQt5.QtWidgets import (
 )
 
 from qrz_client import QRZClient, get_qrz_cached, load_qrz_config
+from constants import (
+    DEFAULT_COLORS, COLOR_INPUT_TEXT, COLOR_INPUT_BORDER,
+    COLOR_BTN_RED, COLOR_BTN_BLUE, COLOR_BTN_CYAN,
+)
 
 DB_PATH = "traffic.db3"
 _BACKBONE_URL = base64.b64decode("aHR0cHM6Ly9jb21tc3RhdC1pbXByb3ZlZC5jb20=").decode()
 
+_PROG_BG    = DEFAULT_COLORS.get("program_background", "#000000")
+_PROG_FG    = DEFAULT_COLORS.get("program_foreground", "#FFFFFF")
+_DATA_BG    = DEFAULT_COLORS.get("data_background",    "#F8F6F4")
+_COL_CANCEL = "#555555"
+_COL_PURPLE = "#6f42c1"
+
 # macOS renders pt-based fonts ~25% smaller than Windows (72 vs 96 DPI base).
-# fs() compensates by scaling font sizes up on Mac.
-_MAC_SCALE = 96 / 72  # ≈ 1.333
+_MAC_SCALE = 96 / 72
 
 def fs(size: int) -> int:
     """Return a platform-adjusted font size (points)."""
     if platform.system() == "Darwin":
         return round(size * _MAC_SCALE)
     return size
+
 
 # StatRep status field order: (display label, statrep row index)
 STATUS_FIELDS = [
@@ -75,6 +85,31 @@ STATUS_COLORS: Dict[str, tuple] = {
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
+
+def _lbl_font() -> QFont:
+    f = QFont("Roboto", -1, QFont.Bold)
+    f.setPixelSize(13)
+    return f
+
+
+def _mono_font() -> QFont:
+    f = QFont("Kode Mono")
+    f.setPixelSize(13)
+    return f
+
+
+def _btn(label: str, color: str, min_w: int = 90) -> QPushButton:
+    b = QPushButton(label)
+    b.setMinimumWidth(min_w)
+    b.setStyleSheet(
+        f"QPushButton {{ background-color:{color}; color:#ffffff; border:none;"
+        f" padding:6px 14px; border-radius:4px; font-family:Roboto; font-size:15px;"
+        f" font-weight:bold; }}"
+        f"QPushButton:hover {{ background-color:{color}; opacity:0.9; }}"
+        f"QPushButton:pressed {{ background-color:{color}; }}"
+    )
+    return b
+
 
 def _normalize_qrz(data: dict) -> dict:
     """Normalize QRZ data to consistent display keys.
@@ -150,15 +185,6 @@ def _make_map_html(lat: float, lon: float, internet_available: bool = True,
         1
     )
     return html
-
-
-def _btn_style(color: str, px: int = 0) -> str:
-    font_size = f"{px}px" if px else "11pt"
-    return (
-        f"QPushButton {{ background-color:{color}; color:white; border:none; "
-        f"padding:6px 14px; border-radius:4px; font-weight:bold; font-size:{font_size}; }}"
-        f"QPushButton:hover {{ background-color:{color}; }}"
-    )
 
 
 def _hsep() -> QFrame:
@@ -277,9 +303,9 @@ class _ToggleSwitch(QWidget):
     """iOS-style toggle switch that emits toggled(bool) on state change."""
     toggled = pyqtSignal(bool)
 
-    _W, _H = 50, 26        # track dimensions
-    _KNOB   = 22           # knob diameter
-    _MARGIN = 2            # gap between knob and track edge
+    _W, _H = 50, 26
+    _KNOB   = 22
+    _MARGIN = 2
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -354,31 +380,34 @@ class _QRZInfoSection(QWidget):
         grid.setColumnStretch(1, 1)
 
         self.hdr = QLabel("QRZ API Lookup For:")
-        self.hdr.setFont(QFont("Roboto Slab", fs(16), QFont.Black))
+        _hdr_f = QFont("Roboto Slab", -1, QFont.Black)
+        _hdr_f.setPixelSize(16)
+        self.hdr.setFont(_hdr_f)
         self.hdr.setStyleSheet(
             f"QLabel {{ background-color: {self._hdr_bg}; color: {self._hdr_fg}; padding-top: 9px; padding-bottom: 9px; }}"
             if self._hdr_bg else ""
         )
         self.hdr.setAlignment(Qt.AlignCenter)
-        self.lbl_call    = QLabel(); self.lbl_call.setFont(QFont("Arial", fs(14), QFont.Bold))
-        self.lbl_name    = QLabel(); self.lbl_name.setFont(QFont("Arial", fs(12), QFont.Bold))
-        self.lbl_addr1   = QLabel(); self.lbl_addr1.setFont(QFont("Arial", fs(11)))
-        self.lbl_addr2   = QLabel(); self.lbl_addr2.setFont(QFont("Arial", fs(11)))
-        self.lbl_county  = QLabel(); self.lbl_county.setFont(QFont("Arial", fs(11)))
-        self.lbl_country = QLabel(); self.lbl_country.setFont(QFont("Arial", fs(11)))
-        self.lbl_license = QLabel(); self.lbl_license.setFont(QFont("Arial", fs(11)))
-        self.lbl_born    = QLabel(); self.lbl_born.setFont(QFont("Arial", fs(11)))
-        self.lbl_grid    = QLabel(); self.lbl_grid.setFont(QFont("Arial", fs(11)))
-        self.lbl_lat     = QLabel(); self.lbl_lat.setFont(QFont("Arial", fs(11)))
-        self.lbl_lon     = QLabel(); self.lbl_lon.setFont(QFont("Arial", fs(11)))
-        self.lbl_email   = QLabel(); self.lbl_email.setFont(QFont("Arial", fs(11)))
+
+        self.lbl_call    = QLabel(); self.lbl_call.setFont(_mono_font())
+        self.lbl_name    = QLabel(); self.lbl_name.setFont(_mono_font())
+        self.lbl_addr1   = QLabel(); self.lbl_addr1.setFont(_mono_font())
+        self.lbl_addr2   = QLabel(); self.lbl_addr2.setFont(_mono_font())
+        self.lbl_county  = QLabel(); self.lbl_county.setFont(_mono_font())
+        self.lbl_country = QLabel(); self.lbl_country.setFont(_mono_font())
+        self.lbl_license = QLabel(); self.lbl_license.setFont(_mono_font())
+        self.lbl_born    = QLabel(); self.lbl_born.setFont(_mono_font())
+        self.lbl_grid    = QLabel(); self.lbl_grid.setFont(_mono_font())
+        self.lbl_lat     = QLabel(); self.lbl_lat.setFont(_mono_font())
+        self.lbl_lon     = QLabel(); self.lbl_lon.setFont(_mono_font())
+        self.lbl_email   = QLabel(); self.lbl_email.setFont(_mono_font())
         self.lbl_email.setOpenExternalLinks(True)
-        self.lbl_qrz_profile = QLabel(); self.lbl_qrz_profile.setFont(QFont("Arial", fs(11)))
+        self.lbl_qrz_profile = QLabel(); self.lbl_qrz_profile.setFont(_mono_font())
         self.lbl_qrz_profile.setOpenExternalLinks(True)
 
         self.last_seen_updated.connect(self._on_last_seen_updated)
 
-        grid.addWidget(self.hdr,              0, 0, 1, 2)  # header spans both columns
+        grid.addWidget(self.hdr,              0, 0, 1, 2)
         grid.addWidget(self.lbl_call,         1, 0)
         grid.addWidget(self.lbl_name,         2, 0)
         grid.addWidget(self.lbl_license,      2, 1)
@@ -396,6 +425,9 @@ class _QRZInfoSection(QWidget):
         outer.addLayout(grid, 2)
 
         # ── Column 3 (1/3): image + photo status + moddate ───────────────
+        _note_f = QFont("Roboto")
+        _note_f.setPixelSize(10)
+
         right = QVBoxLayout()
         right.setAlignment(Qt.AlignTop | Qt.AlignRight)
         right.setSpacing(4)
@@ -403,7 +435,7 @@ class _QRZInfoSection(QWidget):
         self.lbl_image.setAlignment(Qt.AlignTop | Qt.AlignRight)
         self.lbl_image.setStyleSheet("border:none; padding:0px;")
         self.lbl_moddate = QLabel()
-        self.lbl_moddate.setFont(QFont("Arial", fs(10)))
+        self.lbl_moddate.setFont(_note_f)
         self.lbl_moddate.setAlignment(Qt.AlignRight)
         moddate_row = QHBoxLayout()
         moddate_row.addStretch()
@@ -415,19 +447,16 @@ class _QRZInfoSection(QWidget):
 
     def add_statrep_rows(self, memo_widget=None) -> None:
         """Add separator + StatRep fields below the QRZ section, spanning all three columns."""
-        # Empty spacer row at the bottom of the QRZ grid (below URL row)
         self._grid.setRowStretch(8, 0)
         spacer = QLabel("")
         self._grid.addWidget(spacer, 8, 0)
 
-        # Full-width separator spanning all three visual columns
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         sep.setFrameShadow(QFrame.Sunken)
         self._main_layout.addWidget(sep)
         self._main_layout.addSpacing(8)
 
-        # StatRep rows in same 2/3 + 1/3 proportions as the QRZ section above
         sr_row = QHBoxLayout()
         sr_row.setSpacing(24)
 
@@ -437,16 +466,16 @@ class _QRZInfoSection(QWidget):
         sr_grid.setColumnStretch(1, 1)
 
         sr_hdr = QLabel("Status Report Details")
-        sr_hdr.setFont(QFont("Arial", fs(13), QFont.Bold))
+        sr_hdr.setFont(_lbl_font())
         sr_grid.addWidget(sr_hdr, 0, 0)
 
-        self.lbl_sr_source    = QLabel(); self.lbl_sr_source.setFont(QFont("Arial", fs(11)))
-        self.lbl_sr_posted    = QLabel(); self.lbl_sr_posted.setFont(QFont("Arial", fs(11)))
-        self.lbl_sr_global_id = QLabel(); self.lbl_sr_global_id.setFont(QFont("Arial", fs(11)))
-        self.lbl_sr_group     = QLabel(); self.lbl_sr_group.setFont(QFont("Arial", fs(11)))
-        self.lbl_sr_grid      = QLabel(); self.lbl_sr_grid.setFont(QFont("Arial", fs(11)))
-        self.lbl_sr_freqid    = QLabel(); self.lbl_sr_freqid.setFont(QFont("Arial", fs(11)))
-        self.lbl_sr_delivered = QLabel(); self.lbl_sr_delivered.setFont(QFont("Arial", fs(11)))
+        self.lbl_sr_source    = QLabel(); self.lbl_sr_source.setFont(_mono_font())
+        self.lbl_sr_posted    = QLabel(); self.lbl_sr_posted.setFont(_mono_font())
+        self.lbl_sr_global_id = QLabel(); self.lbl_sr_global_id.setFont(_mono_font())
+        self.lbl_sr_group     = QLabel(); self.lbl_sr_group.setFont(_mono_font())
+        self.lbl_sr_grid      = QLabel(); self.lbl_sr_grid.setFont(_mono_font())
+        self.lbl_sr_freqid    = QLabel(); self.lbl_sr_freqid.setFont(_mono_font())
+        self.lbl_sr_delivered = QLabel(); self.lbl_sr_delivered.setFont(_mono_font())
 
         sr_grid.addWidget(self.lbl_sr_source,    0, 1)
         sr_grid.addWidget(self.lbl_sr_posted,    1, 0)
@@ -457,14 +486,13 @@ class _QRZInfoSection(QWidget):
         sr_grid.addWidget(self.lbl_sr_delivered, 3, 1)
         sr_grid.setRowStretch(4, 1)
 
-        sr_row.addLayout(sr_grid, 2)   # cols 1 & 2 — matches QRZ grid proportion
+        sr_row.addLayout(sr_grid, 2)
 
-        # col 3: memo widget if provided, otherwise empty space
         if memo_widget is not None:
             sr_right = QVBoxLayout()
             sr_right.setSpacing(2)
             memo_lbl = QLabel("Status Report Notes / Memo")
-            memo_lbl.setFont(QFont("Arial", fs(11), QFont.Bold))
+            memo_lbl.setFont(_lbl_font())
             sr_right.addWidget(memo_lbl)
             sr_right.addWidget(memo_widget)
             sr_row.addLayout(sr_right, 1)
@@ -541,9 +569,7 @@ class _QRZInfoSection(QWidget):
 
         if d["call"]:
             url = f"https://www.qrz.com/db/{d['call']}"
-            self.lbl_qrz_profile.setText(
-                f'<a href="{url}">{url}</a>'
-            )
+            self.lbl_qrz_profile.setText(f'<a href="{url}">{url}</a>')
         else:
             self.lbl_qrz_profile.setText("")
 
@@ -575,7 +601,6 @@ class _QRZInfoSection(QWidget):
         buf.open(QBuffer.ReadOnly)
         self._gif_movie = QMovie()
         self._gif_movie.setDevice(buf)
-        # Keep buffer alive as long as movie is alive
         self._gif_movie._buf = buf
         self._gif_movie.jumpToFrame(0)
         size = self._gif_movie.currentPixmap().size()
@@ -610,11 +635,17 @@ class QRZLookupDialog(QDialog):
                  program_foreground: str = "",
                  parent=None):
         super().__init__(parent)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            Qt.Window |
+            Qt.CustomizeWindowHint |
+            Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint |
+            Qt.WindowStaysOnTopHint
+        )
         self._panel_bg = panel_background
         self._panel_fg = panel_foreground
-        self._program_bg = program_background
-        self._program_fg = program_foreground
+        self._program_bg = program_background or _PROG_BG
+        self._program_fg = program_foreground or _PROG_FG
         self.setWindowTitle("QRZ Lookup")
         self.setModal(True)
         self.setMinimumSize(825, 352)
@@ -636,56 +667,66 @@ class QRZLookupDialog(QDialog):
 
     def _setup_ui(self) -> None:
         self.setStyleSheet(
-            f"QDialog {{ background-color:{self._panel_bg}; }}"
-            f"QLabel {{ color:{self._panel_fg}; }}"
-            "QLineEdit { background-color:white; color:#333; border:1px solid #ccc;"
-            " border-radius:4px; padding:4px 8px; font-size:13px; }"
+            f"QDialog {{ background-color:{_DATA_BG}; }}"
+            f"QLabel {{ color:{COLOR_INPUT_TEXT}; background-color: transparent; }}"
+            f"QLineEdit {{ background-color:white; color:{COLOR_INPUT_TEXT};"
+            f" border:1px solid {COLOR_INPUT_BORDER}; border-radius:4px; padding:4px 8px; }}"
         )
         main = QVBoxLayout(self)
-        main.setContentsMargins(15, 12, 15, 12)
-        main.setSpacing(8)
+        main.setContentsMargins(15, 15, 15, 15)
+        main.setSpacing(10)
+
+        # Title
+        title = QLabel("QRZ LOOKUP")
+        title.setAlignment(Qt.AlignCenter)
+        _tf = QFont("Roboto Slab", -1, QFont.Black)
+        _tf.setPixelSize(16)
+        title.setFont(_tf)
+        title.setFixedHeight(36)
+        title.setStyleSheet(
+            f"QLabel {{ background-color: {self._program_bg}; color: {self._program_fg}; "
+            "padding-top: 9px; padding-bottom: 9px; }}"
+        )
+        main.addWidget(title)
 
         row = QHBoxLayout()
         self.cs_edit = QLineEdit()
         self.cs_edit.setPlaceholderText("Enter callsign…")
         self.cs_edit.setMaxLength(12)
-        _cs_font = QtGui.QFont("Kode Mono")
-        _cs_font.setPixelSize(15)
-        self.cs_edit.setFont(_cs_font)
+        self.cs_edit.setFont(_mono_font())
         self.cs_edit.setMinimumHeight(34)
         self.cs_edit.returnPressed.connect(self._search)
         self.cs_edit.textChanged.connect(self._force_upper)
         row.addWidget(self.cs_edit)
 
-        self.btn_search = QPushButton("Search")
-        self.btn_search.setStyleSheet(_btn_style("#0078d7", px=15))
+        self.btn_search = _btn("Search", COLOR_BTN_BLUE)
         self.btn_search.setFixedWidth(90)
         self.btn_search.clicked.connect(self._search)
         row.addWidget(self.btn_search)
         main.addLayout(row)
 
         self.lbl_status = QLabel()
-        self.lbl_status.setStyleSheet("color:#888; font-size:11px;")
+        _st_f = QFont("Roboto")
+        _st_f.setPixelSize(10)
+        self.lbl_status.setFont(_st_f)
+        self.lbl_status.setStyleSheet("color:#888888;")
         main.addWidget(self.lbl_status)
 
         self.qrz_info = _QRZInfoSection(hdr_bg=self._program_bg, hdr_fg=self._program_fg, parent=self)
         self.qrz_info.image_width_ready.connect(self._adjust_for_image_width)
         main.addWidget(self.qrz_info)
 
-        # Memo — user notes about this callsign, auto-saved on focus-out
         memo_lbl = QLabel("Notes / Memo")
-        memo_lbl.setFont(QFont("Arial", fs(11), QFont.Bold))
+        memo_lbl.setFont(_lbl_font())
         memo_lbl.setVisible(False)
         self._memo_label = memo_lbl
         main.addWidget(memo_lbl)
 
         self.memo_edit = _MemoTextEdit()
         self.memo_edit.setPlaceholderText("Add notes…")
-        _memo_font = QtGui.QFont("Kode Mono")
-        _memo_font.setPixelSize(15)
-        self.memo_edit.setFont(_memo_font)
+        self.memo_edit.setFont(_mono_font())
         self.memo_edit.setStyleSheet(
-            f"background-color:white; border:1px solid #ccc; border-radius:4px;"
+            f"background-color:white; border:1px solid {COLOR_INPUT_BORDER}; border-radius:4px;"
         )
         self.memo_edit.setFixedHeight(60)
         self.memo_edit.setVisible(False)
@@ -693,16 +734,14 @@ class QRZLookupDialog(QDialog):
         main.addWidget(self.memo_edit)
         main.addStretch()
 
-        # Action buttons
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
         btn_row.addStretch()
-        self.btn_message_lookup = QPushButton("Message")
-        self.btn_message_lookup.setStyleSheet(_btn_style("#0078d7", px=15))
+        self.btn_message_lookup = _btn("Message", COLOR_BTN_BLUE)
         self.btn_message_lookup.setVisible(False)
         self.btn_message_lookup.clicked.connect(self._on_message_clicked)
         btn_row.addWidget(self.btn_message_lookup)
-        self.btn_close_lookup = QPushButton("Close")
-        self.btn_close_lookup.setStyleSheet(_btn_style("#555555", px=15))
+        self.btn_close_lookup = _btn("Close", _COL_CANCEL)
         self.btn_close_lookup.clicked.connect(self.reject)
         btn_row.addWidget(self.btn_close_lookup)
         main.addLayout(btn_row)
@@ -738,7 +777,6 @@ class QRZLookupDialog(QDialog):
             self.qrz_info.update_data(result)
             self.btn_message_lookup.setVisible(True)
 
-            # Show memo section and load saved text
             self._memo_label.setVisible(True)
             self.memo_edit.setVisible(True)
             self.memo_edit.blockSignals(True)
@@ -774,7 +812,7 @@ class QRZLookupDialog(QDialog):
 class StatRepDetailDialog(QDialog):
     """Detail view for a StatRep row: QRZ info + 12 status indicators + map + comments."""
 
-    pin_changed = pyqtSignal(bool)   # emitted when pinned state is saved
+    pin_changed = pyqtSignal(bool)
 
     def __init__(self, record_id: str, callsign: str,
                  internet_available: bool = True,
@@ -794,7 +832,13 @@ class StatRepDetailDialog(QDialog):
                  connector_manager=None,
                  parent=None):
         super().__init__(parent)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            Qt.Window |
+            Qt.CustomizeWindowHint |
+            Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint |
+            Qt.WindowStaysOnTopHint
+        )
         self._record_id = record_id
         self.callsign = callsign
         self.internet_available = internet_available
@@ -804,8 +848,8 @@ class StatRepDetailDialog(QDialog):
         self._title_bg = title_bar_background
         self._title_fg = title_bar_foreground
         self._data_bg = data_background
-        self._program_bg = program_background
-        self._program_fg = program_foreground
+        self._program_bg = program_background or _PROG_BG
+        self._program_fg = program_foreground or _PROG_FG
         self._status_colors = {
             "1": (condition_green  or STATUS_COLORS["1"][0], STATUS_COLORS["1"][1]),
             "2": (condition_yellow or STATUS_COLORS["2"][0], STATUS_COLORS["2"][1]),
@@ -835,29 +879,26 @@ class StatRepDetailDialog(QDialog):
 
     def _setup_ui(self) -> None:
         self.setStyleSheet(
-            f"QDialog {{ background-color:{self._panel_bg}; }}"
-            f"QLabel {{ color:{self._panel_fg}; }}"
+            f"QDialog {{ background-color:{_DATA_BG}; }}"
+            f"QLabel {{ color:{COLOR_INPUT_TEXT}; background-color: transparent; }}"
         )
         main = QVBoxLayout(self)
         main.setContentsMargins(10, 10, 10, 10)
         main.setSpacing(8)
 
-        # QRZ info (top section) — lbl_moddate embedded below image in right column
         self.memo_edit = _MemoTextEdit()
         self.memo_edit.setPlaceholderText("Add notes…")
-        _memo_font = QFont("Kode Mono", -1)
-        _memo_font.setPixelSize(15)
-        self.memo_edit.setFont(_memo_font)
+        self.memo_edit.setFont(_mono_font())
         self.memo_edit.setStyleSheet(
-            f"background-color:{self._data_bg}; color:#000000; border:1px solid #ccc; border-radius:4px;"
+            f"background-color:{self._data_bg}; color:#000000;"
+            f" border:1px solid {COLOR_INPUT_BORDER}; border-radius:4px;"
         )
         self.qrz_info = _QRZInfoSection(hdr_bg=self._program_bg, hdr_fg=self._program_fg, skip_last_seen=True, parent=self)
         self.qrz_info.add_statrep_rows(memo_widget=self.memo_edit)
         self.qrz_info.image_width_ready.connect(self._adjust_for_image_width)
         main.addWidget(self.qrz_info)
 
-        # Status grid (table style: header row + color row)
-        # Outer widget provides top+left border; cells use right+bottom only → 1px lines everywhere
+        # Status grid
         sg_widget = QWidget()
         sg_widget.setStyleSheet(f"border-top:1px solid #D2D0CF; border-left:1px solid #D2D0CF;")
         sg_grid = QGridLayout(sg_widget)
@@ -867,7 +908,7 @@ class StatRepDetailDialog(QDialog):
         for col_idx, (label_text, _) in enumerate(STATUS_FIELDS):
             hdr = QLabel(label_text)
             hdr.setAlignment(Qt.AlignCenter)
-            hdr.setFont(QFont("Arial", fs(11), QFont.Bold))
+            hdr.setFont(_lbl_font())
             hdr.setStyleSheet(
                 f"background-color:{self._title_bg}; color:{self._title_fg};"
                 "border-right:1px solid #D2D0CF; border-bottom:1px solid #D2D0CF; padding: 5px 2px;"
@@ -883,7 +924,6 @@ class StatRepDetailDialog(QDialog):
         main.addWidget(sg_widget)
         main.addWidget(_hsep())
 
-        # Map (512x288) + comments, side by side
         lower = QHBoxLayout()
         lower.setSpacing(10)
         self.map_view = QWebEngineView()
@@ -891,49 +931,46 @@ class StatRepDetailDialog(QDialog):
         lower.addWidget(self.map_view, alignment=Qt.AlignTop)
 
         self.comments = QTextBrowser()
-        _comments_font = QFont("Kode Mono", -1)
-        _comments_font.setPixelSize(15)
-        self.comments.setFont(_comments_font)
+        self.comments.setFont(_mono_font())
         self.comments.setFixedSize(480, 270)
         self.comments.setStyleSheet(
-            f"background-color:{self._data_bg}; color:#000000; border:1px solid #ccc; border-radius:4px;"
+            f"background-color:{self._data_bg}; color:#000000;"
+            f" border:1px solid {COLOR_INPUT_BORDER}; border-radius:4px;"
         )
         self.comments.setOpenLinks(False)
         self.comments.anchorClicked.connect(lambda url: QDesktopServices.openUrl(url))
         lower.addWidget(self.comments)
         main.addLayout(lower)
 
-        # Action buttons
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        _note_f = QFont("Roboto")
+        _note_f.setPixelSize(10)
         brevity_note = QLabel("<b>Brevity Note:</b> Highlight brevity code, then click Brevity button to decode")
-        brevity_note.setFont(QFont("Arial", fs(10)))
+        brevity_note.setFont(_note_f)
         btn_row.addWidget(brevity_note)
         btn_row.addStretch()
-        self.btn_delete = QPushButton("Delete")
-        self.btn_delete.setStyleSheet(_btn_style("#dc3545"))
+
+        self.btn_delete = _btn("Delete", COLOR_BTN_RED)
         self.btn_delete.clicked.connect(self._on_delete)
         btn_row.addWidget(self.btn_delete)
-        self.btn_message_sr = QPushButton("Message")
-        self.btn_message_sr.setStyleSheet(_btn_style("#0078d7"))
+
+        self.btn_message_sr = _btn("Message", COLOR_BTN_BLUE)
         self.btn_message_sr.clicked.connect(self._on_message_clicked)
         btn_row.addWidget(self.btn_message_sr)
-        for label, color in [
-            ("Brevity", "#6f42c1"),
-            ("Forward", "#17a2b8"),
-        ]:
-            b = QPushButton(label)
-            b.setStyleSheet(_btn_style(color))
-            if label == "Forward":
-                b.clicked.connect(self._on_forward)
-            elif label == "Brevity":
-                b.clicked.connect(self._on_brevity)
-            btn_row.addWidget(b)
 
-        # Pin toggle
+        btn_brevity = _btn("Brevity", _COL_PURPLE)
+        btn_brevity.clicked.connect(self._on_brevity)
+        btn_row.addWidget(btn_brevity)
+
+        btn_forward = _btn("Forward", COLOR_BTN_CYAN)
+        btn_forward.clicked.connect(self._on_forward)
+        btn_row.addWidget(btn_forward)
+
         self.pin_toggle = _ToggleSwitch()
         self.pin_toggle.toggled.connect(self._save_pinned)
         self.lbl_pin = QLabel("Pinned")
-        self.lbl_pin.setFont(QFont("Arial", fs(11)))
+        self.lbl_pin.setFont(_lbl_font())
         btn_row.addWidget(self.pin_toggle)
         btn_row.addWidget(self.lbl_pin)
         main.addLayout(btn_row)
@@ -960,10 +997,8 @@ class StatRepDetailDialog(QDialog):
         if not row:
             return
 
-        # Store the report datetime for age check on forward
         self._sr_datetime = row[0] or ""
 
-        # Store row data for forwarding (indices 2–16)
         self._row_data = {
             "map": row[2], "power": row[3], "water": row[4],
             "med": row[5], "telecom": row[6], "travel": row[7],
@@ -974,7 +1009,6 @@ class StatRepDetailDialog(QDialog):
             "origin_callsign": self.callsign,
         }
 
-        # StatRep details (row indices: 0=datetime, 1=global_id, 16=sr_id, 17=freq, 18=target, 21=source)
         global_id = row[1] or 0
         self._global_id = global_id
         freq_mhz = (float(row[17]) / 1_000_000) if row[17] else 0.0
@@ -1003,7 +1037,6 @@ class StatRepDetailDialog(QDialog):
         )
         self.qrz_info.lbl_sr_delivered.setText("<b>Delivered To:</b>")
 
-        # Fetch delivery count from backbone if available
         if global_id and self._backbone_url and self.internet_available:
             local_cs = _get_local_callsign()
             if local_cs:
@@ -1011,31 +1044,24 @@ class StatRepDetailDialog(QDialog):
                 self._rc_thread.count_ready.connect(self._on_read_count)
                 self._rc_thread.start()
 
-        # Status squares (indices 2–13)
         for i, (label_text, _) in enumerate(STATUS_FIELDS):
             val = str(row[i + 2]) if row[i + 2] is not None else ""
             sq = self._squares[label_text]
             color_str, tip = self._status_colors.get(val, ("rgb(255,255,255)", "No status"))
-            sq.setStyleSheet(
-                f"background-color:{color_str}; border:1px solid #D2D0CF;"
-            )
+            sq.setStyleSheet(f"background-color:{color_str}; border:1px solid #D2D0CF;")
             sq.setToolTip(tip)
 
-        # Comments (index 14) — decode || newline placeholders, render links
         self.comments.setHtml(_text_to_html((row[14] or "").replace("||", "\n"), self._data_bg))
 
-        # Memo (index 19) — user notes, auto-saved on focus-out
         self.memo_edit.blockSignals(True)
         self.memo_edit.setPlainText(row[19] or "")
         self.memo_edit.blockSignals(False)
         self.memo_edit.focus_lost.connect(self._save_memo)
 
-        # Pinned (index 20)
         self.pin_toggle.blockSignals(True)
         self.pin_toggle.setChecked(bool(row[20]))
         self.pin_toggle.blockSignals(False)
 
-        # Map from grid square (index 15)
         grid = row[15]
         if grid:
             try:
@@ -1103,7 +1129,6 @@ class StatRepDetailDialog(QDialog):
         if not self._tcp_pool or not self._connector_manager or not self._row_data:
             return
 
-        # Block forwarding if the report is more than 24 hours old
         if self._sr_datetime:
             try:
                 sr_dt_str = self._sr_datetime.replace(" UTC", "").strip()
@@ -1122,7 +1147,7 @@ class StatRepDetailDialog(QDialog):
                     msg.exec_()
                     return
             except (ValueError, TypeError):
-                pass  # If we can't parse the date, allow forwarding
+                pass
 
         from statrep import StatRepDialog
         dlg = StatRepDialog(
@@ -1184,7 +1209,6 @@ class StatRepDetailDialog(QDialog):
         d = _normalize_qrz(result)
 
         if not self._map_loaded:
-            # Fall back to QRZ lat/lon if grid-based map didn't load
             if d["lat"] and d["lon"]:
                 try:
                     lat, lon = float(d["lat"]), float(d["lon"])
@@ -1196,7 +1220,6 @@ class StatRepDetailDialog(QDialog):
                 except (ValueError, TypeError):
                     pass
         else:
-            # Map already shows statrep grid — add QRZ home pin if grid differs
             qrz_grid = (d.get("grid") or "")[:4].upper()
             if qrz_grid and qrz_grid != self._statrep_grid and d["lat"] and d["lon"]:
                 try:
@@ -1236,7 +1259,7 @@ def _text_to_html(text: str, bg: str) -> str:
     lines = linked.replace("\n", "<br>")
     return (
         f'<html><body style="background-color:{bg};color:#000000;'
-        f'font-family:\'Kode Mono\';font-size:15px;">{lines}</body></html>'
+        f'font-family:\'Kode Mono\';font-size:13px;">{lines}</body></html>'
     )
 
 
@@ -1253,15 +1276,21 @@ class MessageDetailDialog(QDialog):
                  msg_id: str = "",
                  parent=None):
         super().__init__(parent)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            Qt.Window |
+            Qt.CustomizeWindowHint |
+            Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint |
+            Qt.WindowStaysOnTopHint
+        )
         self.callsign = callsign
         self.message_text = message_text
         self.internet_available = internet_available
         self._panel_bg = panel_background
         self._panel_fg = panel_foreground
         self._data_bg = data_background
-        self._program_bg = program_background
-        self._program_fg = program_foreground
+        self._program_bg = program_background or _PROG_BG
+        self._program_fg = program_foreground or _PROG_FG
         self._msg_id = msg_id
         self._thread: Optional[_QRZThread] = None
         self._map_loaded = False
@@ -1277,19 +1306,17 @@ class MessageDetailDialog(QDialog):
 
     def _setup_ui(self) -> None:
         self.setStyleSheet(
-            f"QDialog {{ background-color:{self._panel_bg}; }}"
-            f"QLabel {{ color:{self._panel_fg}; }}"
+            f"QDialog {{ background-color:{_DATA_BG}; }}"
+            f"QLabel {{ color:{COLOR_INPUT_TEXT}; background-color: transparent; }}"
         )
         main = QVBoxLayout(self)
         main.setContentsMargins(10, 10, 10, 10)
         main.setSpacing(8)
 
-        # QRZ info (top section)
         self.qrz_info = _QRZInfoSection(hdr_bg=self._program_bg, hdr_fg=self._program_fg, parent=self)
         main.addWidget(self.qrz_info)
         main.addWidget(_hsep())
 
-        # Map (480x230) + message text, side by side
         lower = QHBoxLayout()
         lower.setSpacing(10)
         self.map_view = QWebEngineView()
@@ -1297,12 +1324,10 @@ class MessageDetailDialog(QDialog):
         lower.addWidget(self.map_view, alignment=Qt.AlignTop)
 
         self.msg_text = QTextBrowser()
-        _msg_font = QFont("Kode Mono", -1)
-        _msg_font.setPixelSize(15)
-        self.msg_text.setFont(_msg_font)
+        self.msg_text.setFont(_mono_font())
         self.msg_text.setFixedSize(480, 230)
         self.msg_text.setStyleSheet(
-            f"background-color:{self._data_bg}; border:1px solid #ccc; border-radius:4px;"
+            f"background-color:{self._data_bg}; border:1px solid {COLOR_INPUT_BORDER}; border-radius:4px;"
         )
         self.msg_text.setOpenLinks(False)
         self.msg_text.anchorClicked.connect(lambda url: QDesktopServices.openUrl(url))
@@ -1310,30 +1335,26 @@ class MessageDetailDialog(QDialog):
         lower.addWidget(self.msg_text)
         main.addLayout(lower)
 
-        # Action buttons
-        _bs = lambda c: (
-            f"QPushButton {{ background-color:{c}; color:white; border:none; "
-            f"padding:6px 14px; border-radius:4px; font-weight:bold; font-size:15px; }}"
-            f"QPushButton:hover {{ background-color:{c}; }}"
-        )
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
         btn_row.addStretch()
-        self.btn_delete = QPushButton("Delete")
-        self.btn_delete.setStyleSheet(_bs("#dc3545"))
+
+        self.btn_delete = _btn("Delete", COLOR_BTN_RED)
         self.btn_delete.clicked.connect(self._on_delete)
         btn_row.addWidget(self.btn_delete)
-        self.btn_reply = QPushButton("Reply")
-        self.btn_reply.setStyleSheet(_bs("#0078d7"))
+
+        self.btn_reply = _btn("Reply", COLOR_BTN_BLUE)
         self.btn_reply.clicked.connect(self._on_reply_clicked)
         btn_row.addWidget(self.btn_reply)
-        self.btn_message_msg = QPushButton("Message")
-        self.btn_message_msg.setStyleSheet(_bs("#0078d7"))
+
+        self.btn_message_msg = _btn("Message", COLOR_BTN_BLUE)
         self.btn_message_msg.clicked.connect(self._on_message_clicked)
         btn_row.addWidget(self.btn_message_msg)
-        self.btn_close = QPushButton("Close")
-        self.btn_close.setStyleSheet(_bs("#555555"))
+
+        self.btn_close = _btn("Close", _COL_CANCEL)
         self.btn_close.clicked.connect(self._on_close_clicked)
         btn_row.addWidget(self.btn_close)
+
         main.addLayout(btn_row)
 
     def _on_message_clicked(self) -> None:
@@ -1429,19 +1450,4 @@ class MessageDetailDialog(QDialog):
                     _make_map_html(lat, lon, self.internet_available),
                     QUrl("http://localhost/")
                 )
-        else:
-            # Map already shows statrep grid — add QRZ home pin if grid differs
-            qrz_grid = (d.get("grid") or "")[:4].upper()
-            if qrz_grid and qrz_grid != self._statrep_grid and d["lat"] and d["lon"]:
-                try:
-                    qrz_lat, qrz_lon = float(d["lat"]), float(d["lon"])
-                    self.map_view.setHtml(
-                        _make_map_html(
-                            self._statrep_lat, self._statrep_lon,
-                            self.internet_available,
-                            extra_lat=qrz_lat, extra_lon=qrz_lon,
-                        ),
-                        QUrl("http://localhost/")
-                    )
-                except (ValueError, TypeError):
-                    pass
+        # map already loaded — nothing more to do for message detail view
