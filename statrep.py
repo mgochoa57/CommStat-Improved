@@ -25,6 +25,12 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QDateTime, Qt
 from PyQt5.QtWidgets import QMessageBox, QDialog, QComboBox
 
+from constants import (
+    DEFAULT_COLORS, COLOR_INPUT_TEXT, COLOR_INPUT_BORDER,
+    COLOR_DISABLED_BG, COLOR_DISABLED_TEXT,
+    COLOR_BTN_GREEN, COLOR_BTN_BLUE, COLOR_BTN_CYAN,
+)
+
 if TYPE_CHECKING:
     from js8_tcp_client import TCPConnectionPool
     from connector_manager import ConnectorManager
@@ -89,17 +95,45 @@ STATUS_COLORS = {
     "Unknown": "#6c757d",
 }
 
-# Styling
-FONT_FAMILY = "Arial"
-FONT_SIZE = 12
 WINDOW_WIDTH = 700
 WINDOW_HEIGHT = 640
-WINDOW_HEIGHT_EXPANDED = 760  # Height when Internet Only (expanded remarks)
+WINDOW_HEIGHT_EXPANDED = 760
 INTERNET_RIG = "INTERNET ONLY"
 REMARKS_MAX_RADIO = 60
-REMARKS_MAX_INTERNET = 300  # ~5 lines worth of text
+REMARKS_MAX_INTERNET = 300
 NEWLINE_PLACEHOLDER = "||"
-DATA_BACKGROUND = "#F8F6F4"   # matches little_gucci.py 'data_background'
+
+_PROG_BG    = DEFAULT_COLORS.get("program_background", "#000000")
+_PROG_FG    = DEFAULT_COLORS.get("program_foreground", "#FFFFFF")
+_DATA_BG    = DEFAULT_COLORS.get("data_background",    "#F8F6F4")
+_COL_CANCEL = "#555555"
+_COL_GRAY   = "#6c757d"
+_COL_PURPLE = "#6f42c1"
+
+
+def _lbl_font() -> QtGui.QFont:
+    f = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
+    f.setPixelSize(13)
+    return f
+
+
+def _mono_font() -> QtGui.QFont:
+    f = QtGui.QFont("Kode Mono")
+    f.setPixelSize(13)
+    return f
+
+
+def _btn(label: str, color: str, min_w: int = 90) -> QtWidgets.QPushButton:
+    b = QtWidgets.QPushButton(label)
+    b.setMinimumWidth(min_w)
+    b.setStyleSheet(
+        f"QPushButton {{ background-color:{color}; color:#ffffff; border:none;"
+        f" padding:6px 14px; border-radius:4px; font-family:Roboto; font-size:15px;"
+        f" font-weight:bold; }}"
+        f"QPushButton:hover {{ background-color:{color}; opacity:0.9; }}"
+        f"QPushButton:pressed {{ background-color:{color}; }}"
+    )
+    return b
 
 
 # =============================================================================
@@ -151,8 +185,8 @@ class StatRepDialog(QDialog):
         tcp_pool: "TCPConnectionPool",
         connector_manager: "ConnectorManager",
         parent=None,
-        panel_background: str = DATA_BACKGROUND,
-        data_background: str = DATA_BACKGROUND
+        panel_background: str = _DATA_BG,
+        data_background: str = _DATA_BG
     ):
         super().__init__(parent)
         self.tcp_pool = tcp_pool
@@ -160,7 +194,7 @@ class StatRepDialog(QDialog):
         self.panel_background = panel_background
         self.data_background = data_background
 
-        self.setWindowTitle("CommStat STATREP")
+        self.setWindowTitle("STATREP")
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setWindowFlags(
             Qt.Window |
@@ -574,171 +608,145 @@ class StatRepDialog(QDialog):
     def _setup_ui(self) -> None:
         """Build the user interface."""
         self.setStyleSheet(f"""
-            QDialog {{ background-color: {self.panel_background}; }}
-            QLabel {{ color: #333333; }}
-            QLineEdit {{ background-color: white; color: #333333; border: 1px solid #cccccc; border-radius: 4px; padding: 2px 4px; }}
-            QComboBox {{ background-color: white; color: #333333; border: 1px solid #cccccc; border-radius: 4px; padding: 2px 4px; }}
-            QComboBox:disabled {{ background-color: #e9ecef; color: #999999; border: 1px solid #cccccc; }}
-            QComboBox QAbstractItemView {{ background-color: white; color: #333333; selection-background-color: #0078d7; selection-color: white; }}
+            QDialog {{ background-color: {_DATA_BG}; }}
+            QLabel {{ color: {COLOR_INPUT_TEXT}; background-color: transparent; }}
+            QLineEdit {{
+                background-color: white; color: {COLOR_INPUT_TEXT};
+                border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 2px 4px;
+            }}
+            QComboBox {{
+                background-color: white; color: {COLOR_INPUT_TEXT};
+                border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 2px 4px;
+            }}
+            QComboBox:disabled {{
+                background-color: {COLOR_DISABLED_BG}; color: {COLOR_DISABLED_TEXT};
+                border: 1px solid {COLOR_INPUT_BORDER};
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: white; color: {COLOR_INPUT_TEXT};
+                selection-background-color: #cce5ff; selection-color: #000000;
+            }}
         """)
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 15, 15, 15)
 
         # Title
-        title = QtWidgets.QLabel("CommStat Status Report 5.1")
+        title = QtWidgets.QLabel("STATUS REPORT")
         title.setAlignment(Qt.AlignCenter)
-        title_font = QtGui.QFont(FONT_FAMILY, 16, QtGui.QFont.Bold)
-        title.setFont(title_font)
-        title.setStyleSheet("color: #333; margin-bottom: 10px;")
+        _tf = QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black)
+        _tf.setPixelSize(16)
+        title.setFont(_tf)
+        title.setFixedHeight(36)
+        title.setStyleSheet(
+            f"QLabel {{ background-color: {_PROG_BG}; color: {_PROG_FG}; "
+            "padding-top: 9px; padding-bottom: 9px; }}"
+        )
         layout.addWidget(title)
 
-        # Rig / Mode / Freq / Delivery row (label above control)
+        # ── Settings row: Rig | Mode | Freq | Delivery ──────────────────
+        def _labeled_col(lbl_text, ctrl):
+            col = QtWidgets.QVBoxLayout()
+            col.setSpacing(2)
+            lbl = QtWidgets.QLabel(lbl_text)
+            lbl.setFont(_lbl_font())
+            col.addWidget(lbl)
+            col.addWidget(ctrl)
+            return col
+
         rig_row = QtWidgets.QHBoxLayout()
+        rig_row.setSpacing(8)
 
-        rig_col = QtWidgets.QVBoxLayout()
-        rig_label = QtWidgets.QLabel("Rig:")
-        rig_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.rig_combo = QtWidgets.QComboBox()
-        self.rig_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        self.rig_combo.setFont(_mono_font())
         self.rig_combo.setMinimumWidth(180)
-        self.rig_combo.setMinimumHeight(28)
         self.rig_combo.currentTextChanged.connect(self._on_rig_changed)
-        rig_col.addWidget(rig_label)
-        rig_col.addWidget(self.rig_combo)
-        rig_row.addLayout(rig_col)
+        rig_row.addLayout(_labeled_col("Rig:", self.rig_combo))
 
-        mode_col = QtWidgets.QVBoxLayout()
-        mode_label = QtWidgets.QLabel("Mode:")
-        mode_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.mode_combo = QtWidgets.QComboBox()
-        self.mode_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.mode_combo.setMinimumHeight(28)
-        self.mode_combo.addItem("Slow", 4)
+        self.mode_combo.setFont(_mono_font())
+        self.mode_combo.addItem("Slow",   4)
         self.mode_combo.addItem("Normal", 0)
-        self.mode_combo.addItem("Fast", 1)
-        self.mode_combo.addItem("Turbo", 2)
-        self.mode_combo.addItem("Ultra", 8)
+        self.mode_combo.addItem("Fast",   1)
+        self.mode_combo.addItem("Turbo",  2)
+        self.mode_combo.addItem("Ultra",  8)
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        mode_col.addWidget(mode_label)
-        mode_col.addWidget(self.mode_combo)
-        rig_row.addLayout(mode_col)
+        rig_row.addLayout(_labeled_col("Mode:", self.mode_combo))
 
-        freq_col = QtWidgets.QVBoxLayout()
-        freq_label = QtWidgets.QLabel("Freq:")
-        freq_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.freq_field = QtWidgets.QLineEdit()
-        self.freq_field.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.freq_field.setMinimumHeight(28)
+        self.freq_field.setFont(_mono_font())
         self.freq_field.setMaximumWidth(100)
         self.freq_field.setReadOnly(True)
-        self.freq_field.setStyleSheet("background-color: #f0f0f0;")
-        freq_col.addWidget(freq_label)
-        freq_col.addWidget(self.freq_field)
-        rig_row.addLayout(freq_col)
+        self.freq_field.setStyleSheet(
+            f"background-color: {COLOR_DISABLED_BG}; color: {COLOR_DISABLED_TEXT};"
+            f" border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 2px 4px;"
+        )
+        rig_row.addLayout(_labeled_col("Freq:", self.freq_field))
 
-        delivery_col = QtWidgets.QVBoxLayout()
-        delivery_label = QtWidgets.QLabel("Delivery:")
-        delivery_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.delivery_combo = QtWidgets.QComboBox()
-        self.delivery_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.delivery_combo.setMinimumHeight(28)
+        self.delivery_combo.setFont(_mono_font())
         self.delivery_combo.addItem("Maximum Reach")
         self.delivery_combo.addItem("Limited Reach")
         self.delivery_combo.currentTextChanged.connect(self._on_delivery_changed)
-        delivery_col.addWidget(delivery_label)
-        delivery_col.addWidget(self.delivery_combo)
-        rig_row.addLayout(delivery_col)
+        rig_row.addLayout(_labeled_col("Delivery:", self.delivery_combo))
 
         rig_row.addStretch()
         layout.addLayout(rig_row)
 
-        # Header info (From, To, Grid, Scope) - all on one line
+        # ── Header row: From | To | Grid | Scope ────────────────────────
         header_layout = QtWidgets.QHBoxLayout()
-        header_layout.setSpacing(10)
+        header_layout.setSpacing(8)
 
-        # From (Callsign)
-        from_layout = QtWidgets.QVBoxLayout()
-        from_label = QtWidgets.QLabel("From:")
-        from_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.from_field = QtWidgets.QLineEdit(self.callsign)
-        self.from_field.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.from_field.setMinimumHeight(28)
+        self.from_field.setFont(_mono_font())
         self.from_field.textChanged.connect(self._on_from_field_changed)
         make_uppercase(self.from_field)
-        from_layout.addWidget(from_label)
-        from_layout.addWidget(self.from_field)
-        header_layout.addLayout(from_layout)
+        header_layout.addLayout(_labeled_col("From:", self.from_field))
 
-        # To (Group) - dropdown with all groups
-        # Auto-selects only if exactly 1 group exists.
-        # If multiple groups exist, user must select one.
-        to_layout = QtWidgets.QVBoxLayout()
-        to_label = QtWidgets.QLabel("To:")
-        to_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.to_combo = QtWidgets.QComboBox()
-        self.to_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.to_combo.setMinimumHeight(28)
-        # Populate with all groups
+        self.to_combo.setFont(_mono_font())
         all_groups = self._get_all_groups_from_db()
         if len(all_groups) == 1:
-            # Exactly 1 group - auto-select it
             self.to_combo.addItem(all_groups[0])
         else:
-            # Multiple groups or no groups - require user selection
-            self.to_combo.addItem("")  # Empty first item
+            self.to_combo.addItem("")
             for group in all_groups:
                 self.to_combo.addItem(group)
-        to_layout.addWidget(to_label)
-        to_layout.addWidget(self.to_combo)
-        header_layout.addLayout(to_layout)
+        header_layout.addLayout(_labeled_col("To:", self.to_combo))
 
-        # Grid
-        grid_layout = QtWidgets.QVBoxLayout()
-        grid_label = QtWidgets.QLabel("Grid:")
-        grid_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.grid_field = QtWidgets.QLineEdit(self.grid)
         self.grid_field.setMaxLength(6)
-        self.grid_field.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.grid_field.setMinimumHeight(28)
+        self.grid_field.setFont(_mono_font())
         self.grid_field.textChanged.connect(self._on_grid_field_changed)
-        grid_layout.addWidget(grid_label)
-        grid_layout.addWidget(self.grid_field)
-        header_layout.addLayout(grid_layout)
+        header_layout.addLayout(_labeled_col("Grid:", self.grid_field))
 
-        # Scope
-        scope_layout = QtWidgets.QVBoxLayout()
-        scope_label = QtWidgets.QLabel("Scope:")
-        scope_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
         self.scope_combo = QtWidgets.QComboBox()
-        self.scope_combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.scope_combo.setMinimumHeight(28)
+        self.scope_combo.setFont(_mono_font())
         for display, code in SCOPE_OPTIONS:
             self.scope_combo.addItem(display, code)
-        scope_layout.addWidget(scope_label)
-        scope_layout.addWidget(self.scope_combo)
-        header_layout.addLayout(scope_layout)
+        header_layout.addLayout(_labeled_col("Scope:", self.scope_combo))
 
         layout.addLayout(header_layout)
 
         # Legend
+        _note_f = QtGui.QFont("Roboto")
+        _note_f.setPixelSize(10)
         legend = QtWidgets.QLabel(
             "<b>Maximum Reach</b> = RF + Internet | <b>Limited Reach</b> = RF Only"
-            "<br><b>Green</b> = Normal | "
-            "<b>Yellow</b> = Limited | "
-            "<b>Red</b> = Collapsed/None"
+            " | <b>Green</b> = Normal | <b>Yellow</b> = Limited | <b>Red</b> = Collapsed/None"
         )
         legend.setAlignment(Qt.AlignCenter)
-        legend.setFont(QtGui.QFont(FONT_FAMILY, 10))
+        legend.setFont(_note_f)
         legend.setStyleSheet(
-            "background-color: #f8f9fa; padding: 8px; border-radius: 4px; margin: 5px 0;"
+            f"background-color: #f8f9fa; color: {COLOR_INPUT_TEXT};"
+            " padding: 8px; border-radius: 4px;"
         )
         layout.addWidget(legend)
 
-        # Status grid (4 columns x 3 rows)
+        # ── Status grid (4 columns x 3 rows) ────────────────────────────
         status_grid = QtWidgets.QGridLayout()
-        status_grid.setSpacing(10)
+        status_grid.setSpacing(8)
 
         for i, (label, name) in enumerate(STATUS_CATEGORIES):
             label_row = (i // 4) * 2
@@ -746,7 +754,7 @@ class StatRepDialog(QDialog):
             col = i % 4
 
             cell_label = QtWidgets.QLabel(label)
-            cell_label.setFont(QtGui.QFont(FONT_FAMILY, 12))
+            cell_label.setFont(_lbl_font())
             cell_label.setAlignment(Qt.AlignCenter)
             status_grid.addWidget(cell_label, label_row, col)
 
@@ -757,84 +765,77 @@ class StatRepDialog(QDialog):
         layout.addLayout(status_grid)
 
         # Remarks
-        remarks_layout = QtWidgets.QVBoxLayout()
         remarks_label = QtWidgets.QLabel("Remarks:")
-        remarks_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
+        remarks_label.setFont(_lbl_font())
+        layout.addWidget(remarks_label)
 
-        # Single-line remarks (default, for radio)
         self.remarks_field = QtWidgets.QLineEdit()
-        self.remarks_field.setFont(QtGui.QFont("Kode Mono", FONT_SIZE))
-        self.remarks_field.setMinimumHeight(36)
+        self.remarks_field.setFont(_mono_font())
+        self.remarks_field.setMinimumHeight(30)
         self.remarks_field.setMaxLength(REMARKS_MAX_RADIO)
         self.remarks_field.setPlaceholderText(f"Optional - max {REMARKS_MAX_RADIO} characters")
         self.remarks_field.setText(self._get_default_remarks())
-        self.remarks_field.setStyleSheet("background-color: #FFFFFF; color: #000000; border: 1px solid #cccccc; border-radius: 4px; padding: 2px 4px;")
+        layout.addWidget(self.remarks_field)
 
-        # Multi-line remarks (for Internet Only, hidden by default)
         self.remarks_expanded = QtWidgets.QPlainTextEdit()
-        self.remarks_expanded.setFont(QtGui.QFont("Kode Mono", FONT_SIZE))
-        self.remarks_expanded.setFixedHeight(110)  # ~5 lines
-        self.remarks_expanded.setPlaceholderText(f"Optional - max {REMARKS_MAX_INTERNET} characters, multiple lines allowed")
-        self.remarks_expanded.setStyleSheet("background-color: #FFFFFF; color: #000000; border: 1px solid #cccccc; border-radius: 4px; padding: 2px 4px;")
+        self.remarks_expanded.setFont(_mono_font())
+        self.remarks_expanded.setFixedHeight(110)
+        self.remarks_expanded.setPlaceholderText(
+            f"Optional - max {REMARKS_MAX_INTERNET} characters, multiple lines allowed"
+        )
+        self.remarks_expanded.setStyleSheet(
+            f"background-color: white; color: {COLOR_INPUT_TEXT};"
+            f" border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 2px 4px;"
+        )
         self.remarks_expanded.hide()
+        layout.addWidget(self.remarks_expanded)
 
-        remarks_layout.addWidget(remarks_label)
-        remarks_layout.addWidget(self.remarks_field)
-        remarks_layout.addWidget(self.remarks_expanded)
-        layout.addLayout(remarks_layout)
-
-        # Spacer
         layout.addStretch()
 
-        # Buttons — two rows sharing the same 5-column grid so widths align
+        # ── Buttons: two rows in a 5-column grid ────────────────────────
         btn_grid = QtWidgets.QGridLayout()
-        btn_grid.setSpacing(10)
+        btn_grid.setSpacing(8)
         for col in range(5):
             btn_grid.setColumnStretch(col, 1)
 
         # Row 0: Forward Mode indicator (cols 0-2), Grid Finder (col 3), Brevity (col 4)
         self._forward_mode_label = QtWidgets.QLabel("FORWARD MODE")
         self._forward_mode_label.setAlignment(QtCore.Qt.AlignCenter)
-        self._forward_mode_label.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE, QtGui.QFont.Bold))
-        self._forward_mode_label.setStyleSheet("background-color: #FFFF00; color: #000000; border-radius: 4px;")
+        self._forward_mode_label.setFont(_lbl_font())
+        self._forward_mode_label.setStyleSheet(
+            "background-color: #FFFF00; color: #000000; border-radius: 4px; padding: 4px;"
+        )
         self._forward_mode_label.setMinimumHeight(28)
         self._forward_mode_label.hide()
         btn_grid.addWidget(self._forward_mode_label, 0, 0, 1, 3)
 
-        btn_grid_finder = QtWidgets.QPushButton("Grid Finder")
-        btn_grid_finder.clicked.connect(self._on_grid_finder)
-        btn_grid_finder.setStyleSheet(self._button_style("#28a745"))
-        btn_grid.addWidget(btn_grid_finder, 0, 3)
+        btn_gf = _btn("Grid Finder", COLOR_BTN_GREEN)
+        btn_gf.clicked.connect(self._on_grid_finder)
+        btn_grid.addWidget(btn_gf, 0, 3)
 
-        btn_brevity = QtWidgets.QPushButton("Brevity")
-        btn_brevity.clicked.connect(self._on_brevity)
-        btn_brevity.setStyleSheet(self._button_style("#6f42c1"))
-        btn_grid.addWidget(btn_brevity, 0, 4)
+        btn_brev = _btn("Brevity", _COL_PURPLE)
+        btn_brev.clicked.connect(self._on_brevity)
+        btn_grid.addWidget(btn_brev, 0, 4)
 
-        # Row 1: all five main buttons
-        btn_all_green = QtWidgets.QPushButton("All Green")
-        btn_all_green.clicked.connect(self._on_all_green)
-        btn_all_green.setStyleSheet(self._button_style("#28a745"))
-        btn_grid.addWidget(btn_all_green, 1, 0)
+        # Row 1: All Green | All Gray | Save Only | Transmit | Cancel
+        btn_ag = _btn("All Green", COLOR_BTN_GREEN)
+        btn_ag.clicked.connect(self._on_all_green)
+        btn_grid.addWidget(btn_ag, 1, 0)
 
-        btn_all_gray = QtWidgets.QPushButton("All Gray")
-        btn_all_gray.clicked.connect(self._on_all_gray)
-        btn_all_gray.setStyleSheet(self._button_style("#6c757d"))
-        btn_grid.addWidget(btn_all_gray, 1, 1)
+        btn_gray = _btn("All Gray", _COL_GRAY)
+        btn_gray.clicked.connect(self._on_all_gray)
+        btn_grid.addWidget(btn_gray, 1, 1)
 
-        self.btn_save = QtWidgets.QPushButton("Save Only")
+        self.btn_save = _btn("Save Only", COLOR_BTN_CYAN)
         self.btn_save.clicked.connect(self._on_save_only)
-        self.btn_save.setStyleSheet(self._button_style("#17a2b8"))
         btn_grid.addWidget(self.btn_save, 1, 2)
 
-        btn_transmit = QtWidgets.QPushButton("Transmit")
-        btn_transmit.clicked.connect(self._on_transmit)
-        btn_transmit.setStyleSheet(self._button_style("#007bff"))
-        btn_grid.addWidget(btn_transmit, 1, 3)
+        btn_tx = _btn("Transmit", COLOR_BTN_BLUE)
+        btn_tx.clicked.connect(self._on_transmit)
+        btn_grid.addWidget(btn_tx, 1, 3)
 
-        btn_cancel = QtWidgets.QPushButton("Cancel")
+        btn_cancel = _btn("Cancel", _COL_CANCEL)
         btn_cancel.clicked.connect(self.close)
-        btn_cancel.setStyleSheet(self._button_style("#dc3545"))
         btn_grid.addWidget(btn_cancel, 1, 4)
 
         layout.addLayout(btn_grid)
@@ -842,14 +843,13 @@ class StatRepDialog(QDialog):
     def _create_status_combo(self) -> QComboBox:
         """Create a status dropdown with color-coded options."""
         combo = QtWidgets.QComboBox()
-        combo.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
+        combo.setFont(_mono_font())
         combo.setMinimumWidth(130)
         combo.setMinimumHeight(28)
 
         for display, code in STATUS_OPTIONS:
             combo.addItem(display, code)
 
-        # Update color when selection changes
         combo.currentTextChanged.connect(
             lambda text, c=combo: self._update_combo_color(c, text)
         )
@@ -866,27 +866,6 @@ class StatRepDialog(QDialog):
             )
         else:
             combo.setStyleSheet("")
-
-    def _button_style(self, color: str) -> str:
-        """Generate button stylesheet."""
-        return f"""
-            QPushButton {{
-                background-color: {color};
-                color: white;
-                border: none;
-                padding: 8px 12px;
-                border-radius: 4px;
-                font-family: Roboto;
-                font-weight: bold;
-                font-size: 15px;
-            }}
-            QPushButton:hover {{
-                opacity: 0.9;
-            }}
-            QPushButton:pressed {{
-                opacity: 0.8;
-            }}
-        """
 
     def _show_error(self, message: str) -> None:
         """Display an error message box."""
