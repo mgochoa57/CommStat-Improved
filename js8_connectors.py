@@ -143,11 +143,12 @@ class JS8ConnectorsDialog(QDialog):
         body.setSpacing(10)
 
         # ── Title ─────────────────────────────────────────────────────────────
-        title_lbl = QLabel("JS8 Connectors")
+        title_lbl = QLabel("JS8 CONNECTORS")
         title_lbl.setAlignment(Qt.AlignCenter)
         tf = QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black)
-        tf.setPixelSize(20)
+        tf.setPixelSize(16)
         title_lbl.setFont(tf)
+        title_lbl.setFixedHeight(36)
         title_lbl.setStyleSheet(
             f"QLabel {{ background-color:{_PROG_BG}; color:{_PROG_FG};"
             " padding-top:9px; padding-bottom:9px; }}"
