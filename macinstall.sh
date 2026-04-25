@@ -45,12 +45,22 @@ python3 install.py
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Build a CommStat.app bundle in ~/Applications so it appears in Launchpad/Spotlight
+# Build a CommStat.app bundle in /Applications so it appears in Finder, Launchpad, and Spotlight.
+# Writing to /Applications requires admin rights, so prompt for sudo once up front and keep the
+# timestamp alive while the script runs. brew and pip stay under the regular user.
 echo ""
-echo "Creating CommStat.app in ~/Applications..."
+echo "CommStat.app will be installed to /Applications (admin password required)."
+sudo -v
+( while true; do sudo -n true; sleep 50; kill -0 "$$" || exit; done 2>/dev/null ) &
+SUDO_KEEPALIVE=$!
+trap 'kill $SUDO_KEEPALIVE 2>/dev/null' EXIT
 
-APP_DIR="$HOME/Applications/CommStat.app"
-rm -rf "$APP_DIR"
+echo ""
+echo "Creating CommStat.app in /Applications..."
+
+FINAL_APP_DIR="/Applications/CommStat.app"
+STAGE_DIR="$(mktemp -d)"
+APP_DIR="$STAGE_DIR/CommStat.app"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
 # Launcher inside the app bundle — cd into the real CommStat source dir and run it.
@@ -126,12 +136,17 @@ else
     echo "No radiation icon found — app will use default icon."
 fi
 
-# Nudge the Finder/Launch Services to pick up the new icon
-touch "$APP_DIR"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
-    -f "$APP_DIR" >/dev/null 2>&1 || true
+# Move the staged bundle into /Applications, replacing any prior install.
+sudo rm -rf "$FINAL_APP_DIR"
+sudo mv "$APP_DIR" "$FINAL_APP_DIR"
+rm -rf "$STAGE_DIR"
 
-echo "CommStat.app installed at: $APP_DIR"
+# Nudge the Finder/Launch Services to pick up the new icon
+sudo touch "$FINAL_APP_DIR"
+sudo /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "$FINAL_APP_DIR" >/dev/null 2>&1 || true
+
+echo "CommStat.app installed at: $FINAL_APP_DIR"
 
 echo ""
 echo "=============================================="
