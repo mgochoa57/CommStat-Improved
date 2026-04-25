@@ -586,10 +586,7 @@ class _QRZInfoSection(QWidget):
             self._img_loader.gif_loaded.connect(self._on_gif_loaded)
             self._img_loader.start()
         else:
-            px = QPixmap("little-duck.png")
-            if not px.isNull():
-                target_h = 166 if px.height() * 2.0 > px.width() else 126
-                self.lbl_image.setPixmap(px.scaledToHeight(target_h, Qt.SmoothTransformation))
+            self._load_default_image()
 
     def _on_image_loaded(self, px: QPixmap) -> None:
         self.lbl_image.setPixmap(px)
@@ -611,6 +608,37 @@ class _QRZInfoSection(QWidget):
         self.lbl_image.setMovie(self._gif_movie)
         self._gif_movie.start()
         self.image_width_ready.emit(self._gif_movie.scaledSize().width())
+
+    def _load_default_image(self) -> None:
+        px = QPixmap("little-duck.png")
+        if not px.isNull():
+            target_h = 166 if px.height() * 2.0 > px.width() else 126
+            self.lbl_image.setPixmap(px.scaledToHeight(target_h, Qt.SmoothTransformation))
+        else:
+            self.lbl_image.clear()
+
+    def show_no_data_placeholder(self) -> None:
+        """Show label keys and default image with no QRZ data populated."""
+        if self._gif_movie:
+            self._gif_movie.stop()
+            self._gif_movie = None
+        self.hdr.setText("QRZ API Lookup For:")
+        self.lbl_call.clear()
+        self.lbl_name.clear()
+        self.lbl_addr1.clear()
+        self.lbl_addr2.clear()
+        self.lbl_county.clear()
+        self.lbl_country.clear()
+        self.lbl_license.setText("<b>Last Seen:</b>")
+        self.lbl_born.setText("<b>License:</b>")
+        self.lbl_grid.setText("<b>Grid:</b>")
+        self.lbl_lat.setText("<b>Lat:</b>")
+        self.lbl_lon.setText("<b>Lon:</b>")
+        self.lbl_email.setText("<b>Email:</b>")
+        self.lbl_qrz_profile.clear()
+        self.lbl_moddate.clear()
+        self.lbl_image.set_url("")
+        self._load_default_image()
 
     def clear(self) -> None:
         if self._gif_movie:
@@ -714,6 +742,7 @@ class QRZLookupDialog(QDialog):
 
         self.qrz_info = _QRZInfoSection(hdr_bg=self._program_bg, hdr_fg=self._program_fg, parent=self)
         self.qrz_info.image_width_ready.connect(self._adjust_for_image_width)
+        self.qrz_info.show_no_data_placeholder()
         main.addWidget(self.qrz_info)
 
         memo_lbl = QLabel("Notes / Memo")
@@ -765,6 +794,7 @@ class QRZLookupDialog(QDialog):
         self.lbl_status.setText(f"Looking up {cs}…")
         self.btn_search.setEnabled(False)
         self.qrz_info.clear()
+        self.qrz_info.show_no_data_placeholder()
         _, username, password = load_qrz_config()
         self._thread = _QRZThread(cs, username, password)
         self._thread.result_ready.connect(self._on_result)
@@ -784,6 +814,7 @@ class QRZLookupDialog(QDialog):
             self.memo_edit.blockSignals(False)
         else:
             self.lbl_status.setText("No results found.")
+            self.qrz_info.show_no_data_placeholder()
 
     def _save_memo(self) -> None:
         """Save memo text to the qrz table on focus-out."""
@@ -1197,6 +1228,7 @@ class StatRepDetailDialog(QDialog):
             return
         is_active, username, password = load_qrz_config()
         if not is_active:
+            self.qrz_info.show_no_data_placeholder()
             return
         self._thread = _QRZThread(self.callsign, username, password)
         self._thread.result_ready.connect(self._on_qrz_result)
@@ -1421,6 +1453,7 @@ class MessageDetailDialog(QDialog):
             return
         is_active, username, password = load_qrz_config()
         if not is_active:
+            self.qrz_info.show_no_data_placeholder()
             return
         self._thread = _QRZThread(self.callsign, username, password)
         self._thread.result_ready.connect(self._on_qrz_result)
