@@ -9,18 +9,23 @@ Allows sending a free-form message directly to a specific callsign via backbone.
 """
 
 import base64
+import os
 import re
-import sqlite3  # used by _get_my_callsign
+import sqlite3
 import threading
 import urllib.request
 import urllib.parse
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QDateTime, Qt
 from PyQt5.QtWidgets import QDialog, QMessageBox
 
 from id_utils import generate_time_based_id
+from constants import (
+    DEFAULT_COLORS, COLOR_INPUT_TEXT, COLOR_INPUT_BORDER,
+    COLOR_BTN_BLUE, COLOR_BTN_CYAN,
+)
 
 if TYPE_CHECKING:
     from js8_tcp_client import TCPConnectionPool
@@ -34,11 +39,39 @@ if TYPE_CHECKING:
 DATABASE_FILE = "traffic.db3"
 
 _BACKBONE = base64.b64decode("aHR0cHM6Ly9jb21tc3RhdC1pbXByb3ZlZC5jb20=").decode()
-_DATAFEED = _BACKBONE + "/datafeed-808585.php"
+_DATAFEED  = _BACKBONE + "/datafeed-808585.php"
 
-FONT_FAMILY = "Arial"
-FONT_SIZE = 12
-DATA_BACKGROUND = "#F8F6F4"
+_PROG_BG = DEFAULT_COLORS.get("program_background", "#000000")
+_PROG_FG = DEFAULT_COLORS.get("program_foreground", "#FFFFFF")
+_DATA_BG = DEFAULT_COLORS.get("data_background",    "#F8F6F4")
+
+_COL_CANCEL = "#555555"
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+def _lbl_font() -> QtGui.QFont:
+    return QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
+
+
+def _mono_font() -> QtGui.QFont:
+    return QtGui.QFont("Kode Mono")
+
+
+def _btn(label: str, color: str, min_w: int = 90) -> QtWidgets.QPushButton:
+    b = QtWidgets.QPushButton(label)
+    b.setMinimumWidth(min_w)
+    b.setStyleSheet(
+        f"QPushButton {{ background-color:{color}; color:#ffffff; border:none;"
+        f" padding:6px 14px; border-radius:4px; font-family:Roboto; font-size:15px;"
+        f" font-weight:bold; }}"
+        f"QPushButton:hover {{ background-color:{color}; opacity:0.9; }}"
+        f"QPushButton:pressed {{ background-color:{color}; }}"
+        f"QPushButton:disabled {{ background-color:#cccccc; color:#888888; }}"
+    )
+    return b
 
 
 # =============================================================================
@@ -72,7 +105,6 @@ class DirectMessageDialog(QDialog):
     # -------------------------------------------------------------------------
 
     def _setup_ui(self) -> None:
-        """Build the user interface."""
         self.setWindowTitle("Direct Message")
         self.setWindowFlags(
             Qt.Window |
@@ -81,71 +113,65 @@ class DirectMessageDialog(QDialog):
             Qt.WindowCloseButtonHint |
             Qt.WindowStaysOnTopHint
         )
-        self.setMinimumWidth(520)
+        self.setMinimumSize(520, 420)
+        self.resize(520, 420)
 
-        icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("radiation-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
-        self.setWindowIcon(icon)
+        if os.path.exists("radiation-32.png"):
+            self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
 
         self.setStyleSheet(f"""
-            QDialog {{ background-color: {DATA_BACKGROUND}; }}
-            QLabel {{ color: #000000; }}
+            QDialog {{ background-color: {_DATA_BG}; }}
+            QLabel {{ color: {COLOR_INPUT_TEXT}; font-size: 13px; }}
             QLineEdit {{
-                background-color: white; color: #000000;
-                border: 1px solid #cccccc; border-radius: 4px; padding: 2px 4px;
+                background-color: white; color: {COLOR_INPUT_TEXT};
+                border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 2px 4px;
+                font-family: 'Kode Mono'; font-size: 13px;
             }}
             QPlainTextEdit {{
-                background-color: white; color: #000000;
-                border: 1px solid #cccccc; border-radius: 4px; padding: 4px;
+                background-color: white; color: {COLOR_INPUT_TEXT};
+                border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 4px;
+                font-family: 'Kode Mono'; font-size: 13px;
             }}
         """)
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 15, 15, 15)
 
         # Title
-        title = QtWidgets.QLabel("Direct Message")
+        title = QtWidgets.QLabel("DIRECT MESSAGE")
         title.setAlignment(Qt.AlignCenter)
-        _title_font = QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black)
-        _title_font.setPixelSize(20)
-        title.setFont(_title_font)
+        title.setFont(QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black))
+        title.setFixedHeight(36)
         title.setStyleSheet(
-            "QLabel { background-color: #A52A2A; color: #FFFFFF; "
-            "padding-top: 9px; padding-bottom: 9px; }"
+            f"QLabel {{ background-color: {_PROG_BG}; color: {_PROG_FG}; "
+            "font-size: 16px; padding-top: 9px; padding-bottom: 9px; }}"
         )
         layout.addWidget(title)
 
+        # Callsign row
         callsign_label = QtWidgets.QLabel("Callsign:")
-        _lbl_font = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
-        _lbl_font.setPixelSize(15)
-        callsign_label.setFont(_lbl_font)
+        callsign_label.setFont(_lbl_font())
         layout.addWidget(callsign_label)
 
+        callsign_row = QtWidgets.QHBoxLayout()
+        callsign_row.setSpacing(8)
+
         self.callsign_input = QtWidgets.QLineEdit()
-        _cs_font = QtGui.QFont("Kode Mono", -1)
-        _cs_font.setPixelSize(15)
-        self.callsign_input.setFont(_cs_font)
+        self.callsign_input.setFont(_mono_font())
         self.callsign_input.setFixedWidth(120)
         self.callsign_input.setMinimumHeight(28)
         self.callsign_input.setMaxLength(12)
         self.callsign_input.setPlaceholderText("e.g. N0CALL")
         self.callsign_input.textChanged.connect(self._on_callsign_changed)
-
-        callsign_row = QtWidgets.QHBoxLayout()
         callsign_row.addWidget(self.callsign_input)
-        _ls_title_font = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
-        _ls_title_font.setPixelSize(15)
+
         ls_title = QtWidgets.QLabel("Last Seen:")
-        ls_title.setFont(_ls_title_font)
-        ls_title.setStyleSheet("color: #000000;")
+        ls_title.setFont(_lbl_font())
         callsign_row.addWidget(ls_title)
 
         self.last_seen_label = QtWidgets.QLabel("—")
-        _ls_font = QtGui.QFont("Kode Mono")
-        _ls_font.setPixelSize(15)
-        self.last_seen_label.setFont(_ls_font)
-        self.last_seen_label.setStyleSheet("color: #000000;")
+        self.last_seen_label.setFont(_mono_font())
         callsign_row.addWidget(self.last_seen_label)
         callsign_row.addStretch()
         layout.addLayout(callsign_row)
@@ -156,20 +182,15 @@ class DirectMessageDialog(QDialog):
         self._last_seen_timer.timeout.connect(self._trigger_last_seen_lookup)
         self.last_seen_updated.connect(self._on_last_seen_updated)
 
+        # Message
         message_label = QtWidgets.QLabel("Message:")
-        _msg_lbl_font = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
-        _msg_lbl_font.setPixelSize(15)
-        message_label.setFont(_msg_lbl_font)
+        message_label.setFont(_lbl_font())
         layout.addWidget(message_label)
 
-        # Message text box (~8 rows)
         self.message_box = QtWidgets.QPlainTextEdit()
-        _msg_font = QtGui.QFont("Kode Mono", -1)
-        _msg_font.setPixelSize(15)
-        self.message_box.setFont(_msg_font)
+        self.message_box.setFont(_mono_font())
         font_metrics = QtGui.QFontMetrics(self.message_box.font())
-        row_height = font_metrics.lineSpacing()
-        self.message_box.setMinimumHeight(row_height * 8 + 16)
+        self.message_box.setMinimumHeight(font_metrics.lineSpacing() * 8 + 16)
         self.message_box.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
         )
@@ -179,21 +200,15 @@ class DirectMessageDialog(QDialog):
         btn_row = QtWidgets.QHBoxLayout()
         btn_row.addStretch()
 
-        self.clear_btn = QtWidgets.QPushButton("Clear")
-        self.clear_btn.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.clear_btn.setStyleSheet(self._button_style("#17a2b8"))
+        self.clear_btn = _btn("Clear", COLOR_BTN_CYAN)
         self.clear_btn.clicked.connect(self._on_clear)
         btn_row.addWidget(self.clear_btn)
 
-        self.send_btn = QtWidgets.QPushButton("Send")
-        self.send_btn.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.send_btn.setStyleSheet(self._button_style("#007bff"))
+        self.send_btn = _btn("Send", COLOR_BTN_BLUE)
         self.send_btn.clicked.connect(self._on_send)
         btn_row.addWidget(self.send_btn)
 
-        self.cancel_btn = QtWidgets.QPushButton("Cancel")
-        self.cancel_btn.setFont(QtGui.QFont(FONT_FAMILY, FONT_SIZE))
-        self.cancel_btn.setStyleSheet(self._button_style("#dc3545"))
+        self.cancel_btn = _btn("Cancel", _COL_CANCEL)
         self.cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self.cancel_btn)
 
@@ -202,26 +217,6 @@ class DirectMessageDialog(QDialog):
     # -------------------------------------------------------------------------
     # Helpers
     # -------------------------------------------------------------------------
-
-    def _button_style(self, color: str) -> str:
-        """Generate button stylesheet matching statrep style."""
-        return f"""
-            QPushButton {{
-                background-color: {color};
-                color: white;
-                border: none;
-                padding: 8px 12px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 15px;
-            }}
-            QPushButton:hover {{
-                opacity: 0.9;
-            }}
-            QPushButton:pressed {{
-                opacity: 0.8;
-            }}
-        """
 
     def set_message_text(self, text: str) -> None:
         """Pre-fill the message box with the given text."""
@@ -232,7 +227,6 @@ class DirectMessageDialog(QDialog):
         self.message_box.setFocus()
 
     def _get_my_callsign(self) -> str:
-        """Retrieve operator callsign from controls table."""
         try:
             with sqlite3.connect(DATABASE_FILE, timeout=10) as conn:
                 cursor = conn.cursor()
@@ -243,7 +237,6 @@ class DirectMessageDialog(QDialog):
             return ""
 
     def _on_callsign_changed(self, text: str) -> None:
-        """Force uppercase on callsign input and schedule a last-seen lookup."""
         upper = text.upper()
         if upper != text:
             pos = self.callsign_input.cursorPosition()
@@ -259,7 +252,6 @@ class DirectMessageDialog(QDialog):
             self.last_seen_label.setText("—")
 
     def _trigger_last_seen_lookup(self) -> None:
-        """Fire background lookup for the current callsign input value."""
         target = self.callsign_input.text().strip().upper()
         if len(target) < 3 or not self.callsign:
             self.last_seen_label.setText("—")
@@ -271,7 +263,6 @@ class DirectMessageDialog(QDialog):
         ).start()
 
     def _fetch_last_seen_thread(self, target: str) -> None:
-        """Background thread: hit the last-seen endpoint and emit result."""
         try:
             url = (
                 f"{_BACKBONE}/get-last-seen-808585.php"
@@ -287,14 +278,12 @@ class DirectMessageDialog(QDialog):
             self.last_seen_updated.emit("—")
 
     def _on_last_seen_updated(self, value: str) -> None:
-        """Slot: update the Last Seen label from the background thread result."""
         self.last_seen_label.setText(value)
 
     def _sanitize_message(self, text: str) -> str:
-        """Normalize message text for over-the-air transmission."""
-        text = text.replace('\r', '')           # remove carriage returns
-        text = text.replace('\n', '||')         # newlines → "||"
-        text = re.sub(r'[^\x20-\x7E]', '', text)  # keep only printable ASCII
+        text = text.replace('\r', '')
+        text = text.replace('\n', '||')
+        text = re.sub(r'[^\x20-\x7E]', '', text)
         return text.strip()
 
     def _show_error(self, msg: str) -> None:
@@ -305,19 +294,16 @@ class DirectMessageDialog(QDialog):
     # -------------------------------------------------------------------------
 
     def _on_clear(self) -> None:
-        """Clear the message section."""
         self.message_box.clear()
 
     def _on_send(self) -> None:
-        """Validate, build, save, and submit the direct message."""
         target = self.callsign_input.text().strip().upper()
         if not target:
             self._show_error("Please enter a target callsign.")
             self.callsign_input.setFocus()
             return
 
-        raw_text = self.message_box.toPlainText()
-        text = self._sanitize_message(raw_text)
+        text = self._sanitize_message(self.message_box.toPlainText())
         if not text:
             self._show_error("Please enter a message.")
             self.message_box.setFocus()
@@ -330,12 +316,8 @@ class DirectMessageDialog(QDialog):
         now = QDateTime.currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss")
         msg_id = generate_time_based_id()
 
-        # Build message in backbone format:
-        # MYCALL: TARGET MSG ,MSGID,TEXT,{^%3}
         message_data = f"{self.callsign}: {target} MSG ,{msg_id},{text},{{^%3}}"
-
-        # data string: datetime\tfreq\toffset\tsnr\tmessage_data
-        data_string = f"DM:{now}\t0\t0\t30\t{message_data}"
+        data_string  = f"DM:{now}\t0\t0\t30\t{message_data}"
 
         self._submit_to_backbone_async(data_string)
 
@@ -347,7 +329,6 @@ class DirectMessageDialog(QDialog):
     # -------------------------------------------------------------------------
 
     def _submit_to_backbone_async(self, data_string: str) -> None:
-        """Submit message to backbone server in a background daemon thread."""
         callsign = self.callsign
 
         def submit_thread():

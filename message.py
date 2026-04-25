@@ -74,15 +74,11 @@ def make_uppercase(field):
 
 
 def _lbl_font() -> QtGui.QFont:
-    f = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
-    f.setPixelSize(13)
-    return f
+    return QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
 
 
 def _mono_font() -> QtGui.QFont:
-    f = QtGui.QFont("Kode Mono")
-    f.setPixelSize(13)
-    return f
+    return QtGui.QFont("Kode Mono")
 
 
 def _btn(label: str, color: str, min_w: int = 90) -> QtWidgets.QPushButton:
@@ -142,14 +138,16 @@ class Ui_FormMessage:
 
         FormMessage.setStyleSheet(f"""
             QWidget {{ background-color: {_DATA_BG}; }}
-            QLabel {{ color: {COLOR_INPUT_TEXT}; background-color: transparent; }}
+            QLabel {{ color: {COLOR_INPUT_TEXT}; background-color: transparent; font-size: 13px; }}
             QLineEdit {{
                 background-color: white; color: {COLOR_INPUT_TEXT};
                 border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 2px 4px;
+                font-family: 'Kode Mono'; font-size: 13px;
             }}
             QComboBox {{
                 background-color: white; color: {COLOR_INPUT_TEXT};
                 border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 2px 4px;
+                font-family: 'Kode Mono'; font-size: 13px;
             }}
             QComboBox:disabled {{
                 background-color: {COLOR_DISABLED_BG}; color: {COLOR_DISABLED_TEXT};
@@ -162,6 +160,7 @@ class Ui_FormMessage:
             QPlainTextEdit {{
                 background-color: white; color: {COLOR_INPUT_TEXT};
                 border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 4px;
+                font-family: 'Kode Mono'; font-size: 13px;
             }}
         """)
 
@@ -172,13 +171,11 @@ class Ui_FormMessage:
         # Title
         title = QtWidgets.QLabel("GROUP MESSAGE")
         title.setAlignment(QtCore.Qt.AlignCenter)
-        _tf = QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black)
-        _tf.setPixelSize(16)
-        title.setFont(_tf)
+        title.setFont(QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black))
         title.setFixedHeight(36)
         title.setStyleSheet(
             f"QLabel {{ background-color: {_PROG_BG}; color: {_PROG_FG}; "
-            "padding-top: 9px; padding-bottom: 9px; }}"
+            "font-size: 16px; padding-top: 9px; padding-bottom: 9px; }}"
         )
         layout.addWidget(title)
 
@@ -283,19 +280,16 @@ class Ui_FormMessage:
         layout.addWidget(self.message_expanded)
 
         # Note labels
-        note_f = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
-        note_f.setPixelSize(10)
+        _note_style = f"color: {COLOR_ERROR}; font-family: Roboto; font-size: 10px; font-weight: bold;"
 
         self.note_label = QtWidgets.QLabel("Messages are limited to 67 characters.")
-        self.note_label.setFont(note_f)
-        self.note_label.setStyleSheet(f"color: {COLOR_ERROR};")
+        self.note_label.setStyleSheet(_note_style)
         layout.addWidget(self.note_label)
 
         self.delivery_legend_label = QtWidgets.QLabel(
             "Delivery: Maximum Reach = RF + Internet | Limited Reach = RF Only"
         )
-        self.delivery_legend_label.setFont(note_f)
-        self.delivery_legend_label.setStyleSheet(f"color: {COLOR_ERROR};")
+        self.delivery_legend_label.setStyleSheet(_note_style)
         layout.addWidget(self.delivery_legend_label)
 
         layout.addStretch()

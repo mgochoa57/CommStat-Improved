@@ -8,12 +8,41 @@ Display Filter Dialog for CommStat
 Filter StatRep and map data by date range.
 """
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+import os
+
+from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QDateEdit, QPushButton, QGroupBox
+    QDialog, QVBoxLayout, QHBoxLayout,
+    QLabel, QDateEdit, QPushButton,
 )
+
+from constants import (
+    DEFAULT_COLORS, COLOR_INPUT_TEXT, COLOR_INPUT_BORDER, COLOR_BTN_GREEN,
+)
+
+_PROG_BG = DEFAULT_COLORS.get("program_background", "#000000")
+_PROG_FG = DEFAULT_COLORS.get("program_foreground", "#FFFFFF")
+_DATA_BG = DEFAULT_COLORS.get("data_background",    "#F8F6F4")
+
+_COL_SAVE   = COLOR_BTN_GREEN
+_COL_CANCEL = "#555555"
+
+
+def _lbl_font() -> QtGui.QFont:
+    return QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
+
+
+def _btn(label: str, color: str) -> QPushButton:
+    b = QPushButton(label)
+    b.setStyleSheet(
+        f"QPushButton {{ background-color:{color}; color:#ffffff; border:none;"
+        f" padding:6px 14px; border-radius:4px; font-family:Roboto; font-size:15px;"
+        f" font-weight:bold; }}"
+        f"QPushButton:hover {{ background-color:{color}; opacity:0.9; }}"
+        f"QPushButton:pressed {{ background-color:{color}; }}"
+    )
+    return b
 
 
 class FilterDialog(QDialog):
@@ -24,8 +53,8 @@ class FilterDialog(QDialog):
         self.current_filters = current_filters or {}
         self.result_filters = {}
 
-        self.setWindowTitle("CommStat Display Filter")
-        self.setFixedSize(500, 150)
+        self.setWindowTitle("Display Filter")
+        self.setFixedSize(500, 185)
         self.setWindowFlags(
             Qt.Window |
             Qt.CustomizeWindowHint |
@@ -34,69 +63,90 @@ class FilterDialog(QDialog):
             Qt.WindowStaysOnTopHint
         )
 
-        # Set window icon
-        icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("radiation-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
-        self.setWindowIcon(icon)
+        if os.path.exists("radiation-32.png"):
+            self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
 
-        # Set font
-        font = QtGui.QFont()
-        font.setFamily("Arial")
-        font.setPointSize(10)
-        self.setFont(font)
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {_DATA_BG}; }}
+            QLabel {{
+                color: {COLOR_INPUT_TEXT}; font-family: Roboto;
+                font-size: 13px; font-weight: bold;
+            }}
+            QDateEdit {{
+                background-color: white; color: {COLOR_INPUT_TEXT};
+                border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px;
+                padding: 2px 4px; font-family: 'Kode Mono'; font-size: 13px;
+            }}
+        """)
 
         self._setup_ui()
         self._load_from_current()
 
     def _setup_ui(self) -> None:
-        """Setup the UI layout."""
         layout = QVBoxLayout(self)
-        layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 15, 15, 15)
 
-        # Date Range Group
-        date_group = QGroupBox("Date Range")
-        date_layout = QGridLayout(date_group)
-        date_layout.setSpacing(10)
-        date_layout.setContentsMargins(15, 20, 15, 15)
+        # Title
+        title = QLabel("DISPLAY FILTER")
+        title.setAlignment(Qt.AlignCenter)
+        title.setFont(QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black))
+        title.setFixedHeight(36)
+        title.setStyleSheet(
+            f"QLabel {{ background-color: {_PROG_BG}; color: {_PROG_FG}; "
+            "font-size: 16px; padding-top: 9px; padding-bottom: 9px; }}"
+        )
+        layout.addWidget(title)
 
-        date_layout.addWidget(QLabel("Start Date:"), 0, 0)
+        # Date range row
+        date_row = QHBoxLayout()
+        date_row.setSpacing(8)
+
+        start_lbl = QLabel("Start Date:")
+        start_lbl.setFont(_lbl_font())
+        date_row.addWidget(start_lbl)
+
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
         self.start_date.setDisplayFormat("yyyy-MM-dd")
         self.start_date.setMinimumSize(130, 28)
-        date_layout.addWidget(self.start_date, 0, 1)
+        date_row.addWidget(self.start_date)
 
-        date_layout.addWidget(QLabel("End Date:"), 0, 2)
+        date_row.addSpacing(12)
+
+        end_lbl = QLabel("End Date:")
+        end_lbl.setFont(_lbl_font())
+        date_row.addWidget(end_lbl)
+
         self.end_date = QDateEdit()
         self.end_date.setCalendarPopup(True)
         self.end_date.setDisplayFormat("yyyy-MM-dd")
         self.end_date.setMinimumSize(130, 28)
-        date_layout.addWidget(self.end_date, 0, 3)
+        date_row.addWidget(self.end_date)
 
-        layout.addWidget(date_group)
+        date_row.addStretch()
+        layout.addLayout(date_row)
+
+        layout.addStretch()
 
         # Buttons
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
+        button_row = QHBoxLayout()
+        button_row.addStretch()
 
-        self.save_btn = QPushButton("Save Filter")
+        self.save_btn = _btn("Save", _COL_SAVE)
         self.save_btn.clicked.connect(self._save_filter)
-        button_layout.addWidget(self.save_btn)
+        button_row.addWidget(self.save_btn)
 
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = _btn("Cancel", _COL_CANCEL)
         self.cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(self.cancel_btn)
+        button_row.addWidget(self.cancel_btn)
 
-        layout.addLayout(button_layout)
+        layout.addLayout(button_row)
 
     def _load_from_current(self) -> None:
-        """Load current filter settings into the dialog."""
-        # Set defaults
         self.start_date.setDate(QDate.currentDate())
         self.end_date.setDate(QDate(2030, 12, 31))
 
-        # Load from current filters if provided
         start_str = self.current_filters.get('start', '')
         if start_str:
             start_date = QDate.fromString(start_str[:10], "yyyy-MM-dd")
@@ -110,7 +160,6 @@ class FilterDialog(QDialog):
                 self.end_date.setDate(end_date)
 
     def _save_filter(self) -> None:
-        """Save filter settings and close dialog."""
         self.result_filters = {
             'start': self.start_date.date().toString("yyyy-MM-dd"),
             'end': self.end_date.date().toString("yyyy-MM-dd")
@@ -118,7 +167,6 @@ class FilterDialog(QDialog):
         self.accept()
 
     def get_filters(self) -> dict:
-        """Return the selected filter settings."""
         return self.result_filters
 
 

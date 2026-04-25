@@ -8,17 +8,51 @@ Manage Groups Dialog for CommStat
 Add, edit, and remove groups with extended fields.
 """
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+import os
+
+from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QPushButton, QListWidget,
-    QListWidgetItem, QMessageBox, QGroupBox
+    QListWidgetItem, QMessageBox, QGroupBox,
 )
 
+from constants import (
+    DEFAULT_COLORS, COLOR_INPUT_TEXT, COLOR_INPUT_BORDER,
+    COLOR_ERROR, COLOR_BTN_GREEN, COLOR_BTN_BLUE, COLOR_BTN_RED,
+)
 
-# Constants
 MAX_GROUP_NAME_LENGTH = 15
+
+_PROG_BG = DEFAULT_COLORS.get("program_background", "#000000")
+_PROG_FG = DEFAULT_COLORS.get("program_foreground", "#FFFFFF")
+_DATA_BG = DEFAULT_COLORS.get("data_background",    "#F8F6F4")
+
+_COL_CLOSE  = "#555555"
+_COL_CANCEL = "#555555"
+
+
+def _lbl_font() -> QtGui.QFont:
+    return QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
+
+
+def _mono_font() -> QtGui.QFont:
+    return QtGui.QFont("Kode Mono")
+
+
+def _btn(label: str, color: str, min_w: int = 90) -> QPushButton:
+    b = QPushButton(label)
+    b.setMinimumWidth(min_w)
+    b.setStyleSheet(
+        f"QPushButton {{ background-color:{color}; color:#ffffff; border:none;"
+        f" padding:6px 14px; border-radius:4px; font-family:Roboto; font-size:15px;"
+        f" font-weight:bold; }}"
+        f"QPushButton:hover {{ background-color:{color}; opacity:0.9; }}"
+        f"QPushButton:pressed {{ background-color:{color}; }}"
+        f"QPushButton:disabled {{ background-color:#cccccc; color:#888888; }}"
+    )
+    return b
 
 
 class GroupsDialog(QDialog):
@@ -28,7 +62,7 @@ class GroupsDialog(QDialog):
         super().__init__(parent)
         self.db = db_manager
         self.setWindowTitle("Manage Groups")
-        self.setFixedSize(450, 530)
+        self.setFixedSize(450, 580)
         self.setWindowFlags(
             Qt.Window |
             Qt.CustomizeWindowHint |
@@ -37,30 +71,66 @@ class GroupsDialog(QDialog):
             Qt.WindowStaysOnTopHint
         )
 
-        # Set window icon
-        icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("radiation-32.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
-        self.setWindowIcon(icon)
+        if os.path.exists("radiation-32.png"):
+            self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
 
-        # Set font
-        font = QtGui.QFont()
-        font.setFamily("Arial")
-        font.setPointSize(10)
-        self.setFont(font)
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {_DATA_BG}; }}
+            QLabel {{
+                color: {COLOR_INPUT_TEXT}; font-family: Roboto;
+                font-size: 13px; font-weight: bold;
+            }}
+            QLineEdit {{
+                background-color: white; color: {COLOR_INPUT_TEXT};
+                border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px;
+                padding: 2px 4px; font-family: 'Kode Mono'; font-size: 13px;
+            }}
+            QLineEdit:disabled {{
+                background-color: #e9ecef; color: #999999;
+            }}
+            QListWidget {{
+                background-color: white; color: {COLOR_INPUT_TEXT};
+                border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px;
+                font-family: 'Kode Mono'; font-size: 13px;
+            }}
+            QListWidget::item:selected {{
+                background-color: #cce5ff; color: #000000;
+            }}
+            QGroupBox {{
+                font-family: Roboto; font-size: 13px; font-weight: bold;
+                color: {COLOR_INPUT_TEXT}; border: 1px solid {COLOR_INPUT_BORDER};
+                border-radius: 4px; margin-top: 14px;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin; subcontrol-position: top left;
+                left: 10px; padding: 2px 4px; background-color: {_DATA_BG};
+            }}
+        """)
 
-        self._editing_group = None  # Track which group is being edited
+        self._editing_group = None
         self._setup_ui()
         self._load_groups()
 
     def _setup_ui(self) -> None:
-        """Setup the UI layout."""
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # Add/Edit group section
+        # Title
+        title = QLabel("MANAGE GROUPS")
+        title.setAlignment(Qt.AlignCenter)
+        title.setFont(QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black))
+        title.setFixedHeight(36)
+        title.setStyleSheet(
+            f"QLabel {{ background-color: {_PROG_BG}; color: {_PROG_FG}; "
+            "font-size: 16px; padding-top: 9px; padding-bottom: 9px; }}"
+        )
+        layout.addWidget(title)
+
+        # Add / Edit group section
         form_group = QGroupBox("Add / Edit Group")
         form_layout = QFormLayout(form_group)
+        form_layout.setSpacing(8)
 
         self.name_input = QLineEdit()
         self.name_input.setMaxLength(MAX_GROUP_NAME_LENGTH)
@@ -68,9 +138,10 @@ class GroupsDialog(QDialog):
         self.name_input.textChanged.connect(self._on_input_changed)
         form_layout.addRow("Group Name:", self.name_input)
 
-        # Help note about @ symbol (JS8Call requires it, CommStat does not)
         name_hint = QLabel("Note: The @ symbol is not required (e.g., enter MAGNET, not @MAGNET)")
-        name_hint.setStyleSheet("color: #CC0000; font-size: 10px; font-weight: bold;")
+        name_hint.setStyleSheet(
+            f"color: {COLOR_ERROR}; font-family: Roboto; font-size: 10px; font-weight: bold;"
+        )
         name_hint.setWordWrap(True)
         form_layout.addRow("", name_hint)
 
@@ -86,32 +157,33 @@ class GroupsDialog(QDialog):
         self.url2_input.setPlaceholderText("Optional URL")
         form_layout.addRow("URL 2:", self.url2_input)
 
-        # Buttons row
+        # Form action buttons (right-aligned per standard)
         btn_layout = QHBoxLayout()
-        self.add_btn = QPushButton("Add")
+        btn_layout.addStretch()
+
+        self.add_btn = _btn("Add", COLOR_BTN_GREEN)
         self.add_btn.clicked.connect(self._add_group)
         self.add_btn.setEnabled(False)
         btn_layout.addWidget(self.add_btn)
 
-        self.update_btn = QPushButton("Update")
+        self.update_btn = _btn("Update", COLOR_BTN_BLUE)
         self.update_btn.clicked.connect(self._update_group)
         self.update_btn.setEnabled(False)
-        self.update_btn.hide()  # Hidden until editing
+        self.update_btn.hide()
         btn_layout.addWidget(self.update_btn)
 
-        self.cancel_edit_btn = QPushButton("Cancel Edit")
+        self.cancel_edit_btn = _btn("Cancel Edit", _COL_CANCEL)
         self.cancel_edit_btn.clicked.connect(self._cancel_edit)
-        self.cancel_edit_btn.hide()  # Hidden until editing
+        self.cancel_edit_btn.hide()
         btn_layout.addWidget(self.cancel_edit_btn)
 
-        btn_layout.addStretch()
         form_layout.addRow("", btn_layout)
-
         layout.addWidget(form_group)
 
         # Groups list
         list_group = QGroupBox("Groups")
         list_layout = QVBoxLayout(list_group)
+        list_layout.setSpacing(8)
 
         self.groups_list = QListWidget()
         self.groups_list.setMinimumHeight(180)
@@ -119,51 +191,41 @@ class GroupsDialog(QDialog):
         self.groups_list.itemDoubleClicked.connect(self._edit_group)
         list_layout.addWidget(self.groups_list)
 
-        # List action buttons
         list_btn_layout = QHBoxLayout()
+        list_btn_layout.addStretch()
 
-        self.edit_btn = QPushButton("Edit")
+        self.edit_btn = _btn("Edit", COLOR_BTN_BLUE)
         self.edit_btn.clicked.connect(self._edit_group)
         self.edit_btn.setEnabled(False)
         list_btn_layout.addWidget(self.edit_btn)
 
-        self.remove_btn = QPushButton("Remove")
+        self.remove_btn = _btn("Remove", COLOR_BTN_RED)
         self.remove_btn.clicked.connect(self._remove_group)
         self.remove_btn.setEnabled(False)
         list_btn_layout.addWidget(self.remove_btn)
 
-        list_btn_layout.addStretch()
         list_layout.addLayout(list_btn_layout)
-
         layout.addWidget(list_group)
 
         # Close button
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-
-        self.close_btn = QPushButton("Close")
+        close_row = QHBoxLayout()
+        close_row.addStretch()
+        self.close_btn = _btn("Close", _COL_CLOSE)
         self.close_btn.clicked.connect(self.accept)
-        button_layout.addWidget(self.close_btn)
-
-        layout.addLayout(button_layout)
+        close_row.addWidget(self.close_btn)
+        layout.addLayout(close_row)
 
     def _load_groups(self) -> None:
-        """Load groups from database into the list."""
         self.groups_list.clear()
         groups = self.db.get_all_groups()
-
         for group_name in groups:
-            item = QListWidgetItem(group_name)
-            self.groups_list.addItem(item)
-
+            self.groups_list.addItem(QListWidgetItem(group_name))
         self._update_buttons()
 
     def _on_group_selected(self, item: QListWidgetItem) -> None:
-        """Handle group selection."""
         self._update_buttons()
 
     def _on_input_changed(self, text: str) -> None:
-        """Enable/disable Add button based on input text."""
         has_name = bool(text.strip())
         if self._editing_group:
             self.update_btn.setEnabled(has_name)
@@ -171,92 +233,65 @@ class GroupsDialog(QDialog):
             self.add_btn.setEnabled(has_name)
 
     def _update_buttons(self) -> None:
-        """Update button states based on selection."""
-        selected = self.groups_list.currentItem()
-        has_selection = selected is not None
-
+        has_selection = self.groups_list.currentItem() is not None
         self.edit_btn.setEnabled(has_selection)
         self.remove_btn.setEnabled(has_selection)
 
     def _get_selected_group_name(self) -> str:
-        """Get the group name from selection."""
         selected = self.groups_list.currentItem()
-        if selected:
-            return selected.text()
-        return ""
+        return selected.text() if selected else ""
 
     def _add_group(self) -> None:
-        """Add a new group."""
         name = self.name_input.text().strip().upper()
-
-        # Strip @ symbol if user included it (JS8Call uses @GROUP, CommStat doesn't)
         if name.startswith("@"):
             name = name[1:]
-
         if not name:
             return
-
         if len(name) > MAX_GROUP_NAME_LENGTH:
             QMessageBox.warning(
                 self, "Invalid Name",
                 f"Group name must be {MAX_GROUP_NAME_LENGTH} characters or less."
             )
             return
-
         comment = self.comment_input.text().strip()
         url1 = self.url1_input.text().strip()
         url2 = self.url2_input.text().strip()
-
         if self.db.add_group(name, comment, url1, url2):
             self._clear_form()
             self._load_groups()
         else:
-            QMessageBox.warning(
-                self, "Error",
-                "Failed to add group. Name may already exist."
-            )
+            QMessageBox.warning(self, "Error", "Failed to add group. Name may already exist.")
 
     def _edit_group(self) -> None:
-        """Load selected group into form for editing."""
         group_name = self._get_selected_group_name()
         if not group_name:
             return
-
         details = self.db.get_group_details(group_name)
         if details:
             self._editing_group = group_name
             self.name_input.setText(details["name"])
-            self.name_input.setEnabled(False)  # Can't change name
+            self.name_input.setEnabled(False)
             self.comment_input.setText(details["comment"])
             self.url1_input.setText(details["url1"])
             self.url2_input.setText(details["url2"])
-
-            # Switch to edit mode
             self.add_btn.hide()
             self.update_btn.show()
             self.update_btn.setEnabled(True)
             self.cancel_edit_btn.show()
 
     def _update_group(self) -> None:
-        """Update the currently editing group."""
         if not self._editing_group:
             return
-
         comment = self.comment_input.text().strip()
         url1 = self.url1_input.text().strip()
         url2 = self.url2_input.text().strip()
-
         if self.db.update_group(self._editing_group, comment, url1, url2):
             self._cancel_edit()
             self._load_groups()
         else:
-            QMessageBox.warning(
-                self, "Error",
-                "Failed to update group."
-            )
+            QMessageBox.warning(self, "Error", "Failed to update group.")
 
     def _cancel_edit(self) -> None:
-        """Cancel editing and return to add mode."""
         self._editing_group = None
         self._clear_form()
         self.name_input.setEnabled(True)
@@ -265,7 +300,6 @@ class GroupsDialog(QDialog):
         self.cancel_edit_btn.hide()
 
     def _clear_form(self) -> None:
-        """Clear all input fields."""
         self.name_input.clear()
         self.comment_input.clear()
         self.url1_input.clear()
@@ -273,32 +307,24 @@ class GroupsDialog(QDialog):
         self.add_btn.setEnabled(False)
 
     def _remove_group(self) -> None:
-        """Remove selected group."""
         group_name = self._get_selected_group_name()
         if not group_name:
             return
-
-        # Confirm deletion
         reply = QMessageBox.question(
             self, "Confirm Removal",
             f"Remove group '{group_name}'?\n\nThis cannot be undone.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-
         if reply == QMessageBox.Yes:
             if self.db.remove_group(group_name):
                 self._load_groups()
             else:
-                QMessageBox.warning(
-                    self, "Error",
-                    "Failed to remove group."
-                )
+                QMessageBox.warning(self, "Error", "Failed to remove group.")
 
 
 if __name__ == "__main__":
     import sys
     app = QtWidgets.QApplication(sys.argv)
-    # Note: Requires a DatabaseManager instance to run standalone
     print("This dialog requires a DatabaseManager instance.")
     sys.exit(1)

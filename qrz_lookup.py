@@ -14,7 +14,6 @@ import base64
 import datetime
 import io
 import os
-import platform
 import sqlite3
 import subprocess
 import sys
@@ -49,16 +48,6 @@ _DATA_BG    = DEFAULT_COLORS.get("data_background",    "#F8F6F4")
 _COL_CANCEL = "#555555"
 _COL_PURPLE = "#6f42c1"
 
-# macOS renders pt-based fonts ~25% smaller than Windows (72 vs 96 DPI base).
-_MAC_SCALE = 96 / 72
-
-def fs(size: int) -> int:
-    """Return a platform-adjusted font size (points)."""
-    if platform.system() == "Darwin":
-        return round(size * _MAC_SCALE)
-    return size
-
-
 # StatRep status field order: (display label, statrep row index)
 STATUS_FIELDS = [
     ("Map",    8),
@@ -87,15 +76,11 @@ STATUS_COLORS: Dict[str, tuple] = {
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def _lbl_font() -> QFont:
-    f = QFont("Roboto", -1, QFont.Bold)
-    f.setPixelSize(13)
-    return f
+    return QFont("Roboto", -1, QFont.Bold)
 
 
 def _mono_font() -> QFont:
-    f = QFont("Kode Mono")
-    f.setPixelSize(13)
-    return f
+    return QFont("Kode Mono")
 
 
 def _btn(label: str, color: str, min_w: int = 90) -> QPushButton:
@@ -380,11 +365,9 @@ class _QRZInfoSection(QWidget):
         grid.setColumnStretch(1, 1)
 
         self.hdr = QLabel("QRZ API Lookup For:")
-        _hdr_f = QFont("Roboto Slab", -1, QFont.Black)
-        _hdr_f.setPixelSize(16)
-        self.hdr.setFont(_hdr_f)
+        self.hdr.setFont(QFont("Roboto Slab", -1, QFont.Black))
         self.hdr.setStyleSheet(
-            f"QLabel {{ background-color: {self._hdr_bg}; color: {self._hdr_fg}; padding-top: 9px; padding-bottom: 9px; }}"
+            f"QLabel {{ background-color: {self._hdr_bg}; color: {self._hdr_fg}; font-size: 16px; padding-top: 9px; padding-bottom: 9px; }}"
             if self._hdr_bg else ""
         )
         self.hdr.setAlignment(Qt.AlignCenter)
@@ -425,9 +408,6 @@ class _QRZInfoSection(QWidget):
         outer.addLayout(grid, 2)
 
         # ── Column 3 (1/3): image + photo status + moddate ───────────────
-        _note_f = QFont("Roboto")
-        _note_f.setPixelSize(10)
-
         right = QVBoxLayout()
         right.setAlignment(Qt.AlignTop | Qt.AlignRight)
         right.setSpacing(4)
@@ -435,7 +415,8 @@ class _QRZInfoSection(QWidget):
         self.lbl_image.setAlignment(Qt.AlignTop | Qt.AlignRight)
         self.lbl_image.setStyleSheet("border:none; padding:0px;")
         self.lbl_moddate = QLabel()
-        self.lbl_moddate.setFont(_note_f)
+        self.lbl_moddate.setFont(QFont("Roboto"))
+        self.lbl_moddate.setStyleSheet("font-size: 10px; font-weight: normal;")
         self.lbl_moddate.setAlignment(Qt.AlignRight)
         moddate_row = QHBoxLayout()
         moddate_row.addStretch()
@@ -722,9 +703,10 @@ class QRZLookupDialog(QDialog):
     def _setup_ui(self) -> None:
         self.setStyleSheet(
             f"QDialog {{ background-color:{_DATA_BG}; }}"
-            f"QLabel {{ color:{COLOR_INPUT_TEXT}; background-color: transparent; }}"
+            f"QLabel {{ color:{COLOR_INPUT_TEXT}; background-color: transparent; font-size: 13px; }}"
             f"QLineEdit {{ background-color:white; color:{COLOR_INPUT_TEXT};"
-            f" border:1px solid {COLOR_INPUT_BORDER}; border-radius:4px; padding:4px 8px; }}"
+            f" border:1px solid {COLOR_INPUT_BORDER}; border-radius:4px; padding:4px 8px;"
+            f" font-family:'Kode Mono'; font-size:13px; }}"
         )
         main = QVBoxLayout(self)
         main.setContentsMargins(15, 15, 15, 15)
@@ -733,13 +715,11 @@ class QRZLookupDialog(QDialog):
         # Title
         title = QLabel("QRZ LOOKUP")
         title.setAlignment(Qt.AlignCenter)
-        _tf = QFont("Roboto Slab", -1, QFont.Black)
-        _tf.setPixelSize(16)
-        title.setFont(_tf)
+        title.setFont(QFont("Roboto Slab", -1, QFont.Black))
         title.setFixedHeight(36)
         title.setStyleSheet(
             f"QLabel {{ background-color: {self._program_bg}; color: {self._program_fg}; "
-            "padding-top: 9px; padding-bottom: 9px; }}"
+            "font-size: 16px; padding-top: 9px; padding-bottom: 9px; }}"
         )
         main.addWidget(title)
 
@@ -760,10 +740,8 @@ class QRZLookupDialog(QDialog):
         main.addLayout(row)
 
         self.lbl_status = QLabel()
-        _st_f = QFont("Roboto")
-        _st_f.setPixelSize(10)
-        self.lbl_status.setFont(_st_f)
-        self.lbl_status.setStyleSheet("color:#888888;")
+        self.lbl_status.setFont(QFont("Roboto"))
+        self.lbl_status.setStyleSheet("color:#888888; font-size: 10px; font-weight: normal;")
         main.addWidget(self.lbl_status)
 
         self.qrz_info = _QRZInfoSection(hdr_bg=self._program_bg, hdr_fg=self._program_fg, parent=self)
@@ -922,7 +900,7 @@ class StatRepDetailDialog(QDialog):
     def _setup_ui(self) -> None:
         self.setStyleSheet(
             f"QDialog {{ background-color:{_DATA_BG}; }}"
-            f"QLabel {{ color:{COLOR_INPUT_TEXT}; background-color: transparent; }}"
+            f"QLabel {{ color:{COLOR_INPUT_TEXT}; background-color: transparent; font-size: 13px; }}"
         )
         main = QVBoxLayout(self)
         main.setContentsMargins(10, 10, 10, 10)
@@ -986,10 +964,8 @@ class StatRepDetailDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        _note_f = QFont("Roboto")
-        _note_f.setPixelSize(10)
         brevity_note = QLabel("<b>Brevity Note:</b> Highlight brevity code, then click Brevity button to decode")
-        brevity_note.setFont(_note_f)
+        brevity_note.setStyleSheet("font-family: Roboto; font-size: 10px; font-weight: normal;")
         btn_row.addWidget(brevity_note)
         btn_row.addStretch()
 
@@ -1350,7 +1326,7 @@ class MessageDetailDialog(QDialog):
     def _setup_ui(self) -> None:
         self.setStyleSheet(
             f"QDialog {{ background-color:{_DATA_BG}; }}"
-            f"QLabel {{ color:{COLOR_INPUT_TEXT}; background-color: transparent; }}"
+            f"QLabel {{ color:{COLOR_INPUT_TEXT}; background-color: transparent; font-size: 13px; }}"
         )
         main = QVBoxLayout(self)
         main.setContentsMargins(10, 10, 10, 10)

@@ -112,15 +112,11 @@ _COL_PURPLE = "#6f42c1"
 
 
 def _lbl_font() -> QtGui.QFont:
-    f = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
-    f.setPixelSize(13)
-    return f
+    return QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
 
 
 def _mono_font() -> QtGui.QFont:
-    f = QtGui.QFont("Kode Mono")
-    f.setPixelSize(13)
-    return f
+    return QtGui.QFont("Kode Mono")
 
 
 def _btn(label: str, color: str, min_w: int = 90) -> QtWidgets.QPushButton:
@@ -609,14 +605,16 @@ class StatRepDialog(QDialog):
         """Build the user interface."""
         self.setStyleSheet(f"""
             QDialog {{ background-color: {_DATA_BG}; }}
-            QLabel {{ color: {COLOR_INPUT_TEXT}; background-color: transparent; }}
+            QLabel {{ color: {COLOR_INPUT_TEXT}; background-color: transparent; font-size: 13px; }}
             QLineEdit {{
                 background-color: white; color: {COLOR_INPUT_TEXT};
                 border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 2px 4px;
+                font-family: 'Kode Mono'; font-size: 13px;
             }}
             QComboBox {{
                 background-color: white; color: {COLOR_INPUT_TEXT};
                 border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px; padding: 2px 4px;
+                font-family: 'Kode Mono'; font-size: 13px;
             }}
             QComboBox:disabled {{
                 background-color: {COLOR_DISABLED_BG}; color: {COLOR_DISABLED_TEXT};
@@ -635,13 +633,11 @@ class StatRepDialog(QDialog):
         # Title
         title = QtWidgets.QLabel("STATUS REPORT")
         title.setAlignment(Qt.AlignCenter)
-        _tf = QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black)
-        _tf.setPixelSize(16)
-        title.setFont(_tf)
+        title.setFont(QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black))
         title.setFixedHeight(36)
         title.setStyleSheet(
             f"QLabel {{ background-color: {_PROG_BG}; color: {_PROG_FG}; "
-            "padding-top: 9px; padding-bottom: 9px; }}"
+            "font-size: 16px; padding-top: 9px; padding-bottom: 9px; }}"
         )
         layout.addWidget(title)
 
@@ -730,16 +726,14 @@ class StatRepDialog(QDialog):
         layout.addLayout(header_layout)
 
         # Legend
-        _note_f = QtGui.QFont("Roboto")
-        _note_f.setPixelSize(10)
         legend = QtWidgets.QLabel(
             "<b>Maximum Reach</b> = RF + Internet | <b>Limited Reach</b> = RF Only"
             " | <b>Green</b> = Normal | <b>Yellow</b> = Limited | <b>Red</b> = Collapsed/None"
         )
         legend.setAlignment(Qt.AlignCenter)
-        legend.setFont(_note_f)
         legend.setStyleSheet(
             f"background-color: #f8f9fa; color: {COLOR_INPUT_TEXT};"
+            " font-family: Roboto; font-size: 10px; font-weight: normal;"
             " padding: 8px; border-radius: 4px;"
         )
         layout.addWidget(legend)

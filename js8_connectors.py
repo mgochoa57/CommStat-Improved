@@ -68,16 +68,12 @@ def _btn(label: str, color: str, min_w: int = 90) -> QPushButton:
     return b
 
 
-def _lbl_font(px: int = 15, bold: bool = True) -> QtGui.QFont:
-    f = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold if bold else QtGui.QFont.Normal)
-    f.setPixelSize(px)
-    return f
+def _lbl_font(bold: bool = True) -> QtGui.QFont:
+    return QtGui.QFont("Roboto", -1, QtGui.QFont.Bold if bold else QtGui.QFont.Normal)
 
 
-def _mono_font(px: int = 15) -> QtGui.QFont:
-    f = QtGui.QFont("Kode Mono")
-    f.setPixelSize(px)
-    return f
+def _mono_font() -> QtGui.QFont:
+    return QtGui.QFont("Kode Mono")
 
 
 def _input(placeholder: str = "", default: str = "", max_len: int = 0) -> QLineEdit:
@@ -88,11 +84,10 @@ def _input(placeholder: str = "", default: str = "", max_len: int = 0) -> QLineE
         e.setText(default)
     if max_len:
         e.setMaxLength(max_len)
-    e.setFont(_mono_font(15))
     e.setMinimumHeight(30)
     e.setStyleSheet(
         "QLineEdit { background-color:white; color:#333333; border:1px solid #cccccc;"
-        " border-radius:4px; padding:2px 6px; }"
+        " border-radius:4px; padding:2px 6px; font-family:'Kode Mono'; font-size:13px; }"
         "QLineEdit:focus { border:1px solid #007bff; }"
     )
     return e
@@ -136,7 +131,10 @@ class JS8ConnectorsDialog(QDialog):
     # ── UI construction ────────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
-        self.setStyleSheet(f"QDialog {{ background-color:{_PANEL_BG}; }}")
+        self.setStyleSheet(
+            f"QDialog {{ background-color:{_PANEL_BG}; }}"
+            f"QLabel {{ font-size:13px; }}"
+        )
 
         body = QVBoxLayout(self)
         body.setContentsMargins(15, 15, 15, 15)
@@ -145,13 +143,11 @@ class JS8ConnectorsDialog(QDialog):
         # ── Title ─────────────────────────────────────────────────────────────
         title_lbl = QLabel("JS8 CONNECTORS")
         title_lbl.setAlignment(Qt.AlignCenter)
-        tf = QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black)
-        tf.setPixelSize(16)
-        title_lbl.setFont(tf)
+        title_lbl.setFont(QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black))
         title_lbl.setFixedHeight(36)
         title_lbl.setStyleSheet(
             f"QLabel {{ background-color:{_PROG_BG}; color:{_PROG_FG};"
-            " padding-top:9px; padding-bottom:9px; }}"
+            " font-size:16px; padding-top:9px; padding-bottom:9px; }}"
         )
         body.addWidget(title_lbl)
 
@@ -168,9 +164,6 @@ class JS8ConnectorsDialog(QDialog):
 
         # Header style
         hh = self.table.horizontalHeader()
-        hf = QtGui.QFont("Roboto", -1, QtGui.QFont.Bold)
-        hf.setPixelSize(15)
-        hh.setFont(hf)
         hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Rig Name
         hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Server
         hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Port
@@ -180,10 +173,11 @@ class JS8ConnectorsDialog(QDialog):
 
         self.table.setStyleSheet(
             f"QTableWidget {{ background-color:{_DATA_BG}; alternate-background-color:{_DATA_BG};"
-            f" gridline-color:#cccccc; color:{_DATA_FG}; }}"
+            f" gridline-color:#cccccc; color:{_DATA_FG};"
+            f" font-family:'Kode Mono'; font-size:13px; }}"
             f"QTableWidget::item {{ padding:4px 6px; }}"
             f"QHeaderView::section {{ background-color:{_TITLE_BG}; color:{_TITLE_FG};"
-            f" padding:5px 6px; border:none; font-family:Roboto; font-size:15px;"
+            f" padding:5px 6px; border:none; font-family:Roboto; font-size:13px;"
             f" font-weight:bold; }}"
             f"QTableWidget::item:selected {{ background-color:#cce5ff; color:#000000; }}"
         )
@@ -231,7 +225,7 @@ class JS8ConnectorsDialog(QDialog):
         form_layout.setSpacing(8)
 
         self.form_title_lbl = QLabel("Add Connector")
-        self.form_title_lbl.setFont(_lbl_font(15, bold=True))
+        self.form_title_lbl.setFont(_lbl_font(bold=True))
         self.form_title_lbl.setStyleSheet(f"color:{_PROG_BG}; border:none;")
         form_layout.addWidget(self.form_title_lbl)
 
@@ -241,7 +235,7 @@ class JS8ConnectorsDialog(QDialog):
 
         def _row_label(text: str) -> QLabel:
             lbl = QLabel(text)
-            lbl.setFont(_lbl_font(15, bold=True))
+            lbl.setFont(_lbl_font(bold=True))
             lbl.setStyleSheet("color:#333333; border:none;")
             lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             return lbl
@@ -292,7 +286,7 @@ class JS8ConnectorsDialog(QDialog):
             "<i><b><span style='color:#AA0000'>Note:</span></b> Each connector requires"
             " a unique port</i>"
         )
-        tip_lbl.setFont(_lbl_font(15, bold=False))
+        tip_lbl.setFont(_lbl_font(bold=False))
         tip_lbl.setWordWrap(True)
         tip_lbl.setStyleSheet("color:#333333;")
         body.addWidget(tip_lbl)

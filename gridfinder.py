@@ -4,13 +4,35 @@ import pandas as pd
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QTableWidget, QTableWidgetItem,
-    QStatusBar, QCompleter, QPushButton, QMessageBox
+    QStatusBar, QCompleter, QPushButton, QMessageBox,
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont, QIcon
 
-FONT_FAMILY = "Arial"
-FONT_SIZE = 11
+from constants import (
+    DEFAULT_COLORS, COLOR_INPUT_TEXT, COLOR_INPUT_BORDER,
+    COLOR_BTN_RED, COLOR_BTN_CYAN,
+)
+
+_PROG_BG  = DEFAULT_COLORS.get("program_background",   "#000000")
+_PROG_FG  = DEFAULT_COLORS.get("program_foreground",   "#FFFFFF")
+_TITLE_BG = DEFAULT_COLORS.get("title_bar_background", "#F07800")
+_TITLE_FG = DEFAULT_COLORS.get("title_bar_foreground", "#FFFFFF")
+
+_COL_CANCEL = "#555555"
+
+
+def _btn(label: str, color: str, w: int = 120) -> QPushButton:
+    b = QPushButton(label)
+    b.setFixedWidth(w)
+    b.setFocusPolicy(Qt.NoFocus)
+    b.setStyleSheet(
+        f"QPushButton {{ background-color:{color}; color:#ffffff; font-weight:bold;"
+        f" font-family:Roboto; font-size:15px; padding:4px 8px; border:none; border-radius:4px; }}"
+        f"QPushButton:hover {{ background-color:{color}; opacity:0.9; }}"
+        f"QPushButton:pressed {{ background-color:{color}; }}"
+    )
+    return b
 
 
 def format_grid(grid: str) -> str:
@@ -26,18 +48,24 @@ def format_grid(grid: str) -> str:
 class GridFinderApp(QMainWindow):
     grid_selected = pyqtSignal(str)
 
-    def __init__(self, panel_bg: str = "#f5f5f5", panel_fg: str = "#333333",
-                 data_bg: str = "#FFF5E1", data_fg: str = "#333333", parent=None):
+    def __init__(self, panel_bg: str = "#F8F6F4", panel_fg: str = "#333333",
+                 data_bg: str = "#F8F6F4", data_fg: str = "#333333", parent=None):
         super().__init__(parent)
         self.panel_bg = panel_bg
         self.panel_fg = panel_fg
-        self.data_bg = data_bg
-        self.data_fg = data_fg
+        self.data_bg  = data_bg
+        self.data_fg  = data_fg
 
         self.setWindowTitle("Grid Finder")
-        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
-        self.resize(620, 500)
-        self.setMinimumSize(500, 420)
+        self.setWindowFlags(
+            Qt.Window |
+            Qt.CustomizeWindowHint |
+            Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint |
+            Qt.WindowStaysOnTopHint
+        )
+        self.resize(620, 520)
+        self.setMinimumSize(500, 440)
 
         if os.path.exists("radiation-32.png"):
             self.setWindowIcon(QIcon("radiation-32.png"))
@@ -80,21 +108,23 @@ class GridFinderApp(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setSpacing(8)
-        layout.setContentsMargins(12, 12, 12, 8)
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 15, 15, 10)
 
         # Title
-        title = QLabel("Grid Finder - US Cities & World Capitals")
+        title = QLabel("GRID FINDER")
         title.setAlignment(Qt.AlignCenter)
+        title.setFont(QFont("Roboto Slab", -1, QFont.Black))
+        title.setFixedHeight(36)
         title.setStyleSheet(
-            f"font-family: Arial; font-size: 16pt; font-weight: bold; color: {self.panel_fg};"
+            f"QLabel {{ background-color: {_PROG_BG}; color: {_PROG_FG}; "
+            "font-size: 16px; padding-top: 9px; padding-bottom: 9px; }}"
         )
         layout.addWidget(title)
 
         # City field
         self.city_input = QLineEdit()
         self.city_input.setPlaceholderText("City")
-        self.city_input.setFont(QFont(FONT_FAMILY, FONT_SIZE))
         if not self.data.empty:
             completer = QCompleter(self.data['City'].unique())
             completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -107,18 +137,16 @@ class GridFinderApp(QMainWindow):
 
         self.state_input = QLineEdit()
         self.state_input.setPlaceholderText("State (US) or Country")
-        self.state_input.setFont(QFont(FONT_FAMILY, FONT_SIZE))
         row2.addWidget(self.state_input, stretch=2)
 
         self.grid_input = QLineEdit()
         self.grid_input.setPlaceholderText("Grid")
-        self.grid_input.setFont(QFont(FONT_FAMILY, FONT_SIZE))
         self.grid_input.setMaxLength(6)
         row2.addWidget(self.grid_input, stretch=1)
 
         layout.addLayout(row2)
 
-        # Tab order: city → state → grid → city (buttons and table not in tab order)
+        # Tab order: city → state → grid → city
         self.setTabOrder(self.city_input, self.state_input)
         self.setTabOrder(self.state_input, self.grid_input)
         self.setTabOrder(self.grid_input, self.city_input)
@@ -142,47 +170,22 @@ class GridFinderApp(QMainWindow):
         btn_row.setSpacing(8)
         btn_row.addStretch()
 
-        self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setFixedWidth(120)
-        self.clear_btn.setStyleSheet(
-            "QPushButton { background-color: #dc3545; color: white; font-weight: bold; "
-            "font-family: Roboto; font-size: 15px; padding: 4px 8px; border: none; }"
-            "QPushButton:hover { background-color: #c82333; }"
-            "QPushButton:pressed { background-color: #a71d2a; }"
-        )
-        self.clear_btn.setFocusPolicy(Qt.NoFocus)
+        self.clear_btn = _btn("Clear", COLOR_BTN_RED)
         btn_row.addWidget(self.clear_btn)
 
-        self.copy_btn = QPushButton("Copy")
-        self.copy_btn.setFixedWidth(120)
-        self.copy_btn.setStyleSheet(
-            "QPushButton { background-color: #17a2b8; color: white; font-weight: bold; "
-            "font-family: Roboto; font-size: 15px; padding: 4px 8px; border: none; }"
-            "QPushButton:hover { background-color: #138496; }"
-            "QPushButton:pressed { background-color: #0f6674; }"
-        )
-        self.copy_btn.setFocusPolicy(Qt.NoFocus)
+        self.copy_btn = _btn("Copy", COLOR_BTN_CYAN)
         btn_row.addWidget(self.copy_btn)
 
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setFixedWidth(120)
-        self.cancel_btn.setStyleSheet(
-            "QPushButton { background-color: #dc3545; color: white; font-weight: bold; "
-            "font-family: Roboto; font-size: 15px; padding: 4px 8px; border: none; }"
-            "QPushButton:hover { background-color: #c82333; }"
-            "QPushButton:pressed { background-color: #a71d2a; }"
-        )
-        self.cancel_btn.setFocusPolicy(Qt.NoFocus)
+        self.cancel_btn = _btn("Cancel", _COL_CANCEL)
         btn_row.addWidget(self.cancel_btn)
 
         layout.addLayout(btn_row)
 
         # Status bar
         self.status_bar = QStatusBar()
-        self.status_bar.setFont(QFont(FONT_FAMILY, FONT_SIZE))
         self.setStatusBar(self.status_bar)
 
-        # Connect signals
+        # Signals
         self.city_input.textChanged.connect(self._on_text_changed)
         self.state_input.textChanged.connect(self._on_text_changed)
         self.grid_input.textChanged.connect(self._on_text_changed)
@@ -195,52 +198,34 @@ class GridFinderApp(QMainWindow):
 
     def _apply_stylesheet(self):
         self.setStyleSheet(f"""
-            QMainWindow {{
-                background-color: {self.panel_bg};
-                color: {self.panel_fg};
-            }}
-            QWidget {{
-                background-color: {self.panel_bg};
-                color: {self.panel_fg};
-            }}
-            QLabel {{
-                background-color: transparent;
-                color: {self.panel_fg};
-            }}
+            QMainWindow {{ background-color: {self.data_bg}; }}
+            QWidget {{ background-color: {self.data_bg}; color: {COLOR_INPUT_TEXT}; }}
+            QLabel {{ background-color: transparent; color: {COLOR_INPUT_TEXT}; font-size: 13px; }}
             QLineEdit {{
-                background-color: #ffffff;
-                color: #333333;
-                border: 1px solid #cccccc;
-                padding: 4px;
-                font-size: 11pt;
+                background-color: white; color: {COLOR_INPUT_TEXT};
+                border: 1px solid {COLOR_INPUT_BORDER}; border-radius: 4px;
+                padding: 4px; font-family: 'Kode Mono'; font-size: 13px;
             }}
             QTableWidget {{
-                background-color: {self.data_bg};
-                color: {self.data_fg};
-                border: 1px solid #cccccc;
-                font-size: 11pt;
+                background-color: {self.data_bg}; color: {self.data_fg};
+                border: 1px solid {COLOR_INPUT_BORDER};
+                font-family: 'Kode Mono'; font-size: 13px;
                 gridline-color: #cccccc;
             }}
             QTableWidget::item {{
-                background-color: {self.data_bg};
-                color: {self.data_fg};
-                padding: 2px;
+                background-color: {self.data_bg}; color: {self.data_fg}; padding: 2px;
             }}
             QTableWidget::item:selected {{
-                background-color: #0078d7;
-                color: white;
+                background-color: #cce5ff; color: #000000;
             }}
             QHeaderView::section {{
-                background-color: {self.panel_bg};
-                color: {self.panel_fg};
-                border: 1px solid #cccccc;
-                padding: 4px;
-                font-size: 11pt;
+                background-color: {_TITLE_BG}; color: {_TITLE_FG};
+                border: 1px solid {COLOR_INPUT_BORDER};
+                padding: 4px; font-family: Roboto; font-size: 13px; font-weight: bold;
             }}
             QStatusBar {{
-                background-color: {self.panel_bg};
-                color: {self.panel_fg};
-                font-size: 11pt;
+                background-color: {self.data_bg}; color: {COLOR_INPUT_TEXT};
+                font-family: Roboto; font-size: 13px;
             }}
         """)
 
@@ -325,9 +310,9 @@ if __name__ == '__main__':
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
-    panel_bg = sys.argv[1] if len(sys.argv) > 1 else "#f5f5f5"
+    panel_bg = sys.argv[1] if len(sys.argv) > 1 else "#F8F6F4"
     panel_fg = sys.argv[2] if len(sys.argv) > 2 else "#333333"
-    data_bg  = sys.argv[3] if len(sys.argv) > 3 else "#FFF5E1"
+    data_bg  = sys.argv[3] if len(sys.argv) > 3 else "#F8F6F4"
     data_fg  = sys.argv[4] if len(sys.argv) > 4 else "#333333"
 
     app = QApplication(sys.argv)
