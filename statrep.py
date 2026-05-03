@@ -781,22 +781,22 @@ class StatRepDialog(QDialog):
         self._forward_mode_label.hide()
         btn_grid.addWidget(self._forward_mode_label, 0, 0, 1, 3)
 
-        btn_gf = make_button("Grid Finder", COLOR_BTN_GREEN)
-        btn_gf.clicked.connect(self._on_grid_finder)
-        btn_grid.addWidget(btn_gf, 0, 3)
+        self.btn_gf = make_button("Grid Finder", COLOR_BTN_GREEN)
+        self.btn_gf.clicked.connect(self._on_grid_finder)
+        btn_grid.addWidget(self.btn_gf, 0, 3)
 
-        btn_brev = make_button("Brevity", _COL_PURPLE)
-        btn_brev.clicked.connect(self._on_brevity)
-        btn_grid.addWidget(btn_brev, 0, 4)
+        self.btn_brev = make_button("Brevity", _COL_PURPLE)
+        self.btn_brev.clicked.connect(self._on_brevity)
+        btn_grid.addWidget(self.btn_brev, 0, 4)
 
         # Row 1: All Green | All Gray | Save Only | Transmit | Cancel
-        btn_ag = make_button("All Green", COLOR_BTN_GREEN)
-        btn_ag.clicked.connect(self._on_all_green)
-        btn_grid.addWidget(btn_ag, 1, 0)
+        self.btn_ag = make_button("All Green", COLOR_BTN_GREEN)
+        self.btn_ag.clicked.connect(self._on_all_green)
+        btn_grid.addWidget(self.btn_ag, 1, 0)
 
-        btn_gray = make_button("All Gray", _COL_GRAY)
-        btn_gray.clicked.connect(self._on_all_gray)
-        btn_grid.addWidget(btn_gray, 1, 1)
+        self.btn_gray = make_button("All Gray", _COL_GRAY)
+        self.btn_gray.clicked.connect(self._on_all_gray)
+        btn_grid.addWidget(self.btn_gray, 1, 1)
 
         self.btn_save = make_button("Save Only", COLOR_BTN_CYAN)
         self.btn_save.clicked.connect(self._on_save_only)
@@ -840,17 +840,119 @@ class StatRepDialog(QDialog):
             combo.setStyleSheet("")
 
     def _on_help_clicked(self, _link: str = "") -> None:
-        """Show a popup explaining Delivery and status colors."""
-        msg = QMessageBox(self)
-        msg.setWindowTitle("StatRep Help")
-        msg.setIcon(QMessageBox.Information)
-        msg.setTextFormat(Qt.RichText)
-        msg.setText(
-            "<b>Maximum Reach</b> = RF + Internet &nbsp;|&nbsp; <b>Limited Reach</b> = RF Only<br><br>"
-            "<b>Green</b> = Normal &nbsp;|&nbsp; <b>Yellow</b> = Limited &nbsp;|&nbsp; <b>Red</b> = Collapsed/None"
+        """Show a styled help dialog explaining Mode, Delivery, and Color selection."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("STATREP HELP")
+        dlg.setWindowFlags(
+            Qt.Window | Qt.CustomizeWindowHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint | Qt.WindowStaysOnTopHint
         )
-        msg.setWindowFlag(Qt.WindowStaysOnTopHint)
-        msg.exec_()
+        if os.path.exists("radiation-32.png"):
+            dlg.setWindowIcon(QtGui.QIcon("radiation-32.png"))
+        dlg.setFixedWidth(460)
+
+        dlg.setStyleSheet(f"""
+            QDialog {{ background-color: {_PANEL_BG}; }}
+            QLabel  {{ color: {_PANEL_FG}; background-color: transparent; font-size: 13px; }}
+        """)
+
+        layout = QtWidgets.QVBoxLayout(dlg)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+
+        title = QtWidgets.QLabel("STATREP HELP")
+        title.setAlignment(Qt.AlignCenter)
+        title.setFont(QtGui.QFont("Roboto Slab", -1, QtGui.QFont.Black))
+        title.setFixedHeight(36)
+        title.setStyleSheet(
+            f"QLabel {{ background-color:{_PROG_BG}; color:{_PROG_FG};"
+            f" font-family:'Roboto Slab'; font-size:16px; font-weight:900;"
+            f" padding-top:9px; padding-bottom:9px; }}"
+        )
+        layout.addWidget(title)
+
+        def _section_header(text: str) -> QtWidgets.QLabel:
+            lbl = QtWidgets.QLabel(text)
+            lbl.setStyleSheet(
+                "QLabel { background-color: transparent; color: #000000;"
+                " font-family: 'Roboto'; font-size: 13px; font-weight: bold;"
+                " padding-bottom: 2px; border-bottom: 1px solid #999999; }"
+            )
+            return lbl
+
+        def _body_label(html: str) -> QtWidgets.QLabel:
+            lbl = QtWidgets.QLabel(html)
+            lbl.setTextFormat(Qt.RichText)
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet(
+                "QLabel { background-color: transparent; color: #000000;"
+                " font-family: 'Roboto'; font-size: 13px; padding-left: 8px; }"
+            )
+            return lbl
+
+        # Mode section
+        layout.addWidget(_section_header("Mode"))
+        layout.addWidget(_body_label(
+            "<table cellspacing='2' cellpadding='1'>"
+            "<tr><td><b>Slow</b></td><td>&nbsp;&nbsp;8 WPM</td></tr>"
+            "<tr><td><b>Normal</b></td><td>&nbsp;&nbsp;16 WPM</td></tr>"
+            "<tr><td><b>Fast</b></td><td>&nbsp;&nbsp;24 WPM</td></tr>"
+            "<tr><td><b>Turbo</b></td><td>&nbsp;&nbsp;40 WPM</td></tr>"
+            "<tr><td><b>Ultra</b></td><td>&nbsp;&nbsp;60 WPM <i>(new)</i></td></tr>"
+            "</table>"
+        ))
+
+        # Delivery section
+        layout.addWidget(_section_header("Delivery"))
+        layout.addWidget(_body_label(
+            "<b>Maximum Reach</b> &mdash; RF + Internet<br>"
+            "<b>Limited Reach</b> &mdash; RF Only"
+        ))
+
+        # Color Selection section
+        layout.addWidget(_section_header("Color Selection"))
+        color_row = QtWidgets.QHBoxLayout()
+        color_row.setSpacing(8)
+        color_row.setContentsMargins(8, 0, 0, 0)
+
+        def _swatch(label: str, bg: str, fg: str, meaning: str) -> QtWidgets.QWidget:
+            box = QtWidgets.QFrame()
+            box.setStyleSheet(
+                f"QFrame {{ background-color: {bg}; border-radius: 4px; }}"
+                f"QLabel {{ background-color: transparent; color: {fg};"
+                f" font-family: 'Roboto'; font-size: 13px; font-weight: bold; }}"
+            )
+            v = QtWidgets.QVBoxLayout(box)
+            v.setContentsMargins(8, 6, 8, 6)
+            v.setSpacing(2)
+            name = QtWidgets.QLabel(label)
+            name.setAlignment(Qt.AlignCenter)
+            desc = QtWidgets.QLabel(meaning)
+            desc.setAlignment(Qt.AlignCenter)
+            desc.setStyleSheet(
+                f"QLabel {{ background-color: transparent; color: {fg};"
+                f" font-family: 'Roboto'; font-size: 13px; font-weight: normal; }}"
+            )
+            v.addWidget(name)
+            v.addWidget(desc)
+            return box
+
+        color_row.addWidget(_swatch("Green",  STATUS_COLORS["Green"],  "#FFFFFF", "Normal"))
+        color_row.addWidget(_swatch("Yellow", STATUS_COLORS["Yellow"], "#000000", "Limited"))
+        color_row.addWidget(_swatch("Red",    STATUS_COLORS["Red"],    "#FFFFFF", "Collapsed/None"))
+        layout.addLayout(color_row)
+
+        layout.addSpacing(4)
+
+        # Close button
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.addStretch()
+        btn_close = make_button("Close", _COL_CANCEL)
+        btn_close.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_close)
+        layout.addLayout(btn_row)
+
+        dlg.exec_()
 
     def _show_error(self, message: str) -> None:
         """Display an error message box."""
@@ -951,6 +1053,12 @@ class StatRepDialog(QDialog):
         if data.get("grid"):
             self.grid_field.setText(data["grid"])
 
+        scope_text = (data.get("scope") or "").strip()
+        if scope_text and hasattr(self, 'scope_combo'):
+            idx = self.scope_combo.findText(scope_text)
+            if idx >= 0:
+                self.scope_combo.setCurrentIndex(idx)
+
         comments = (data.get("comments") or "").replace("||", "\n")
         self._forward_original_remarks = comments
         self.remarks_field.setText(comments[:self.remarks_field.maxLength()])
@@ -968,6 +1076,7 @@ class StatRepDialog(QDialog):
                 self._forward_mode_label.show()
             if hasattr(self, 'btn_save'):
                 self.btn_save.setEnabled(False)
+            self._lock_for_forward_mode()
 
         # If a rig is already selected (e.g. Internet Only pre-selected at open),
         # update remarks now since _on_rig_changed fired before prefill set _forward_origin.
@@ -980,6 +1089,28 @@ class StatRepDialog(QDialog):
                     self._update_forward_remarks_field(callsign)
             elif self._forwarder_callsign:
                 self._update_forward_remarks_field(self._forwarder_callsign)
+
+    def _lock_for_forward_mode(self) -> None:
+        """Lock all StatRep structure fields when forwarding.
+
+        Forwarding preserves the original report verbatim. The user may only
+        change Rig, Mode, Delivery, and To (target). Everything else — From,
+        Grid, Scope, all 12 status combos, and remarks — is read-only.
+        """
+        if hasattr(self, 'grid_field'):
+            self.grid_field.setReadOnly(True)
+        if hasattr(self, 'scope_combo'):
+            self.scope_combo.setEnabled(False)
+        for combo in self.status_combos.values():
+            combo.setEnabled(False)
+        if hasattr(self, 'remarks_field'):
+            self.remarks_field.setReadOnly(True)
+        if hasattr(self, 'remarks_expanded'):
+            self.remarks_expanded.setReadOnly(True)
+        for attr in ('btn_ag', 'btn_gray', 'btn_brev', 'btn_gf'):
+            btn = getattr(self, attr, None)
+            if btn:
+                btn.setEnabled(False)
 
     def _update_forward_remarks_field(self, callsign: str) -> None:
         """Update the remarks fields to show 'original_remarks Forwarded By: {callsign}'."""
@@ -1316,7 +1447,8 @@ class StatRepDialog(QDialog):
             QtWidgets.QMessageBox.critical(
                 self, "ERROR",
                 f"JS8Call has {selected_call} selected.\n\n"
-                "Go to JS8Call and click the \"Deselect\" button."
+                "Go to JS8Call and click the \"Deselect\" button.\n\n"
+                "The Deselect button is above the waterfall."
             )
             return
 

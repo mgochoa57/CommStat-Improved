@@ -3016,61 +3016,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _show_delivered_popup(self, callsign: str, message: str) -> None:
         """Show a delivery confirmation popup when the backbone confirms a message was delivered."""
         print(f"[DELIVERED] Showing popup — callsign={callsign!r}  message={message!r}")
-        panel_bg = self.config.get_color('module_background')
-
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("CommStat Delivered")
-        dlg.setWindowFlags(
-            QtCore.Qt.Window | QtCore.Qt.CustomizeWindowHint |
-            QtCore.Qt.WindowTitleHint | QtCore.Qt.WindowCloseButtonHint |
-            QtCore.Qt.WindowStaysOnTopHint
+        from qrz_lookup import DeliveryConfirmationDialog
+        dlg = DeliveryConfirmationDialog(
+            callsign=callsign,
+            message=message,
+            module_background=self.config.get_color('module_background'),
+            module_foreground=self.config.get_color('module_foreground'),
+            program_background=self.config.get_color('program_background'),
+            program_foreground=self.config.get_color('program_foreground'),
+            parent=self,
         )
-        dlg.setFixedSize(340, 160)
-        dlg.setStyleSheet(f"background-color: {panel_bg}; color: #000000;")
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "radiation-32.png")
-        if os.path.exists(icon_path):
-            dlg.setWindowIcon(QtGui.QIcon(icon_path))
-
-        layout = QtWidgets.QVBoxLayout(dlg)
-        layout.setContentsMargins(15, 22, 15, 12)
-        layout.setSpacing(4)
-
-        row1 = QtWidgets.QLabel(f"Your message to <b>{callsign}</b>")
-        row1_font = QtGui.QFont("Roboto")
-        row1_font.setPixelSize(15)
-        row1.setFont(row1_font)
-        row1.setStyleSheet("color: #000000; background: transparent;")
-        row1.setTextFormat(QtCore.Qt.RichText)
-        row1.setAlignment(QtCore.Qt.AlignHCenter)
-        layout.addWidget(row1)
-
-        row2 = QtWidgets.QLabel(message)
-        row2_font = QtGui.QFont("Kode Mono")
-        row2_font.setPixelSize(15)
-        row2.setFont(row2_font)
-        row2.setStyleSheet("color: #000000; background: transparent;")
-        row2.setWordWrap(True)
-        row2.setAlignment(QtCore.Qt.AlignHCenter)
-        layout.addWidget(row2)
-
-        row3 = QtWidgets.QLabel("was Delivered.")
-        row3_font = QtGui.QFont("Roboto")
-        row3_font.setPixelSize(15)
-        row3.setFont(row3_font)
-        row3.setStyleSheet("color: #000000; background: transparent;")
-        row3.setAlignment(QtCore.Qt.AlignHCenter)
-        layout.addWidget(row3)
-        layout.addStretch()
-
-        btn_row = QtWidgets.QHBoxLayout()
-        btn_row.addStretch()
-        close_btn = QtWidgets.QPushButton("Close")
-        close_btn.setFont(QtGui.QFont("Roboto", 11))
-        close_btn.clicked.connect(dlg.accept)
-        btn_row.addWidget(close_btn)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-
         dlg.exec_()
 
     @QtCore.pyqtSlot(set)
@@ -3628,6 +3583,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     if self._hide_green_pins and status == "1":
                         continue
 
+                    # Skip internet-sourced statreps when filter is active
+                    if self._hide_internet_statrep and row[21] != 1:
+                        continue
+
                     # Determine pin color and size
                     if status == "1":
                         color = "green"
@@ -3782,6 +3741,8 @@ if (window.webkitStorageInfo === undefined && navigator.webkitTemporaryStorage) 
 
         if self._hide_internet_statrep:
             data = [row for row in data if row[21] == 1]
+        if self._hide_green_pins:
+            data = [row for row in data if str(row[8]) != "1"]
 
         # Status color mapping for values 1-4
         status_colors = {
@@ -4301,13 +4262,15 @@ if (window.webkitStorageInfo === undefined && navigator.webkitTemporaryStorage) 
         self._load_live_feed()
 
     def _on_toggle_hide_internet_statrep(self, checked: bool) -> None:
-        """Show only RF-sourced (source=1) statreps. Session-only — resets on restart."""
+        """Show only RF-sourced (source=1) statreps in table and map. Session-only — resets on restart."""
         self._hide_internet_statrep = checked
         self._load_statrep_data()
+        self._save_map_position(callback=self._load_map)
 
     def _on_toggle_hide_green_pins(self, checked: bool) -> None:
-        """Hide green (all-clear) pins from the map. Session-only — resets on restart."""
+        """Hide green (all-clear) statreps from table and map. Session-only — resets on restart."""
         self._hide_green_pins = checked
+        self._load_statrep_data()
         self._save_map_position(callback=self._load_map)
 
     def _on_toggle_hide_live_feed(self, checked: bool) -> None:

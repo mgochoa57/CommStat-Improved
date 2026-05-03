@@ -185,13 +185,23 @@ def _hsep() -> QFrame:
 # ── Background workers ─────────────────────────────────────────────────────
 
 class _ImageLoader(QThread):
-    """Downloads and scales a QRZ profile image in the background."""
+    """Downloads and scales a QRZ profile image in the background.
+
+    If `max_size` (w, h) is provided, the image is scaled to fit within that
+    bounding box while preserving aspect ratio (so wide banners get a shorter
+    rendered height instead of an oversized width).
+    Otherwise, if `target_height` is provided the image is scaled to that exact
+    height; with neither set the height is auto-selected (166 for tall, 126 for wide).
+    """
     image_loaded = pyqtSignal(QPixmap)
     gif_loaded   = pyqtSignal(bytes)
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, target_height: Optional[int] = None,
+                 max_size: Optional[tuple] = None):
         super().__init__()
         self.url = url
+        self.target_height = target_height
+        self.max_size = max_size
 
     def run(self) -> None:
         try:
@@ -203,8 +213,16 @@ class _ImageLoader(QThread):
             px = QPixmap()
             px.loadFromData(data)
             if not px.isNull():
-                target_h = 166 if px.height() * 2.0 > px.width() else 126
-                self.image_loaded.emit(px.scaledToHeight(target_h, Qt.SmoothTransformation))
+                if self.max_size is not None:
+                    mw, mh = self.max_size
+                    scaled = px.scaled(mw, mh, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                else:
+                    if self.target_height is not None:
+                        target_h = self.target_height
+                    else:
+                        target_h = 166 if px.height() * 2.0 > px.width() else 126
+                    scaled = px.scaledToHeight(target_h, Qt.SmoothTransformation)
+                self.image_loaded.emit(scaled)
         except Exception:
             pass
 
@@ -1389,7 +1407,7 @@ class StatRepDetailDialog(QDialog):
                 cursor.execute("""
                     SELECT datetime, global_id, map, power, water, med, telecom, travel,
                            internet, fuel, food, crime, civil, political, comments, grid, sr_id,
-                           freq, target, memo, pinned, source
+                           freq, target, memo, pinned, source, scope
                     FROM statrep WHERE id = ?
                 """, (self._record_id,))
                 row = cursor.fetchone()
@@ -1408,6 +1426,7 @@ class StatRepDetailDialog(QDialog):
             "crime": row[11], "civil": row[12], "political": row[13],
             "comments": row[14], "grid": row[15],
             "sr_id": row[16],
+            "scope": row[22],
             "origin_callsign": self.callsign,
         }
 
@@ -1505,12 +1524,14 @@ class StatRepDetailDialog(QDialog):
             matches = _BREVITY_RE.findall(self.comments.toPlainText())
             if matches:
                 selected = matches[0]
-        brevity_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brevity.py")
-        if os.path.exists(brevity_path):
-            args = [sys.executable, brevity_path, self._module_bg, self._module_fg]
-            if selected:
-                args.append(selected)
-            subprocess.Popen(args)
+        from brevity import BrevityApp
+        win = BrevityApp(self._module_bg, self._module_fg, selected or "", parent=self)
+        self._brevity_window = win
+        win.show()
+        parent_center = self.frameGeometry().center()
+        win_rect = win.frameGeometry()
+        win_rect.moveCenter(parent_center)
+        win.move(win_rect.topLeft())
 
     def _on_forward(self) -> None:
         if not self._tcp_pool or not self._connector_manager or not self._row_data:
@@ -1918,3 +1939,260 @@ class MessageDetailDialog(QDialog):
                     QUrl("http://localhost/")
                 )
         # map already loaded — nothing more to do for message detail view
+
+
+# ── Dialog: Delivery Confirmation popup (backbone ::DELIVERED::) ──────────
+
+class DeliveryConfirmationDialog(QDialog):
+    """Two-column popup shown when the backbone confirms a message delivery.
+
+    Patterned after the QRZ Lookup dialog:
+      - Title bar (program colors): "DELIVERY CONFIRMATION"
+      - Column 1: QRZ data for the recipient (no QRZ profile URL)
+      - Column 2: QRZ profile photo at fixed 120 px height; the dialog
+                  expands horizontally to accommodate wider images
+      - Below: read-only text box containing the delivered message
+    """
+
+    _PHOTO_H = 140
+    _PHOTO_MAX_W = 440      # cap photo width — wide banners shrink in height to fit
+    _PHOTO_DEFAULT_W = 460  # column-2 budget at default dialog width; grow only if exceeded
+
+    def __init__(self, callsign: str, message: str,
+                 module_background: str = "#f5f5f5",
+                 module_foreground: str = "#333333",
+                 program_background: str = "",
+                 program_foreground: str = "",
+                 parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(
+            Qt.Window | Qt.CustomizeWindowHint | Qt.WindowTitleHint |
+            Qt.WindowCloseButtonHint | Qt.WindowStaysOnTopHint
+        )
+        self._callsign = (callsign or "").strip().upper()
+        self._message = (message or "").replace("||", "\n")
+        self._module_bg = module_background
+        self._module_fg = module_foreground
+        self._program_bg = program_background or _PROG_BG
+        self._program_fg = program_foreground or _PROG_FG
+        self._img_loader: Optional[_ImageLoader] = None
+        self._gif_movie: Optional[QMovie] = None
+        self._qrz_thread: Optional[_QRZThread] = None
+        self.setWindowTitle("DELIVERY CONFIRMATION")
+        self.setModal(True)
+        self.resize(510, 440)
+        self.setMinimumSize(510, 440)
+        if os.path.exists("radiation-32.png"):
+            self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
+        self._setup_ui()
+        self._populate_qrz()
+
+    def _setup_ui(self) -> None:
+        self.setStyleSheet(
+            f"QDialog {{ background-color:{self._module_bg}; }}"
+            f"QLabel {{ color:{self._module_fg}; background-color: transparent; font-size: 13px; }}"
+            f"QPlainTextEdit {{ background-color:#e9ecef; color:#333333;"
+            f" border:1px solid {COLOR_INPUT_BORDER}; border-radius:4px; padding:4px 8px;"
+            f" font-family:'Kode Mono'; font-size:13px; }}"
+        )
+
+        main = QVBoxLayout(self)
+        main.setContentsMargins(15, 15, 15, 15)
+        main.setSpacing(10)
+
+        # Title bar (program colors)
+        title = QLabel("DELIVERY CONFIRMATION")
+        title.setAlignment(Qt.AlignCenter)
+        title.setFont(QFont("Roboto Slab", -1, QFont.Black))
+        title.setStyleSheet(
+            f"QLabel {{ background-color: {self._program_bg}; color: {self._program_fg};"
+            " font-size: 16px; padding-top: 9px; padding-bottom: 9px; }"
+        )
+        main.addWidget(title)
+
+        # ── Two-column row ───────────────────────────────────────────────
+        cols = QHBoxLayout()
+        cols.setSpacing(60)
+
+        # Column 1: QRZ data (without URL)
+        self._grid = QGridLayout()
+        self._grid.setSpacing(2)
+        self._grid.setColumnStretch(0, 0)
+
+        self.lbl_call    = QLabel(); self.lbl_call.setFont(_mono_font())
+        self.lbl_name    = QLabel(); self.lbl_name.setFont(_mono_font())
+        self.lbl_addr1   = QLabel(); self.lbl_addr1.setFont(_mono_font())
+        self.lbl_addr2   = QLabel(); self.lbl_addr2.setFont(_mono_font())
+        self.lbl_grid    = QLabel(); self.lbl_grid.setFont(_mono_font())
+        self.lbl_county  = QLabel(); self.lbl_county.setFont(_mono_font())
+        self.lbl_country = QLabel(); self.lbl_country.setFont(_mono_font())
+
+        for row, w in enumerate((
+            self.lbl_call, self.lbl_name, self.lbl_addr1, self.lbl_addr2,
+            self.lbl_grid, self.lbl_county, self.lbl_country,
+        )):
+            self._grid.addWidget(w, row, 0)
+        self._grid.setRowStretch(self._grid.rowCount(), 1)
+        cols.addLayout(self._grid, 0)
+
+        # Column 2: photo
+        right = QVBoxLayout()
+        right.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        right.setSpacing(0)
+        self.lbl_image = QLabel()
+        self.lbl_image.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        self.lbl_image.setFixedHeight(self._PHOTO_H)
+        self.lbl_image.setStyleSheet("QLabel { border:none; padding:0px; }")
+        right.addWidget(self.lbl_image)
+        right.addStretch()
+        cols.addLayout(right, 1)
+
+        main.addLayout(cols)
+
+        # ── Read-only message text box ───────────────────────────────────
+        self.msg_view = QPlainTextEdit()
+        self.msg_view.setFont(_mono_font())
+        self.msg_view.setReadOnly(True)
+        self.msg_view.setPlainText(self._message)
+        from PyQt5.QtGui import QFontMetrics
+        _fm = QFontMetrics(self.msg_view.font())
+        self.msg_view.setFixedHeight(_fm.lineSpacing() * 4 + 14 + 40)
+        main.addWidget(self.msg_view)
+
+        confirm_lbl = QLabel("This Message Was Delivered Successfully")
+        confirm_lbl.setAlignment(Qt.AlignCenter)
+        confirm_lbl.setFont(QFont("Roboto", -1, QFont.Bold))
+        confirm_lbl.setStyleSheet(
+            f"QLabel {{ color:{self._module_fg}; background-color: transparent;"
+            " font-family:Roboto; font-size:13px; font-weight:bold; padding-top:6px; }}"
+        )
+        main.addWidget(confirm_lbl)
+        main.addStretch()
+
+        # ── Close button ─────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch()
+        self.btn_close = _btn("Close", _COL_CANCEL)
+        self.btn_close.clicked.connect(self.accept)
+        btn_row.addWidget(self.btn_close)
+        main.addLayout(btn_row)
+
+    # ── QRZ population ────────────────────────────────────────────────────
+
+    def _populate_qrz(self) -> None:
+        """Show cached QRZ data immediately; fall back to API lookup when missing."""
+        is_active, username, password = load_qrz_config()
+        cached = (
+            get_qrz_cached(self._callsign)
+            or get_qrz_cached(self._callsign, include_stale=True)
+        )
+        if cached:
+            self._update_data(cached)
+            return
+
+        self._show_placeholder()
+        if is_active and username:
+            self._qrz_thread = _QRZThread(self._callsign, username, password)
+            self._qrz_thread.result_ready.connect(self._on_qrz_result)
+            self._qrz_thread.start()
+
+    def _on_qrz_result(self, result) -> None:
+        if result:
+            self._update_data(result)
+
+    def _update_data(self, data: dict) -> None:
+        d = _normalize_qrz(data)
+        _k = "font-family:Roboto; font-weight:bold; font-size:13px;"
+
+        self.lbl_call.setText(f"<span style='{_k}'>Callsign:</span> {d['call']}")
+        self.lbl_name.setText(f"<b>{d['name']}</b>" if d["name"] else "")
+        self.lbl_addr1.setText(d["addr1"])
+        city_state = ", ".join(x for x in (d["addr2"], d["state"]) if x)
+        if d["zip"]:
+            city_state = (city_state + " " + d["zip"]).strip()
+        self.lbl_addr2.setText(city_state)
+
+        self.lbl_grid.setText(
+            f'<span style="{_k}">Grid:</span> {d["grid"]}' if d["grid"] else ""
+        )
+        self.lbl_county.setText(
+            f'<span style="{_k}">County:</span> {d["county"]}' if d["county"] else ""
+        )
+        self.lbl_country.setText(
+            f'<span style="{_k}">Country:</span> {d["country"]}' if d["country"] else ""
+        )
+
+        if d["image"]:
+            self._img_loader = _ImageLoader(
+                d["image"], max_size=(self._PHOTO_MAX_W, self._PHOTO_H)
+            )
+            self._img_loader.image_loaded.connect(self._on_image_loaded)
+            self._img_loader.gif_loaded.connect(self._on_gif_loaded)
+            self._img_loader.start()
+        else:
+            self._load_default_image()
+
+    def _show_placeholder(self) -> None:
+        _k = "font-family:Roboto; font-weight:bold; font-size:13px;"
+        self.lbl_call.setText(f"<span style='{_k}'>Callsign:</span> {self._callsign}")
+        self.lbl_grid.setText(f"<span style='{_k}'>Grid:</span>")
+        self.lbl_county.setText(f"<span style='{_k}'>County:</span>")
+        self.lbl_country.setText(f"<span style='{_k}'>Country:</span>")
+        self._load_default_image()
+
+    # ── Image handling ────────────────────────────────────────────────────
+
+    def _load_default_image(self) -> None:
+        px = QPixmap("00-qrz-default.png")
+        if not px.isNull():
+            scaled = px.scaled(
+                self._PHOTO_MAX_W, self._PHOTO_H,
+                Qt.KeepAspectRatio, Qt.SmoothTransformation,
+            )
+            self.lbl_image.setPixmap(scaled)
+        else:
+            self.lbl_image.clear()
+
+    def _on_image_loaded(self, px: QPixmap) -> None:
+        self.lbl_image.setPixmap(px)
+        # Defer the dialog-grow check so the layout has resolved column widths.
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(0, lambda w=px.width(): self._adjust_for_image_width(w))
+
+    def _on_gif_loaded(self, data: bytes) -> None:
+        px_probe = QPixmap()
+        px_probe.loadFromData(data)
+        if not px_probe.isNull():
+            scaled_size = px_probe.scaled(
+                self._PHOTO_MAX_W, self._PHOTO_H,
+                Qt.KeepAspectRatio, Qt.SmoothTransformation,
+            ).size()
+        else:
+            scaled_size = None
+        buf = QBuffer()
+        buf.setData(QByteArray(data))
+        buf.open(QBuffer.ReadOnly)
+        self._gif_movie = QMovie()
+        self._gif_movie.setDevice(buf)
+        self._gif_movie._buf = buf
+        if scaled_size is not None:
+            self._gif_movie.setScaledSize(scaled_size)
+        self.lbl_image.setMovie(self._gif_movie)
+        self._gif_movie.start()
+        if scaled_size is not None:
+            from PyQt5.QtCore import QTimer
+            w = scaled_size.width()
+            QTimer.singleShot(0, lambda: self._adjust_for_image_width(w))
+
+    def _adjust_for_image_width(self, img_width: int) -> None:
+        """Grow the dialog horizontally when the photo is wider than column 2.
+
+        Column 2's actual usable width depends on the resolved width of the
+        text grid in column 1; we measure it from the live layout instead of
+        relying on a fixed budget.
+        """
+        avail = self.lbl_image.width()
+        if avail > 0 and img_width > avail:
+            deficit = img_width - avail
+            self.resize(self.width() + deficit + 4, self.height())

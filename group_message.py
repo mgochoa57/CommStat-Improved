@@ -45,8 +45,8 @@ if TYPE_CHECKING:
 MIN_CALLSIGN_LENGTH  = 4
 MAX_CALLSIGN_LENGTH  = 8
 MIN_MESSAGE_LENGTH   = 4
-MAX_MESSAGE_LENGTH   = 67
-MAX_MESSAGE_LENGTH_INTERNET = 500
+MAX_MESSAGE_LENGTH   = 1500
+MAX_MESSAGE_LENGTH_INTERNET = 1500
 DATABASE_FILE = "traffic.db3"
 
 _BACKBONE = base64.b64decode("aHR0cHM6Ly9jb21tc3RhdC1pbXByb3ZlZC5jb20=").decode()
@@ -64,7 +64,7 @@ _DATA_FG  = DEFAULT_COLORS.get("data_foreground",      "#000000")
 _COL_CANCEL = "#555555"
 
 _WIN_W          = 640
-_WIN_H_RF       = 300
+_WIN_H_RF       = 420
 _WIN_H_INTERNET = 420
 
 CALLSIGN_PATTERN = re.compile(r'[A-Z0-9]{1,3}[0-9][A-Z]{1,3}')
@@ -216,15 +216,10 @@ class GroupMessageDialog(QDialog):
         )
         body.addWidget(msg_lbl)
 
-        self.lineEdit_2 = QLineEdit()
-        self.lineEdit_2.setMaxLength(MAX_MESSAGE_LENGTH)
-        self.lineEdit_2.setPlaceholderText("67 characters max")
-        body.addWidget(self.lineEdit_2)
-
         self.message_expanded = QPlainTextEdit()
-        self.message_expanded.setMinimumHeight(100)
-        self.message_expanded.setPlaceholderText("500 characters max")
-        self.message_expanded.hide()
+        self.message_expanded.setMinimumHeight(160)
+        self.message_expanded.setPlaceholderText("1500 characters max")
+        self.message_expanded.textChanged.connect(self._enforce_message_limit)
         body.addWidget(self.message_expanded)
 
         body.addStretch()
@@ -357,21 +352,20 @@ class GroupMessageDialog(QDialog):
             self.freq_field.setText(f"{dial_freq / 1_000_000:.3f}")
 
     def _swap_message_widget(self, internet_only: bool) -> None:
-        if internet_only == self._message_is_expanded:
-            return
         self._message_is_expanded = internet_only
-        if internet_only:
-            text = self.lineEdit_2.text()
-            self.lineEdit_2.hide()
-            self.message_expanded.setPlainText(text)
-            self.message_expanded.show()
-            self.setFixedSize(_WIN_W, _WIN_H_INTERNET)
-        else:
-            text = self.message_expanded.toPlainText()
-            self.message_expanded.hide()
-            self.lineEdit_2.setText(text[:MAX_MESSAGE_LENGTH])
-            self.lineEdit_2.show()
-            self.setFixedSize(_WIN_W, _WIN_H_RF)
+        self._enforce_message_limit()
+
+    def _enforce_message_limit(self) -> None:
+        limit = MAX_MESSAGE_LENGTH_INTERNET if self._message_is_expanded else MAX_MESSAGE_LENGTH
+        text = self.message_expanded.toPlainText()
+        if len(text) > limit:
+            cursor = self.message_expanded.textCursor()
+            pos = min(cursor.position(), limit)
+            self.message_expanded.blockSignals(True)
+            self.message_expanded.setPlainText(text[:limit])
+            cursor.setPosition(pos)
+            self.message_expanded.setTextCursor(cursor)
+            self.message_expanded.blockSignals(False)
 
     def _on_mode_changed(self, index: int) -> None:
         rig_name = self.rig_combo.currentText()
@@ -446,10 +440,7 @@ class GroupMessageDialog(QDialog):
             self.group_combo.setFocus()
             return None
 
-        if self._message_is_expanded:
-            message_raw = self.message_expanded.toPlainText()
-        else:
-            message_raw = self.lineEdit_2.text()
+        message_raw = self.message_expanded.toPlainText()
         message = re.sub(r"[^ -~]+", " ", message_raw)
 
         if len(message) < MIN_MESSAGE_LENGTH:
@@ -644,10 +635,7 @@ class GroupMessageDialog(QDialog):
         try:
             client.send_tx_message(self._pending_message)
 
-            if self._message_is_expanded:
-                message_raw = self.message_expanded.toPlainText()
-            else:
-                message_raw = self.lineEdit_2.text()
+            message_raw = self.message_expanded.toPlainText()
             message = re.sub(r"[^ -~]+", " ", message_raw)
 
             self._save_to_database(self.callsign, message, frequency)
