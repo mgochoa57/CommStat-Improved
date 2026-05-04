@@ -12,7 +12,7 @@ Editing is done inline directly in the table row.
 import os
 from typing import Optional
 
-from PyQt5 import QtGui, QtWidgets
+from PyQt5 import QtGui
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
@@ -218,7 +218,7 @@ class UserSettingsDialog(QDialog):
         self._iw_grid = make_input(placeholder="e.g. EM83cv", max_len=6)
         self._iw_grid.setText(grid)
 
-        self._iw_state = make_input(placeholder="e.g. TX", max_len=6)
+        self._iw_state = make_input(placeholder="e.g. TX", max_len=2)
         self._iw_state.setText(state)
         self._iw_state.textChanged.connect(
             lambda t: self._iw_state.setText(t.upper()) if t != t.upper() else None

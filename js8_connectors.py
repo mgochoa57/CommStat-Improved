@@ -12,7 +12,7 @@ The Status column (index 4) is live and read-only — never replaced with a widg
 import os
 from typing import Optional
 
-from PyQt5 import QtGui, QtWidgets
+from PyQt5 import QtGui
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
@@ -126,7 +126,7 @@ class JS8ConnectorsDialog(QDialog):
         self.table.setTabKeyNavigation(False)
         self.table.setShowGrid(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.setAlternatingRowColors(True)
+        self.table.setAlternatingRowColors(False)
         self.table.setMinimumHeight(160)
 
         hh = self.table.horizontalHeader()

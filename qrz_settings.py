@@ -53,7 +53,7 @@ _COL_SAVE   = "#28a745"
 _COL_CANCEL = "#555555"
 
 _WIN_W = 520
-_WIN_H = 310
+_WIN_H = 345
 
 _QRZ_API_URL = "https://xmldata.qrz.com/xml/current/"
 

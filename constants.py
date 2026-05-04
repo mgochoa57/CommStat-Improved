@@ -13,11 +13,11 @@ from typing import Dict
 # Application Identity
 # =============================================================================
 
-VERSION = "4.1.1"
+VERSION = "4.1.1a"
 
 # When True, dialog handlers reload their module before opening so source
 # edits take effect without restarting CommStat. Leave False for releases.
-DEV_RELOAD_DIALOGS = True
+DEV_RELOAD_DIALOGS = False
 
 WINDOW_TITLE = f"CommStat (v{VERSION}) by N0DDK"
 WINDOW_SIZE = (1360, 768)
