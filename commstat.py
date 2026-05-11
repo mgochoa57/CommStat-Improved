@@ -19,7 +19,6 @@ from pathlib import Path
 # Constants
 SCRIPT_DIR = Path(__file__).parent.resolve()
 UPDATE_FOLDER = SCRIPT_DIR / "updates"
-UPDATE_ZIP = UPDATE_FOLDER / "update.zip"
 MAIN_APP = SCRIPT_DIR / "little_gucci.py"
 DATABASE_FILE = SCRIPT_DIR / "traffic.db3"
 DATABASE_TEMPLATE = SCRIPT_DIR / "traffic.db3.template"
@@ -27,43 +26,50 @@ DATABASE_TEMPLATE = SCRIPT_DIR / "traffic.db3.template"
 
 def apply_update() -> bool:
     """
-    Check for and apply pending update.
+    Apply all pending update zip files in the updates folder, alphabetically.
 
     Returns:
-        True if update was applied, False otherwise.
+        True if at least one update was applied, False otherwise.
     """
-    if not UPDATE_ZIP.exists():
+    if not UPDATE_FOLDER.exists():
         return False
 
-    print("Update found. Applying...")
-
-    try:
-        with zipfile.ZipFile(UPDATE_ZIP, 'r') as zf:
-            file_list = zf.namelist()
-            print(f"Updating {len(file_list)} files...")
-            zf.extractall(SCRIPT_DIR)
-
-        UPDATE_ZIP.unlink()
-        print("Update applied successfully.")
-
-        if UPDATE_FOLDER.exists() and not any(UPDATE_FOLDER.iterdir()):
-            UPDATE_FOLDER.rmdir()
-
-        return True
-
-    except zipfile.BadZipFile:
-        print(f"Error: {UPDATE_ZIP} is not a valid zip file.")
-        bad_zip = UPDATE_FOLDER / "update_bad.zip"
-        UPDATE_ZIP.rename(bad_zip)
+    zip_files = sorted(UPDATE_FOLDER.glob("*.zip"))
+    if not zip_files:
         return False
 
-    except PermissionError as e:
-        print(f"Error: Permission denied - {e}")
-        return False
+    applied_any = False
+    for update_zip in zip_files:
+        print(f"Update found: {update_zip.name}. Applying...")
 
-    except Exception as e:
-        print(f"Error applying update: {e}")
-        return False
+        try:
+            with zipfile.ZipFile(update_zip, 'r') as zf:
+                file_list = zf.namelist()
+                print(f"Updating {len(file_list)} files from {update_zip.name}...")
+                zf.extractall(SCRIPT_DIR)
+
+            update_zip.unlink()
+            print(f"{update_zip.name} applied successfully.")
+            applied_any = True
+
+        except zipfile.BadZipFile:
+            print(f"Error: {update_zip} is not a valid zip file.")
+            bad_zip = update_zip.with_name(update_zip.stem + "_bad.zip")
+            update_zip.rename(bad_zip)
+            continue
+
+        except PermissionError as e:
+            print(f"Error: Permission denied - {e}")
+            continue
+
+        except Exception as e:
+            print(f"Error applying {update_zip.name}: {e}")
+            continue
+
+    if UPDATE_FOLDER.exists() and not any(UPDATE_FOLDER.iterdir()):
+        UPDATE_FOLDER.rmdir()
+
+    return applied_any
 
 
 def setup_database() -> bool:
