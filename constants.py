@@ -13,7 +13,7 @@ from typing import Dict
 # Application Identity
 # =============================================================================
 
-VERSION = "4.1.2b"
+VERSION = "4.1.2c"
 
 # When True, dialog handlers reload their module before opening so source
 # edits take effect without restarting CommStat. Leave False for releases.
