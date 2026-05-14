@@ -185,10 +185,8 @@ class JS8CallTCPClient(QObject):
         """Handle successful connection."""
         print(f"[{self.rig_name}] Connected to JS8Call on port {self.port}")
         self._reconnect_timer.stop()
-        self._reconnect_attempts = 0  # Reset counter on successful connection
-        # Only re-arm auto-reconnect for enabled connectors; a disabled connector
-        # that briefly succeeds must stay single-shot and not escalate to multi-retry.
-        self._auto_reconnect = self._enabled
+        self._reconnect_attempts = 0
+        self._auto_reconnect = True
         self._was_connected = True
         self.connection_changed.emit(self.rig_name, True)
         # Emit connected message immediately
@@ -389,21 +387,22 @@ class TCPConnectionPool(QObject):
         self.clients: Dict[str, JS8CallTCPClient] = {}
 
     def connect_all(self) -> None:
-        """Create and connect TCP clients for all configured connectors.
+        """Open TCP connections for every auto-connect connector at startup.
 
-        Enabled connectors connect with full auto-reconnect.
-        Disabled connectors get a single attempt with no retry on failure.
+        Mirrors per-row Reconnect for every auto_connect=1 row: force-enable in
+        the DB, then let refresh_connections create the client and connect.
+        auto_connect=0 rows are forced enabled=0 so they stay quiescent — no
+        socket attempt, and they're hidden from send dropdowns. The user can
+        still click Reconnect on them in JS8 Connectors to bring them up
+        manually for the current session.
+
+        Auto-disable on max retries (_on_client_gave_up) still applies during
+        the session.
         """
-        all_connectors = self.connector_manager.get_all_connectors(enabled_only=False)
-
-        for conn in all_connectors:
-            rig_name = conn["rig_name"]
-            tcp_port = conn["tcp_port"]
-            server = conn.get("server", DEFAULT_HOST)
-            is_enabled = conn.get("enabled", 1) == 1
-
-            if rig_name not in self.clients:
-                self._create_client(rig_name, tcp_port, server, enabled=is_enabled)
+        for conn in self.connector_manager.get_all_connectors(enabled_only=False):
+            target_enabled = conn.get("auto_connect", 1) == 1
+            self.connector_manager.set_enabled(conn["id"], target_enabled)
+        self.refresh_connections()
 
     def disconnect_all(self) -> None:
         """Disconnect and remove all TCP clients."""
@@ -415,9 +414,10 @@ class TCPConnectionPool(QObject):
         """
         Refresh pool to match current database configuration.
 
-        Every configured connector stays in the pool — enabled ones auto-reconnect,
-        disabled ones get a single attempt and stay quiescent on failure/drop.
-        Only connectors removed from the DB are evicted.
+        Every configured connector stays in the pool — enabled rows connect with
+        auto-reconnect; disabled rows are registered but make no socket attempt.
+        Port/host changes recreate the client; rows removed from the DB are
+        evicted; enable-state flips connect or disconnect as needed.
         """
         all_connectors = self.connector_manager.get_all_connectors(enabled_only=False)
         db_names = {c["rig_name"] for c in all_connectors}
@@ -455,16 +455,20 @@ class TCPConnectionPool(QObject):
                     if not client.is_connected():
                         client.connect_to_host()
                 else:
-                    # Disable: stop retries; leave any live socket in place
+                    # Disable: stop retries and drop any live socket so the
+                    # connector is fully quiescent, matching disabled-at-startup.
                     client._auto_reconnect = False
                     client._reconnect_timer.stop()
+                    if client.is_connected():
+                        client.disconnect_from_host()
 
     def _create_client(self, rig_name: str, port: int, host: str = DEFAULT_HOST, enabled: bool = True) -> None:
-        """Create and connect a single TCP client.
+        """Create a single TCP client.
 
-        Every client makes one connection attempt on creation. If `enabled` is
-        False, that's the only attempt — no retries, and a drop after a brief
-        success won't kick off retries either.
+        If `enabled` is True, attempt to connect immediately with auto-reconnect.
+        Otherwise the client is registered in the pool but stays disconnected
+        until enabled via JS8 Connectors (e.g. a manual Reconnect on an
+        auto_connect=0 row).
         """
         client = JS8CallTCPClient(rig_name, port, host, self)
         client._enabled = enabled
@@ -479,7 +483,8 @@ class TCPConnectionPool(QObject):
         client.gave_up.connect(self._on_client_gave_up)
 
         self.clients[rig_name] = client
-        client.connect_to_host()
+        if enabled:
+            client.connect_to_host()
 
     def _on_client_gave_up(self, rig_name: str) -> None:
         """Handle client giving up after max reconnect attempts - disable the connector."""

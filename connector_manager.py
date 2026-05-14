@@ -22,7 +22,7 @@ DEFAULT_SERVER = "127.0.0.1"
 
 _CONNECTOR_COLS = (
     "id, rig_name, tcp_port, server, state, comment, "
-    "date_added, is_default, enabled"
+    "date_added, is_default, enabled, auto_connect"
 )
 
 # Why: under fd exhaustion (EMFILE) every DB call here fails identically, and
@@ -187,7 +187,8 @@ class ConnectorManager:
         state: str = "",
         comment: str = "",
         set_as_default: bool = False,
-        server: str = DEFAULT_SERVER
+        server: str = DEFAULT_SERVER,
+        auto_connect: bool = True,
     ) -> bool:
         """
         Add a new connector.
@@ -199,6 +200,8 @@ class ConnectorManager:
             comment: Optional description.
             set_as_default: If True, set this as the default connector.
             server: IP address or hostname of the JS8Call computer (default 127.0.0.1).
+            auto_connect: If True (default), CommStat reconnects this row at startup.
+                False marks it as manual-only (e.g. the TCP test tool).
 
         Returns:
             True if successful, False otherwise.
@@ -240,9 +243,10 @@ class ConnectorManager:
 
                 cursor.execute("""
                     INSERT INTO js8_connectors
-                    (rig_name, tcp_port, state, comment, date_added, is_default, server)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (rig_name, tcp_port, state, comment, date_added, is_default, server))
+                    (rig_name, tcp_port, state, comment, date_added, is_default, server, auto_connect)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (rig_name, tcp_port, state, comment, date_added, is_default, server,
+                      1 if auto_connect else 0))
 
                 conn.commit()
                 logger.info("Added connector: %s on %s:%s", rig_name, server, tcp_port)
@@ -262,7 +266,8 @@ class ConnectorManager:
         tcp_port: int,
         state: str = "",
         comment: str = "",
-        server: str = DEFAULT_SERVER
+        server: str = DEFAULT_SERVER,
+        auto_connect: Optional[bool] = None,
     ) -> bool:
         """
         Update an existing connector.
@@ -274,6 +279,8 @@ class ConnectorManager:
             state: 2-letter state code (e.g., TX).
             comment: New comment.
             server: IP address or hostname of the JS8Call computer.
+            auto_connect: If provided, update the row's auto_connect flag.
+                None (default) leaves it unchanged.
 
         Returns:
             True if successful, False otherwise.
@@ -300,11 +307,20 @@ class ConnectorManager:
                     logger.warning("Cannot update connector: %s:%s already in use", server, tcp_port)
                     return False
 
-                cursor.execute("""
-                    UPDATE js8_connectors
-                    SET rig_name = ?, tcp_port = ?, state = ?, comment = ?, server = ?
-                    WHERE id = ?
-                """, (rig_name, tcp_port, state, comment, server, connector_id))
+                if auto_connect is None:
+                    cursor.execute("""
+                        UPDATE js8_connectors
+                        SET rig_name = ?, tcp_port = ?, state = ?, comment = ?, server = ?
+                        WHERE id = ?
+                    """, (rig_name, tcp_port, state, comment, server, connector_id))
+                else:
+                    cursor.execute("""
+                        UPDATE js8_connectors
+                        SET rig_name = ?, tcp_port = ?, state = ?, comment = ?, server = ?,
+                            auto_connect = ?
+                        WHERE id = ?
+                    """, (rig_name, tcp_port, state, comment, server,
+                          1 if auto_connect else 0, connector_id))
                 conn.commit()
 
                 if cursor.rowcount > 0:
@@ -478,3 +494,36 @@ class ConnectorManager:
         if connector:
             return connector.get("enabled", 1) == 1
         return False
+
+    def set_auto_connect(self, connector_id: int, auto_connect: bool) -> bool:
+        """
+        Set whether a connector auto-connects at CommStat startup.
+
+        Args:
+            connector_id: The connector's database ID.
+            auto_connect: True to auto-connect at startup, False to leave it
+                quiescent until the user clicks Reconnect.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE js8_connectors SET auto_connect = ? WHERE id = ?",
+                    (1 if auto_connect else 0, connector_id)
+                )
+                conn.commit()
+
+                if cursor.rowcount > 0:
+                    status = "auto-connect" if auto_connect else "manual-only"
+                    logger.info("Connector ID %s set to %s", connector_id, status)
+                    return True
+                else:
+                    logger.warning("Connector ID %s not found", connector_id)
+                    return False
+
+        except sqlite3.Error as e:
+            _log_error_throttled("Error setting connector auto_connect state", e)
+            return False

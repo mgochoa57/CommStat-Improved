@@ -1526,8 +1526,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if not config.has_section("WINDOW"):
             return
 
-        # move() before show() is unreliable on some WMs, so re-apply after
-        # the window is shown.
         try:
             x = config.getint("WINDOW", "x", fallback=None)
             y = config.getint("WINDOW", "y", fallback=None)
@@ -1538,9 +1536,38 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if width is not None and height is not None:
             self.resize(width, height)
-        if x is not None and y is not None:
-            self.move(x, y)
-            QTimer.singleShot(0, lambda: self.move(x, y))
+        if x is None or y is None:
+            return
+
+        # Pre-show move so the window paints roughly in the right place.
+        self.move(x, y)
+
+        # Qt's move(x, y) on Windows DWM leaves pos() reporting (x + margin_left,
+        # y + margin_top) after WM_NCCALCSIZE fires — and the visible window has
+        # actually drifted by that offset. Without compensation, every save→
+        # restore cycle adds one frame margin and the window walks down/right
+        # across launches. Once windowHandle().frameMargins() is populated,
+        # re-move with the margins subtracted so the saved/restored position is
+        # a stable fixed point.
+        target_x, target_y = x, y
+        state = {"attempts": 0, "applied": False}
+
+        def _compensate() -> None:
+            state["attempts"] += 1
+            win = self.windowHandle()
+            margins = win.frameMargins() if win is not None else None
+
+            if margins is None or not (margins.left() or margins.top()):
+                if state["attempts"] < 30:
+                    QTimer.singleShot(100, _compensate)
+                return
+
+            if state["applied"]:
+                return
+            state["applied"] = True
+            self.move(target_x - margins.left(), target_y - margins.top())
+
+        QTimer.singleShot(150, _compensate)
 
     def closeEvent(self, event) -> None:
         """Clean up resources and save window position before closing."""
@@ -1575,7 +1602,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Drop any stale geometry blob from older versions.
         config.remove_option("WINDOW", "geometry")
 
-        # pos() pairs with move(); size() pairs with resize().
+        # Save pos(). _restore_window_position re-moves the window with the
+        # frame-margin offset subtracted, so this value is a stable fixed
+        # point across restarts.
         pos = self.pos()
         size = self.size()
         config.set("WINDOW", "x", str(pos.x()))
@@ -1685,7 +1714,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.connector_manager.get_all_connectors(enabled_only=False):
             self._log_startup("[JS8 Connectors NOT Found] Go to Menu -> Config -> JS8 Connectors")
         # Initiate TCP connections (status messages emitted via status_message signal).
-        # Disabled connectors get a single attempt; enabled connectors auto-reconnect.
+        # Each auto_connect=1 row is re-enabled and reconnected; auto_connect=0 rows
+        # stay quiescent until the user clicks Reconnect.
         self.tcp_pool.connect_all()
 
     def _retry_internet_check(self) -> None:
