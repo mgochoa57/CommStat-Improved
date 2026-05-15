@@ -379,7 +379,7 @@ class _QRZInfoSection(QWidget):
 
     def _build(self) -> None:
         self._main_layout = QVBoxLayout(self)
-        self._main_layout.setContentsMargins(10, 8, 10, 8)
+        self._main_layout.setContentsMargins(10, 8, 10, 0)
         self._main_layout.setSpacing(0)
 
         outer = QHBoxLayout()
@@ -461,8 +461,15 @@ class _QRZInfoSection(QWidget):
         right.addStretch()
         outer.addLayout(right, 1)
 
-    def add_memo_row(self) -> QLineEdit:
+    def add_memo_row(self, trailing_space: int = 12) -> QLineEdit:
         """Add a contact-note label, input, and separator spanning all three columns."""
+        return self._add_note_input("Add a contact note…", trailing_space=trailing_space)
+
+    def add_statrep_memo_row(self) -> QLineEdit:
+        """Add a status-report-note input spanning all three columns, sized identically to the contact note."""
+        return self._add_note_input("Add a status report note…", trailing_space=0)
+
+    def _add_note_input(self, placeholder: str, trailing_space: int = 12) -> QLineEdit:
         self._main_layout.addSpacing(10)
         memo_input = QLineEdit()
         memo_input.setFont(_mono_font())
@@ -471,9 +478,10 @@ class _QRZInfoSection(QWidget):
             f"background-color:white; color:{COLOR_INPUT_TEXT};"
             f" border:1px solid {COLOR_INPUT_BORDER}; border-radius:4px; padding:4px 8px;"
         )
-        memo_input.setPlaceholderText("Add a contact note…")
+        memo_input.setPlaceholderText(placeholder)
         self._main_layout.addWidget(memo_input)
-        self._main_layout.addSpacing(12)
+        if trailing_space:
+            self._main_layout.addSpacing(trailing_space)
 
         return memo_input
 
@@ -511,10 +519,8 @@ class _QRZInfoSection(QWidget):
         sr_grid.addWidget(self.lbl_sr_group,       2, 0)
         sr_grid.addWidget(self.lbl_sr_global_id,   2, 1)
         sr_grid.addWidget(self.lbl_sr_delivered,   2, 2)
-        sr_grid.setRowStretch(3, 1)
 
         self._main_layout.addLayout(sr_grid)
-        self._main_layout.addStretch()
 
     def set_qrz_status(self, text: str) -> None:
         self.lbl_qrz_status.setText(text)
@@ -1324,8 +1330,8 @@ class StatRepDetailDialog(QDialog):
         self._statrep_grid: str = ""
         self.setWindowTitle(f"StatRep — {callsign}")
         self.setModal(True)
-        self.setMinimumSize(996, 680)
-        self.resize(996, 680)
+        self.setMinimumSize(996, 726)
+        self.resize(996, 726)
         if os.path.exists("radiation-32.png"):
             self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
         self._setup_ui()
@@ -1345,8 +1351,11 @@ class StatRepDetailDialog(QDialog):
         self.contact_memo_edit = self.qrz_info.add_memo_row()
         self.contact_memo_edit.editingFinished.connect(self._save_contact_memo)
         self.qrz_info.add_statrep_rows()
+        self.statrep_memo_edit = self.qrz_info.add_statrep_memo_row()
+        self.statrep_memo_edit.editingFinished.connect(self._save_statrep_memo)
         self.qrz_info.image_width_ready.connect(self._adjust_for_image_width)
         main.addWidget(self.qrz_info)
+        main.addStretch(1)
 
         # Status grid
         sg_widget = QWidget()
@@ -1506,6 +1515,10 @@ class StatRepDetailDialog(QDialog):
             sq.setToolTip(tip)
 
         self.comments.setHtml(_text_to_html((row[14] or "").replace("||", "\n"), self._data_bg))
+
+        self.statrep_memo_edit.blockSignals(True)
+        self.statrep_memo_edit.setText(row[19] or "")
+        self.statrep_memo_edit.blockSignals(False)
 
         self.pin_toggle.blockSignals(True)
         self.pin_toggle.setChecked(bool(row[20]))
@@ -1677,6 +1690,17 @@ class StatRepDetailDialog(QDialog):
         except sqlite3.Error as e:
             print(f"[StatRepDetailDialog] Contact memo save error: {e}")
 
+    def _save_statrep_memo(self) -> None:
+        try:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                conn.execute(
+                    "UPDATE statrep SET memo = ? WHERE id = ?",
+                    (self.statrep_memo_edit.text(), self._record_id)
+                )
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"[StatRepDetailDialog] StatRep memo save error: {e}")
+
     def _on_qrz_result(self, result) -> None:
         if not result:
             return
@@ -1775,8 +1799,8 @@ class MessageDetailDialog(QDialog):
         self._deleted_any = False
         self.setWindowTitle(f"Message — {callsign}")
         self.setModal(True)
-        self.setMinimumSize(996, 560)
-        self.resize(996, 570)
+        self.setMinimumSize(996, 555)
+        self.resize(996, 555)
         if os.path.exists("radiation-32.png"):
             self.setWindowIcon(QtGui.QIcon("radiation-32.png"))
         self._setup_ui()
@@ -1792,9 +1816,10 @@ class MessageDetailDialog(QDialog):
         main.setSpacing(8)
 
         self.qrz_info = _QRZInfoSection(hdr_bg=self._program_bg, hdr_fg=self._program_fg, parent=self)
-        self.contact_memo_edit = self.qrz_info.add_memo_row()
+        self.contact_memo_edit = self.qrz_info.add_memo_row(trailing_space=0)
         self.contact_memo_edit.editingFinished.connect(self._save_contact_memo)
         main.addWidget(self.qrz_info)
+        main.addStretch(1)
 
         lower = QHBoxLayout()
         lower.setSpacing(10)
