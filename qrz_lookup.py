@@ -30,8 +30,8 @@ from PyQt5.QtGui import QColor, QCursor, QDesktopServices, QFont, QMovie, QPaint
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtWidgets import (
     QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QPlainTextEdit, QPushButton, QStyledItemDelegate, QTextBrowser,
-    QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QStyledItemDelegate,
+    QTextBrowser, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from id_utils import generate_time_based_id
@@ -44,7 +44,7 @@ from constants import (
 from little_gucci import MAP_WHEEL_PX_PER_ZOOM
 
 DB_PATH = "traffic.db3"
-_BACKBONE_URL  = base64.b64decode("aHR0cHM6Ly9jb21tc3RhdC1pbXByb3ZlZC5jb20=").decode()
+_BACKBONE_URL  = base64.b64decode("aHR0cHM6Ly9jb21tc3RhdC5hcHA=").decode()
 _DATAFEED_URL  = _BACKBONE_URL + "/datafeed-808585.php"
 
 _PROG_BG    = DEFAULT_COLORS.get("program_background", "#000000")
@@ -465,9 +465,21 @@ class _QRZInfoSection(QWidget):
         """Add a contact-note label, input, and separator spanning all three columns."""
         return self._add_note_input("Add a contact note…", trailing_space=trailing_space)
 
-    def add_statrep_memo_row(self) -> QLineEdit:
-        """Add a status-report-note input spanning all three columns, sized identically to the contact note."""
-        return self._add_note_input("Add a status report note…", trailing_space=0)
+    def add_statrep_memo_row(self) -> QPlainTextEdit:
+        """Add a multi-line status-report-note input that grows to fill extra vertical space."""
+        self._main_layout.addSpacing(10)
+        memo_input = QPlainTextEdit()
+        memo_input.setFont(_mono_font())
+        memo_input.setMinimumHeight(34)
+        memo_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        memo_input.setTabChangesFocus(True)
+        memo_input.setStyleSheet(
+            f"QPlainTextEdit {{ background-color:white; color:{COLOR_INPUT_TEXT};"
+            f" border:1px solid {COLOR_INPUT_BORDER}; border-radius:4px; padding:4px 8px; }}"
+        )
+        memo_input.setPlaceholderText("Add a status report note…")
+        self._main_layout.addWidget(memo_input, 1)
+        return memo_input
 
     def _add_note_input(self, placeholder: str, trailing_space: int = 12) -> QLineEdit:
         self._main_layout.addSpacing(10)
@@ -1352,10 +1364,8 @@ class StatRepDetailDialog(QDialog):
         self.contact_memo_edit.editingFinished.connect(self._save_contact_memo)
         self.qrz_info.add_statrep_rows()
         self.statrep_memo_edit = self.qrz_info.add_statrep_memo_row()
-        self.statrep_memo_edit.editingFinished.connect(self._save_statrep_memo)
         self.qrz_info.image_width_ready.connect(self._adjust_for_image_width)
-        main.addWidget(self.qrz_info)
-        main.addStretch(1)
+        main.addWidget(self.qrz_info, 1)
 
         # Status grid
         sg_widget = QWidget()
@@ -1517,7 +1527,7 @@ class StatRepDetailDialog(QDialog):
         self.comments.setHtml(_text_to_html((row[14] or "").replace("||", "\n"), self._data_bg))
 
         self.statrep_memo_edit.blockSignals(True)
-        self.statrep_memo_edit.setText(row[19] or "")
+        self.statrep_memo_edit.setPlainText(row[19] or "")
         self.statrep_memo_edit.blockSignals(False)
 
         self.pin_toggle.blockSignals(True)
@@ -1695,11 +1705,15 @@ class StatRepDetailDialog(QDialog):
             with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.execute(
                     "UPDATE statrep SET memo = ? WHERE id = ?",
-                    (self.statrep_memo_edit.text(), self._record_id)
+                    (self.statrep_memo_edit.toPlainText(), self._record_id)
                 )
                 conn.commit()
         except sqlite3.Error as e:
             print(f"[StatRepDetailDialog] StatRep memo save error: {e}")
+
+    def closeEvent(self, event) -> None:
+        self._save_statrep_memo()
+        super().closeEvent(event)
 
     def _on_qrz_result(self, result) -> None:
         if not result:
