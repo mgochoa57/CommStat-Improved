@@ -32,7 +32,7 @@ Read this at the start of every UI consistency session to know exactly where we 
 |--------|-------|----------|---------|---------|----------|-------------|-----------|----------|----------|---------|-----------|-------|
 | `filter.py` | 130 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ | ✅ **Session 1** |
 | `groups.py` | 304 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ | ✅ **Session 1** |
-| `direct_message.py` | 367 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ | ✅ **Session 2** |
+| `js8_direct_message.py` | 367 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ | ✅ **Session 2** |
 | `view_statrep.py` | 480 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ **Session 2** |
 | `gridfinder.py` | 350 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ **Session 2** |
 | `alert.py` | 905 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | N/A | ✅ | ✅ **Session 2** |
@@ -49,14 +49,14 @@ Read this at the start of every UI consistency session to know exactly where we 
 
 - **`js8mail.py`** — canonical reference: title pattern, dialog stylesheet, label/input/button patterns
 - **`js8_connectors.py`** — best pattern for QTableWidget styling and helper functions
-- **`direct_message.py`** — designated title placement reference per CLAUDE.md (needs update first)
+- **`js8_direct_message.py`** — designated title placement reference per CLAUDE.md (needs update first)
 
 ## Session Log
 
 | Session | Date | Modules Completed |
 |---------|------|-------------------|
 | 1 | 2026-04-24 | `filter.py`, `groups.py` |
-| 2 | 2026-04-24 | `direct_message.py`, `view_statrep.py`, `gridfinder.py`, `alert.py` |
+| 2 | 2026-04-24 | `js8_direct_message.py`, `view_statrep.py`, `gridfinder.py`, `alert.py` |
 | 3 | 2026-04-24 | `message.py`, `qrz_lookup.py`, `statrep.py`, `js8_connectors.py` |
 
 ---

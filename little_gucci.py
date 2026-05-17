@@ -78,7 +78,7 @@ from qrz_settings import QRZSettingsDialog
 
 # Backbone server for remote announcements and slideshow images
 # This allows the developer to push messages/images to all CommStat users
-_BACKBONE = base64.b64decode("aHR0cHM6Ly9jb21tc3RhdC1pbXByb3ZlZC5jb20=").decode()
+_BACKBONE = base64.b64decode("aHR0cHM6Ly9jb21tc3RhdC5hcHA=").decode()
 _PING = _BACKBONE + "/heartbeat-808585.php"
 
 # Pixels of mouse-wheel scroll required to advance one Leaflet zoom level
@@ -86,6 +86,34 @@ _PING = _BACKBONE + "/heartbeat-808585.php"
 # Paired with zoomSnap=0.25 in the folium.Map() call so fractional zoom is
 # allowed — otherwise every wheel tick rounds up to a full zoom level.
 MAP_WHEEL_PX_PER_ZOOM = 360
+
+# Contacts capture (Direct Message Part 1):
+#  - The sender of the RX.DIRECTED (from_call) is the RELAY — the station we
+#    directly heard. The callsign parsed out of the body is the TARGET —
+#    the station the relay reported hearing.
+#  - _CONTACTS_PATTERN matches '<TARGET> <KEYWORD(S)> <+/-SNR>' at the start
+#    of an RX.DIRECTED body. We keep only SNR-style replies (see allow-list)
+#    so time-coordination chatter like 'YES +13 (NOW)' does not pollute the roster.
+#  - _CONTACTS_BASE_CS_PATTERN validates a base callsign AFTER stripping any
+#    '/' suffix (KO4BIA/P -> KO4BIA, K2DHS/10 -> K2DHS).
+_CONTACTS_PATTERN = re.compile(
+    r"^([A-Z0-9/]{3,12})\s+((?:[A-Z]+\s+){0,2}[A-Z]+)\s+([+\-]\d{1,3})\b",
+    re.IGNORECASE,
+)
+_CONTACTS_ALLOWED_KEYWORDS = {"SNR", "HEARTBEAT SNR"}
+_CONTACTS_BASE_CS_PATTERN = re.compile(r"^[A-Z0-9]{3,8}$")
+
+# Hearing-report path (third contacts-capture path):
+#  - body matches '<ADDRESSEE_CS> HEARING <CS1> <CS2> ...'
+#  - The sender (from_call) is the relay; each listed callsign is a target
+#    the relay reports hearing. The leading addressee is who the report was
+#    directed at and is discarded. SNR is unknown for both ends of the link,
+#    so a fixed placeholder is written into both SNR columns.
+_CONTACTS_HEARING_PATTERN = re.compile(
+    r"^[A-Z0-9/]{3,12}\s+HEARING\s+(.+)$",
+    re.IGNORECASE,
+)
+_CONTACTS_HEARING_DEFAULT_SNR = -99
 
 # Solar/radio image dialogs: (menu_label, image_url, link_html, loading_text, error_prefix)
 SOLAR_IMAGE_DIALOGS = [
@@ -479,6 +507,79 @@ def map_f301_digits_to_fields(digits: str) -> dict:
 
     return f304_fields
 
+
+def _strip_cs_suffix(callsign: str) -> str:
+    """Return the base callsign: everything before the first '/', uppercased."""
+    if not callsign:
+        return ""
+    return callsign.split("/", 1)[0].upper()
+
+
+def parse_contacts_observation(value: str) -> Optional[Tuple[str, int]]:
+    """
+    Parse an RX.DIRECTED body for a target-SNR observation reported by the relay.
+
+    Matches '<TARGET_CS> SNR|HEARTBEAT SNR <SIGNED_NUMBER>' at the start of the
+    body. The target callsign is suffix-stripped and validated against
+    _CONTACTS_BASE_CS_PATTERN; the keyword must be in _CONTACTS_ALLOWED_KEYWORDS.
+
+    Args:
+        value: Raw message body (params['value']).
+
+    Returns:
+        (target_base_cs, target_snr_int) if the body is a valid SNR observation,
+        otherwise None.
+    """
+    if not value:
+        return None
+    match = _CONTACTS_PATTERN.match(value.strip())
+    if not match:
+        return None
+    raw_cs, raw_kw, raw_snr = match.group(1), match.group(2), match.group(3)
+    keyword = " ".join(raw_kw.upper().split())
+    if keyword not in _CONTACTS_ALLOWED_KEYWORDS:
+        return None
+    base_cs = _strip_cs_suffix(raw_cs)
+    if not _CONTACTS_BASE_CS_PATTERN.match(base_cs):
+        return None
+    try:
+        return base_cs, int(raw_snr)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_hearing_observation(value: str) -> Optional[List[str]]:
+    """
+    Parse a directed-message body for a HEARING report.
+
+    Matches '<ADDRESSEE_CS> HEARING <CS1> <CS2> ...' at the start of the body.
+    The addressee is discarded — it's just who the report was directed at.
+    Each listed callsign is suffix-stripped, validated against
+    _CONTACTS_BASE_CS_PATTERN, and deduplicated in order so JS8 decode garbage
+    (e.g., '……M4TWA') is dropped silently.
+
+    Returns the ordered list of validated heard callsigns, or None if the
+    body does not match the pattern or yields no valid callsigns.
+    """
+    if not value:
+        return None
+    match = _CONTACTS_HEARING_PATTERN.match(value.strip())
+    if not match:
+        return None
+    tail = match.group(1).rstrip(" \t♢").strip()
+    if not tail:
+        return None
+    seen: Set[str] = set()
+    heard: List[str] = []
+    for token in tail.split():
+        base = _strip_cs_suffix(token)
+        if not _CONTACTS_BASE_CS_PATTERN.match(base):
+            continue
+        if base in seen:
+            continue
+        seen.add(base)
+        heard.append(base)
+    return heard if heard else None
 
 
 # =============================================================================
@@ -1214,6 +1315,177 @@ class DatabaseManager:
             return cursor.rowcount > 0
         return self._execute(op, False)
 
+    def upsert_contacts_pair(
+        self,
+        relay_cs: str,
+        relay_snr: int,
+        target_cs: str,
+        target_snr: int,
+        freq_mhz: float,
+    ) -> bool:
+        """
+        Upsert two contacts rows from a single RX.DIRECTED SNR observation.
+
+        relay_cs  = the station we directly heard (sender of the message)
+        relay_snr = our local SNR reading of that station
+        target_cs = the station the relay reported hearing (body callsign)
+        target_snr = the SNR the relay reported for that station
+
+        Entry 1 (relay observation):  pair = (target_cs, relay_cs)
+        Entry 2 (relay self-presence): pair = (relay_cs, relay_cs), snr = relay_snr
+
+        Both rows use UNIQUE(target_cs, relay_cs) to refresh freq, SNR, and
+        insert_date on every new observation instead of growing the table.
+        """
+        if not target_cs or not relay_cs:
+            return False
+        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        sql = (
+            "INSERT INTO contacts "
+            "(freq, relay_snr, relay_cs, target_cs, target_snr, insert_date) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(target_cs, relay_cs) DO UPDATE SET "
+            "freq        = excluded.freq, "
+            "relay_snr   = excluded.relay_snr, "
+            "target_snr  = excluded.target_snr, "
+            "insert_date = excluded.insert_date"
+        )
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute(
+                    sql,
+                    (freq_mhz, relay_snr, relay_cs, target_cs, target_snr, now_utc),
+                )
+                cursor.execute(
+                    sql,
+                    (freq_mhz, relay_snr, relay_cs, relay_cs, relay_snr, now_utc),
+                )
+                connection.commit()
+                return True
+        except sqlite3.OperationalError as error:
+            # Schema not yet applied — fail soft so the live feed keeps running.
+            print(f"contacts upsert skipped (schema not ready?): {error}")
+            return False
+        except sqlite3.Error as error:
+            print(f"Database error: {error}")
+            return False
+
+    def upsert_contacts_hearing(
+        self,
+        relay_cs: str,
+        heard_list: List[str],
+        freq_mhz: float,
+        snr: int = _CONTACTS_HEARING_DEFAULT_SNR,
+    ) -> bool:
+        """
+        Upsert contacts rows from a HEARING report.
+
+        relay_cs   = the station that issued the HEARING report (from_call)
+        heard_list = ordered base callsigns the relay reports hearing
+        freq_mhz   = current dial frequency (MHz, 3-decimal)
+        snr        = placeholder written to both SNR columns of every row
+                     (defaults to _CONTACTS_HEARING_DEFAULT_SNR since the
+                     report carries no SNR data for either end of the link)
+
+        One row per heard callsign as (relay_cs, target_cs=heard) plus one
+        self-presence row (relay_cs, target_cs=relay_cs). UNIQUE(target_cs,
+        relay_cs) collapses repeat observations in place.
+        """
+        if not relay_cs or not heard_list:
+            return False
+        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        sql = (
+            "INSERT INTO contacts "
+            "(freq, relay_snr, relay_cs, target_cs, target_snr, insert_date) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(target_cs, relay_cs) DO UPDATE SET "
+            "freq        = excluded.freq, "
+            "relay_snr   = excluded.relay_snr, "
+            "target_snr  = excluded.target_snr, "
+            "insert_date = excluded.insert_date"
+        )
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                for heard_cs in heard_list:
+                    cursor.execute(sql, (freq_mhz, snr, relay_cs, heard_cs, snr, now_utc))
+                cursor.execute(sql, (freq_mhz, snr, relay_cs, relay_cs, snr, now_utc))
+                connection.commit()
+                return True
+        except sqlite3.OperationalError as error:
+            print(f"contacts upsert skipped (schema not ready?): {error}")
+            return False
+        except sqlite3.Error as error:
+            print(f"Database error: {error}")
+            return False
+
+    def purge_old_contacts(self, hours: int) -> int:
+        """
+        Delete contacts rows whose insert_date is older than `hours`.
+
+        insert_date is stored as 'YYYY-MM-DD HH:MM:SS UTC'; lexicographic
+        comparison against a same-format threshold sorts correctly so no
+        SQL date parsing is needed.
+
+        Returns the number of rows deleted. Returns 0 if hours <= 0 (which
+        disables the purge — useful for letting an operator opt out via a
+        constant of 0) or on DB error.
+        """
+        if hours <= 0:
+            return 0
+        threshold = (
+            datetime.now(timezone.utc) - timedelta(hours=hours)
+        ).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        def op(cursor, conn):
+            cursor.execute("DELETE FROM contacts WHERE insert_date < ?", (threshold,))
+            conn.commit()
+            return cursor.rowcount
+
+        return self._execute(op, 0)
+
+    def upsert_contact_self(
+        self,
+        cs: str,
+        snr: int,
+        freq_mhz: float,
+    ) -> bool:
+        """
+        Upsert a single self-presence row for an RX.DIRECTED whose body did
+        not parse as an SNR observation (e.g., a group post, a relayed
+        message, free-form text). Records that `cs` was on the air at `snr`.
+
+        Both relay_cs and target_cs are set to `cs`; both SNR columns are set
+        to `snr`. UNIQUE(target_cs, relay_cs) keeps this collapsed to one
+        roster row per callsign.
+        """
+        if not cs:
+            return False
+        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        sql = (
+            "INSERT INTO contacts "
+            "(freq, relay_snr, relay_cs, target_cs, target_snr, insert_date) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(target_cs, relay_cs) DO UPDATE SET "
+            "freq        = excluded.freq, "
+            "relay_snr   = excluded.relay_snr, "
+            "target_snr  = excluded.target_snr, "
+            "insert_date = excluded.insert_date"
+        )
+        try:
+            with sqlite3.connect(self.db_path, timeout=10) as connection:
+                cursor = connection.cursor()
+                cursor.execute(sql, (freq_mhz, snr, cs, cs, snr, now_utc))
+                connection.commit()
+                return True
+        except sqlite3.OperationalError as error:
+            print(f"contacts upsert skipped (schema not ready?): {error}")
+            return False
+        except sqlite3.Error as error:
+            print(f"Database error: {error}")
+            return False
+
     def get_group_details(self, group_name: str) -> Optional[Dict]:
         """Get full details of a group."""
         def op(cursor, conn):
@@ -1841,6 +2113,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.transmit_menu.addAction(section_lbl)
 
         for name, text, handler in [
+            ("js8_direct_message", "JS8 Direct Message", self._on_js8_direct_message),
             ("js8email", "JS8 Email", self._on_js8email),
             ("js8sms",   "JS8 SMS",   self._on_js8sms),
         ]:
@@ -1917,6 +2190,10 @@ class MainWindow(QtWidgets.QMainWindow):
             action.triggered.connect(handler)
             menu.addAction(action)
             self.actions[key] = action
+
+        # Live Radiation Map - top of Tools menu
+        create_action(self.tools_menu, "Live Radiation Map", "live_radiation_map", self._on_live_radiation_map)
+        self.tools_menu.addSeparator()
 
         # Tools menu items - solar/radio image dialogs
         for menu_label, url, link, load_text, err_prefix in SOLAR_IMAGE_DIALOGS:
@@ -4079,11 +4356,15 @@ if (window.webkitStorageInfo === undefined && navigator.webkitTemporaryStorage) 
 
     def _on_whats_new(self) -> None:
         """Open the What's New page in the user's browser."""
-        QDesktopServices.openUrl(QUrl("https://commstat-improved.com/new-features.php"))
+        QDesktopServices.openUrl(QUrl("https://commstat.app/new-features.php"))
 
     def _on_live_better(self) -> None:
         """Open the Live Better page in the user's browser."""
-        QDesktopServices.openUrl(QUrl("https://commstat-improved.com/how-are-you-feeling.php"))
+        QDesktopServices.openUrl(QUrl("https://commstat.app/how-are-you-feeling.php"))
+
+    def _on_live_radiation_map(self) -> None:
+        """Open the Live Radiation Map (gmcmap.com) in the user's browser."""
+        QDesktopServices.openUrl(QUrl("https://gmcmap.com/"))
 
     def _on_qrz_lookup(self) -> None:
         """Open standalone QRZ Lookup dialog (Tools menu)."""
@@ -4152,6 +4433,13 @@ if (window.webkitStorageInfo === undefined && navigator.webkitTemporaryStorage) 
         self.rss_timer = QTimer(self)
         self.rss_timer.timeout.connect(self._refresh_rss_feed)
         self.rss_timer.start(300000)  # 5 minutes
+
+        # Contacts retention timer - purge rows older than
+        # CONTACTS_RETENTION_HOURS at startup, then once per hour.
+        self.contacts_purge_timer = QTimer(self)
+        self.contacts_purge_timer.timeout.connect(self._purge_old_contacts)
+        self.contacts_purge_timer.start(3600 * 1000)  # 1 hour
+        self._purge_old_contacts()
 
         # Initial RSS fetch
         if self.config.get_selected_rss_feed() == "Disable":
@@ -4415,6 +4703,12 @@ if (window.webkitStorageInfo === undefined && navigator.webkitTemporaryStorage) 
     def _on_js8sms(self) -> None:
         """Open JS8 SMS window."""
         Cls = self._resolve_dialog_class("js8sms", "JS8SMSDialog")
+        dialog = Cls(self.tcp_pool, self.connector_manager, self)
+        dialog.exec_()
+
+    def _on_js8_direct_message(self) -> None:
+        """Open JS8 Direct Message window."""
+        Cls = self._resolve_dialog_class("js8_direct_message", "JS8DirectMessageDialog")
         dialog = Cls(self.tcp_pool, self.connector_manager, self)
         dialog.exec_()
 
@@ -4936,6 +5230,63 @@ if (window.webkitStorageInfo === undefined && navigator.webkitTemporaryStorage) 
         utc_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d   %H:%M:%S")
         self._add_to_feed(f"{utc_str}\t{message}", rig_name)
 
+    def _capture_contacts(
+        self,
+        from_call: str,
+        local_snr: int,
+        value: str,
+        freq_hz: float,
+        offset_hz: float,
+    ) -> None:
+        """
+        Snapshot a directed message into the contacts roster (Direct Message Part 1).
+
+        The sender (`from_call`) is the *relay* — the station we directly heard.
+        Any callsign parsed out of the body is the *target* — the station the
+        relay reported hearing.
+
+        Primary path: body matches '<TARGET_CS> SNR|HEARTBEAT SNR <SIGNED_NUMBER>'.
+        Writes Entry 1 (target as heard via relay) and Entry 2 (relay self-presence).
+
+        Hearing path: body matches '<ADDRESSEE_CS> HEARING <CS1> <CS2> ...'.
+        Writes one row per listed callsign with relay_cs=from_call and
+        target_cs=listed, plus a self-presence row. SNR is unknown for both
+        ends of every heard link, so a fixed placeholder
+        (_CONTACTS_HEARING_DEFAULT_SNR) is written in both SNR columns.
+
+        Fallback path: any other RX.DIRECTED body (group posts, relayed
+        messages, free-form text). Writes a single self-presence row using the
+        relay as both relay_cs and target_cs and our local SNR observation in
+        both SNR columns, so the roster still reflects who's on the air.
+
+        Args:
+            from_call: Sender callsign from params['FROM'] — the relay.
+            local_snr: Our SNR reading of the sender (params['SNR']) — relay SNR.
+            value:     Message body (params['value']).
+            freq_hz:   JS8Call frequency in Hz (dial + offset).
+            offset_hz: Audio offset in Hz.
+        """
+        relay_cs = _strip_cs_suffix(from_call)
+        if not _CONTACTS_BASE_CS_PATTERN.match(relay_cs):
+            return
+        freq_mhz = round(hz_to_mhz(freq_hz, offset_hz), 3)
+        parsed = parse_contacts_observation(value)
+        if parsed is not None:
+            target_cs, target_snr = parsed
+            self.db.upsert_contacts_pair(relay_cs, int(local_snr), target_cs, target_snr, freq_mhz)
+            return
+        heard = parse_hearing_observation(value)
+        if heard is not None:
+            self.db.upsert_contacts_hearing(relay_cs, heard, freq_mhz)
+            return
+        self.db.upsert_contact_self(relay_cs, int(local_snr), freq_mhz)
+
+    def _purge_old_contacts(self) -> None:
+        """Drop contacts rows older than CONTACTS_RETENTION_HOURS. Runs hourly."""
+        removed = self.db.purge_old_contacts(CONTACTS_RETENTION_HOURS)
+        if removed:
+            print(f"[contacts] purged {removed} row(s) older than {CONTACTS_RETENTION_HOURS}h")
+
     def _handle_tcp_message(self, rig_name: str, message: dict) -> None:
         """
         Handle incoming TCP message from JS8Call.
@@ -5015,6 +5366,11 @@ if (window.webkitStorageInfo === undefined && navigator.webkitTemporaryStorage) 
                     return  # fully handled
             # --- End relay detection ---
 
+            # Direct Message Part 1: snapshot SNR-style observations into contacts.
+            # Runs after relay handlers (which return early) so relayed traffic
+            # is not double-counted as a direct observation.
+            self._capture_contacts(from_call, snr, value, freq, offset)
+
             data_type = self._process_directed_message(
                 rig_name, value, from_call, to_call, grid, dial_freq, snr, utc_db
             )
@@ -5043,6 +5399,11 @@ if (window.webkitStorageInfo === undefined && navigator.webkitTemporaryStorage) 
                 dial_freq_mhz = hz_to_mhz(freq, offset)
                 feed_line = f"{utc_str}\t{dial_freq_mhz:.3f}\t{offset}\t{snr:+03d}\t{from_call}: {value}"
                 self._add_to_feed(feed_line, rig_name)
+
+                # Direct Message Part 1: most "SENDER: RELAY SNR -nn" traffic
+                # arrives here (RX.ACTIVITY) rather than RX.DIRECTED, because the
+                # local JS8Call is usually not subscribed to the conversation.
+                self._capture_contacts(from_call, snr, value, freq, offset)
 
                 # Also try to process as a directed message for database storage.
                 # JS8Call users send "CALLSIGN: @GROUP MSG text♦" without CommStat's

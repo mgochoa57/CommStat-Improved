@@ -72,7 +72,7 @@ echo "Desktop shortcut created at $HOME/Desktop/CommStat-Improved.desktop"
 echo ""
 echo "=============================================="
 echo "Installation complete!"
-echo "https://commstat-improved.com/"
+echo "https://commstat.app/"
 echo ""
 # Raspberry Pi-specific reminder
 if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "armv7l" ]]; then

@@ -49,7 +49,7 @@ MAX_MESSAGE_LENGTH   = 1500
 MAX_MESSAGE_LENGTH_INTERNET = 1500
 DATABASE_FILE = "traffic.db3"
 
-_BACKBONE = base64.b64decode("aHR0cHM6Ly9jb21tc3RhdC1pbXByb3ZlZC5jb20=").decode()
+_BACKBONE = base64.b64decode("aHR0cHM6Ly9jb21tc3RhdC5hcHA=").decode()
 _DATAFEED  = _BACKBONE + "/datafeed-808585.php"
 
 INTERNET_RIG = "INTERNET ONLY"

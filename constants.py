@@ -13,7 +13,7 @@ from typing import Dict
 # Application Identity
 # =============================================================================
 
-VERSION = "4.1.2d"
+VERSION = "4.2"
 
 # When True, dialog handlers reload their module before opening so source
 # edits take effect without restarting CommStat. Leave False for releases.
@@ -117,6 +117,11 @@ INTERNET_CHECK_INTERVAL    = 30 * 60 * 1000   # 30 minutes in ms
 NEWSFEED_TYPE_INTERVAL_MS  = 60               # ms per character during type-on
 NEWSFEED_PAUSE_MS          = 20000            # ms to hold when window is full
 NEWSFEED_SCROLL_DURATION_MS = 1000            # total ms for scroll-off phase
+
+# Contacts roster retention. Hourly cleanup deletes rows whose insert_date is
+# older than this many hours, keeping the JS8 Direct Message target/relay
+# pickers focused on recently-heard stations.
+CONTACTS_RETENTION_HOURS   = 24
 
 # =============================================================================
 # StatRep Table Headers
