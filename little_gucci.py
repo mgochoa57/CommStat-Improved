@@ -22,12 +22,17 @@ import os
 import io
 import re
 import base64
+import faulthandler
 import socket
 import sqlite3
 import threading
 import subprocess
 import urllib.request
 import ssl
+
+# Print a C-level traceback on segfaults so silent Qt crashes (especially on
+# Linux) leave something actionable in the terminal instead of vanishing.
+faulthandler.enable()
 import time
 import tempfile
 import webbrowser
